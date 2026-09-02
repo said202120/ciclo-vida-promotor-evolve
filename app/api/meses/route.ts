@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
+import { requireSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic';
 // Cualquier mes con cierre ya existente también se incluye, aunque quede
 // fuera de ese rango (caso raro, pero mantiene el historial visible).
 export async function GET() {
+  const auth = await requireSession();
+  if (auth.error) return auth.error;
+
   const [{ rows: cierreRows }, { rows: rosterRows }] = await Promise.all([
     sql.query('SELECT DISTINCT mes FROM cierres_mensuales'),
     sql.query("SELECT to_char(min(fecha_ingreso), 'YYYY-MM') as min_mes FROM promotores"),

@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
+import { requireSession } from '@/lib/auth';
 import { PROMOTOR_SELECT_COLUMNS, promotorRowToApi, type PromotorRow } from '@/lib/promotores';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const auth = await requireSession();
+  if (auth.error) return auth.error;
+
   const { rows } = await sql.query(
     `SELECT ${PROMOTOR_SELECT_COLUMNS} FROM promotores ORDER BY fecha_ingreso, nombre`
   );
@@ -12,6 +16,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireSession();
+  if (auth.error) return auth.error;
+
   const body = await request.json().catch(() => ({}));
   const nombre = typeof body.nombre === 'string' ? body.nombre.trim() : '';
   const fechaIngreso = typeof body.fechaIngreso === 'string' ? body.fechaIngreso : '';

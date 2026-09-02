@@ -1,17 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { requireGerente } from '@/lib/auth';
 import { createUser, listUsers } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
-
-async function requireGerente() {
-  const session = await getSession();
-  if (!session) return { error: NextResponse.json({ error: 'No autenticado.' }, { status: 401 }) };
-  if (session.rol !== 'gerente') {
-    return { error: NextResponse.json({ error: 'Solo el gerente puede administrar usuarios.' }, { status: 403 }) };
-  }
-  return { session };
-}
 
 export async function GET() {
   const check = await requireGerente();

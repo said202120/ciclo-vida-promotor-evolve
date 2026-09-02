@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
+import { requireSession } from '@/lib/auth';
 import { PROMOTOR_SELECT_COLUMNS, promotorRowToApi, type PromotorRow } from '@/lib/promotores';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,11 @@ const EDITABLE_BOOLEAN_FIELDS = [
   'mod12',
 ] as const;
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession();
+  if (auth.error) return auth.error;
+
+  const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const sets: string[] = [];
   const values: unknown[] = [];
@@ -41,7 +46,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: 'No hay campos válidos para actualizar.' }, { status: 400 });
   }
 
-  values.push(params.id);
+  values.push(id);
   const { rows } = await sql.query(
     `UPDATE promotores SET ${sets.join(', ')} WHERE id = $${i} RETURNING ${PROMOTOR_SELECT_COLUMNS}`,
     values
@@ -53,8 +58,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   return NextResponse.json(promotorRowToApi(rows[0] as PromotorRow));
 }
 
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
-  const { rowCount } = await sql.query('DELETE FROM promotores WHERE id = $1', [params.id]);
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireSession();
+  if (auth.error) return auth.error;
+
+  const { id } = await params;
+  const { rowCount } = await sql.query('DELETE FROM promotores WHERE id = $1', [id]);
   if (!rowCount) {
     return NextResponse.json({ error: 'Promotor no encontrado.' }, { status: 404 });
   }

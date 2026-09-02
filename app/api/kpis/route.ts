@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
+import { requireSession } from '@/lib/auth';
 import { fetchRoster } from '@/lib/roster';
 import { fetchModulos } from '@/lib/modulos';
 import { computeDashboard, dashboardFromCierreRows } from '@/lib/calc';
@@ -13,6 +14,9 @@ const MES_RE = /^\d{4}-\d{2}$/;
 // resultado fijo guardado en cierres_mensuales; si no, lo calcula en vivo
 // a partir del padrón y de modulos_publicados actuales.
 export async function GET(request: Request) {
+  const auth = await requireSession();
+  if (auth.error) return auth.error;
+
   const { searchParams } = new URL(request.url);
   const mes = searchParams.get('mes');
   if (!mes || !MES_RE.test(mes)) {

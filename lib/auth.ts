@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 import { SESSION_COOKIE, SESSION_TTL_MS, signSession, verifySession, type SessionPayload } from './session';
 
 export { SESSION_COOKIE, SESSION_TTL_MS };
@@ -19,9 +20,30 @@ export async function createSessionCookieValue(userId: string, rol: SessionPaylo
 /** Sesión del usuario actual, para usar en route handlers y server components. */
 export async function getSession(): Promise<SessionPayload | null> {
   try {
-    const token = cookies().get(SESSION_COOKIE)?.value;
+    const token = (await cookies()).get(SESSION_COOKIE)?.value;
     return await verifySession(token, authSecret());
   } catch {
     return null;
   }
+}
+
+type AuthResult = { session: SessionPayload; error?: undefined } | { session?: undefined; error: NextResponse };
+
+/** Para usar al inicio de cualquier route handler: exige sesión válida (cualquier rol). */
+export async function requireSession(): Promise<AuthResult> {
+  const session = await getSession();
+  if (!session) {
+    return { error: NextResponse.json({ error: 'No autenticado.' }, { status: 401 }) };
+  }
+  return { session };
+}
+
+/** Igual que requireSession, pero exige además rol gerente. */
+export async function requireGerente(): Promise<AuthResult> {
+  const result = await requireSession();
+  if (result.error) return result;
+  if (result.session.rol !== 'gerente') {
+    return { error: NextResponse.json({ error: 'Solo el gerente puede administrar usuarios.' }, { status: 403 }) };
+  }
+  return result;
 }

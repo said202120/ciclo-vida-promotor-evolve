@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
+import { requireSession } from '@/lib/auth';
 import { mensajeMes1, mensajeMes2, type AlertaTipo } from '@/lib/alerts';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,9 @@ const MENSAJES: Record<AlertaTipo, (nombre: string) => string> = {
 // (el promotor todavía no tiene materiales marcados como entregados).
 // Alimenta el banner del tablero.
 export async function GET() {
+  const auth = await requireSession();
+  if (auth.error) return auth.error;
+
   const { rows } = await sql.query(
     `SELECT ae.promotor_id, ae.tipo, ae.enviada_en, p.nombre
      FROM alertas_enviadas ae
