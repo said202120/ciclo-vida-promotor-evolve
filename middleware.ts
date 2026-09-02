@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, verifySession } from '@/lib/session';
+import { SESSION_COOKIE, verifySession } from './lib/session';
 
 // Nota: middleware corre en Edge runtime, así que no puede importar lib/auth.ts
 // (usa next/headers). Verifica el token directamente contra la cookie del request.
