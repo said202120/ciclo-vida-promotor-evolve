@@ -29,12 +29,23 @@ type Resultado = {
   error?: string;
 };
 
+// Mientras Resend esté en modo sandbox (sin dominio verificado), solo puede
+// entregar correo al dueño de la cuenta — así que si ALERTAS_OVERRIDE_EMAIL
+// está definida, todas las alertas van ahí en vez de a los ejecutivos.
+// Para revertir cuando se verifique el dominio: quita esa variable en Vercel,
+// sin tocar código — resolveDestinatarios() vuelve a usar listEjecutivoEmails().
+async function resolveDestinatarios(): Promise<string[]> {
+  const override = process.env.ALERTAS_OVERRIDE_EMAIL;
+  if (override) return [override];
+  return listEjecutivoEmails();
+}
+
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'No autorizado.' }, { status: 401 });
   }
 
-  const [roster, ejecutivos] = await Promise.all([fetchRoster(), listEjecutivoEmails()]);
+  const [roster, destinatarios] = await Promise.all([fetchRoster(), resolveDestinatarios()]);
   const candidatas = evaluarAlertas(roster);
 
   const resultados: Resultado[] = [];
@@ -52,7 +63,7 @@ export async function GET(request: Request) {
     if (rows.length === 0) continue; // ya se había enviado antes
 
     try {
-      await sendAlertaEmail(ejecutivos, SUBJECTS[alerta.tipo](alerta.nombre), alerta.mensaje);
+      await sendAlertaEmail(destinatarios, SUBJECTS[alerta.tipo](alerta.nombre), alerta.mensaje);
       resultados.push({ promotorId: alerta.promotorId, nombre: alerta.nombre, tipo: alerta.tipo, enviado: true });
     } catch (err) {
       resultados.push({
@@ -67,7 +78,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     evaluadas: candidatas.length,
-    destinatarios: ejecutivos.length,
+    destinatarios,
     nuevas: resultados.length,
     resultados,
   });
