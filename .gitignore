@@ -1,0 +1,21 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# vercel
+/.vercel
+
+# env
+.env*
+!.env.local.example
+
+# logs
+npm-debug.log*
+
+.vercel
+
+# typescript build cache
+*.tsbuildinfo

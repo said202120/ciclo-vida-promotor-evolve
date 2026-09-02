@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ciclo de vida del promotor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EDF0F2; --panel:#FFFFFF; --ink:#171E29; --ink-soft:#5B6472; --line:#DBE0E5;
+    --accent:#C98A1F; --accent-soft:#F3E3C4;
+    --good:#2F6F4E; --good-soft:#E1EEE6;
+    --warn:#C98A1F; --warn-soft:#F5E9D2;
+    --bad:#B23A34; --bad-soft:#F5DEDC;
+    --mesa:#3B5BA9; --mesa-soft:#E4E9F5;
+    --ops:#1E7F72; --ops-soft:#DDEEEB;
+    --cap:#B0791E; --cap-soft:#F3E3C4;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px;margin:0 auto;padding:32px 24px 80px;}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:28px;}
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 6px;}
+  h1{font-family:'Space Grotesk',sans-serif;font-size:29px;font-weight:700;margin:0;letter-spacing:-.01em;}
+  .header-right{display:flex;align-items:center;gap:20px;}
+  .score-ring{position:relative;width:80px;height:80px;flex-shrink:0;}
+  .score-ring svg{transform:rotate(-90deg);}
+  .score-ring .track{fill:none;stroke:var(--line);stroke-width:8;}
+  .score-ring .fill{fill:none;stroke:var(--accent);stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .4s ease;}
+  .score-ring .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;}
+  .score-label{font-size:11.5px;color:var(--ink-soft);text-align:center;margin-top:2px;}
+  .month-bar{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
+  .month-bar button{background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:16px;padding:4px 8px;border-radius:6px;}
+  .month-bar button:hover{background:var(--paper);color:var(--ink);}
+  .month-bar select{border:none;background:none;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14px;color:var(--ink);cursor:pointer;}
+
+  .section-title{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 10px;}
+
+  /* Pipeline */
+  .pipeline{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 28px;margin-bottom:24px;overflow-x:auto;}
+  .track{display:flex;align-items:flex-start;min-width:640px;}
+  .stage{flex:1;position:relative;text-align:center;}
+  .stage .line{position:absolute;top:9px;left:-50%;width:100%;height:2px;background:var(--line);z-index:0;}
+  .stage:first-child .line{display:none;}
+  .stage.done .line{background:var(--accent);}
+  .dot{position:relative;z-index:1;width:20px;height:20px;border-radius:50%;background:var(--panel);border:2px solid var(--line);margin:0 auto 10px;display:flex;align-items:center;justify-content:center;}
+  .stage.done .dot{border-color:var(--accent);background:var(--accent);}
+  .stage.done .dot::after{content:'';width:6px;height:6px;border-radius:50%;background:#fff;}
+  .stage-label{font-size:12px;font-weight:500;}
+  .stage-sub{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-soft);margin-top:2px;}
+
+  /* Roster */
+  .roster{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 24px;margin-bottom:24px;}
+  .roster-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .roster-hint{font-size:12px;color:var(--ink-soft);margin:0 0 14px;}
+  .add-row{font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:8px;padding:7px 12px;cursor:pointer;white-space:nowrap;}
+  .add-row:hover{background:var(--accent-soft);}
+  table.roster-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.roster-table th{font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);text-align:center;padding:6px 4px;border-bottom:1px solid var(--line);}
+  table.roster-table th:first-child, table.roster-table td:first-child{text-align:left;}
+  table.roster-table td{padding:8px 4px;border-bottom:1px solid var(--line);text-align:center;}
+  table.roster-table input[type="text"]{width:120px;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-family:'IBM Plex Sans',sans-serif;font-size:12.5px;}
+  table.roster-table input[type="date"]{border:1px solid var(--line);border-radius:6px;padding:5px 6px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
+  table.roster-table input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;}
+  .antig{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);}
+  .del-btn{background:none;border:none;color:var(--bad);cursor:pointer;font-size:15px;}
+  .empty-roster{padding:20px;text-align:center;color:var(--ink-soft);font-size:13px;}
+
+  /* Lanes */
+  .lane{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:18px;overflow:hidden;}
+  .lane-head{padding:16px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);}
+  .lane-head-left{display:flex;align-items:center;gap:12px;}
+  .lane-tag{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.04em;padding:3px 9px;border-radius:20px;}
+  .lane-title{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:16.5px;}
+  .lane-meta{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-soft);text-align:right;}
+  .lane[data-owner="mesa"] .lane-tag{background:var(--mesa-soft);color:var(--mesa);}
+  .lane[data-owner="ops"] .lane-tag{background:var(--ops-soft);color:var(--ops);}
+  .lane[data-owner="cap"] .lane-tag{background:var(--cap-soft);color:var(--cap);}
+  .lane-score{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:21px;text-align:right;}
+
+  .kpi-row{display:grid;grid-template-columns:1.7fr auto auto auto;gap:16px;align-items:center;padding:14px 24px;border-bottom:1px solid var(--line);}
+  .kpi-row:last-child{border-bottom:none;}
+  .kpi-name{font-size:13px;font-weight:500;line-height:1.35;}
+  .kpi-formula{font-size:11.5px;color:var(--ink-soft);margin-top:3px;line-height:1.3;}
+  .kpi-count{font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:center;}
+  .kpi-count .lbl{display:block;font-size:9.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-top:2px;}
+  .field-inline{display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .field-inline label{font-family:'IBM Plex Mono',monospace;font-size:9.5px;text-transform:uppercase;color:var(--ink-soft);}
+  .field-inline input{width:56px;padding:5px 6px;border:1px solid var(--line);border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;text-align:center;background:var(--paper);}
+  .result{text-align:center;}
+  .pct{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:18px;}
+  .weight{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-soft);}
+  .pill{display:inline-block;margin-top:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;}
+  .pill.good{background:var(--good-soft);color:var(--good);}
+  .pill.warn{background:var(--warn-soft);color:var(--warn);}
+  .pill.bad{background:var(--bad-soft);color:var(--bad);}
+  .pill.na{background:var(--paper);color:var(--ink-soft);}
+
+  .module-toggles{display:flex;gap:16px;padding:14px 24px;flex-wrap:wrap;border-bottom:1px solid var(--line);background:var(--paper);}
+  .mod-toggle{display:flex;align-items:center;gap:6px;font-size:12.5px;}
+  .mod-toggle input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;}
+
+  .save-status{position:fixed;bottom:20px;right:24px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-soft);background:var(--panel);border:1px solid var(--line);padding:7px 14px;border-radius:20px;opacity:0;transition:opacity .3s;}
+  .save-status.show{opacity:1;}
+
+  @media (max-width:640px){
+    .kpi-row{grid-template-columns:1fr;gap:8px;}
+    table.roster-table{font-size:11px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <p class="eyebrow">OKR · Operaciones · Evolve</p>
+      <h1>Ciclo de vida del promotor</h1>
+    </div>
+    <div class="header-right">
+      <div class="month-bar">
+        <button id="prevMonth">←</button>
+        <select id="monthSelect"></select>
+        <button id="nextMonth">→</button>
+      </div>
+      <div>
+        <div class="score-ring">
+          <svg width="80" height="80" viewBox="0 0 80 80">
+            <circle class="track" cx="40" cy="40" r="34"></circle>
+            <circle class="fill" id="ringFill" cx="40" cy="40" r="34" stroke-dasharray="214" stroke-dashoffset="214"></circle>
+          </svg>
+          <div class="num" id="ringNum">—</div>
+        </div>
+        <div class="score-label">Resultado OKR</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="pipeline">
+    <p class="section-title" style="margin-bottom:18px;">Trayecto del promotor · corte del mes seleccionado</p>
+    <div class="track" id="track"></div>
+  </div>
+
+  <div class="roster">
+    <div class="roster-head">
+      <p class="section-title" style="margin:0;">Padrón de promotores</p>
+      <button class="add-row" id="addPromotor">+ Agregar promotor</button>
+    </div>
+    <p class="roster-hint">Agrega a cada persona una sola vez, el día que ingresa. Marca las casillas conforme van pasando las cosas — el mes o bimestre en que cuenta para cada KPI se calcula solo, a partir de su fecha de ingreso.</p>
+    <div id="rosterTableWrap"></div>
+  </div>
+
+  <div class="lane" data-owner="mesa">
+    <div class="lane-head">
+      <div class="lane-head-left"><span class="lane-tag">MESA DE CONTROL</span><span class="lane-title">Kit administrativo entregado a tiempo</span></div>
+      <div><div class="lane-score" id="kr1score">—</div><div class="lane-meta">Peso 57% · Mensual</div></div>
+    </div>
+    <div id="kr1rows"></div>
+  </div>
+
+  <div class="lane" data-owner="ops">
+    <div class="lane-head">
+      <div class="lane-head-left"><span class="lane-tag">OPERACIONES</span><span class="lane-title">Materiales de campo entregados en calendario</span></div>
+      <div><div class="lane-score" id="kr2score">—</div><div class="lane-meta">Peso 14% · Bimestral</div></div>
+    </div>
+    <div id="kr2rows"></div>
+  </div>
+
+  <div class="lane" data-owner="cap">
+    <div class="lane-head">
+      <div class="lane-head-left"><span class="lane-tag">CAPACITACIÓN</span><span class="lane-title">Capacitación en módulos</span></div>
+      <div><div class="lane-score" id="kr3score">—</div><div class="lane-meta">Peso 29% · Mensual</div></div>
+    </div>
+    <div class="module-toggles" id="moduleToggles"></div>
+    <div id="kr3rows"></div>
+  </div>
+
+</div>
+<div class="save-status" id="saveStatus">Guardado</div>
+
+<script>
+const MONTH_NAMES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+let currentMonth = null, monthIndex = [], roster = [], modulos = null, saveTimer = null;
+
+function monthKey(d){ return d.toISOString().slice(0,7); }
+function labelForMonth(key){ const [y,m]=key.split('-'); return MONTH_NAMES[parseInt(m,10)-1]+' '+y; }
+function endOfMonth(key){ const [y,m]=key.split('-').map(Number); return new Date(y, m-1, 28); }
+function monthsBetween(ingresoStr, refDate){
+  if(!ingresoStr) return null;
+  const ing = new Date(ingresoStr+'T00:00:00');
+  return (refDate.getFullYear()-ing.getFullYear())*12 + (refDate.getMonth()-ing.getMonth());
+}
+function ymOf(ingresoStr){ return ingresoStr ? ingresoStr.slice(0,7) : null; }
+
+async function loadIndex(){
+  try{ const r = await window.storage.get('ciclo-vida:index'); monthIndex = r?JSON.parse(r.value):[]; }catch(e){ monthIndex=[]; }
+  if(monthIndex.length===0){ monthIndex=[monthKey(new Date())]; await window.storage.set('ciclo-vida:index', JSON.stringify(monthIndex)); }
+  monthIndex.sort();
+}
+async function saveIndex(){ await window.storage.set('ciclo-vida:index', JSON.stringify(monthIndex)); }
+
+async function loadRoster(){
+  try{ const r = await window.storage.get('ciclo-vida:roster'); roster = r?JSON.parse(r.value):[]; }catch(e){ roster=[]; }
+}
+function queueSaveRoster(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async ()=>{
+    await window.storage.set('ciclo-vida:roster', JSON.stringify(roster));
+    flashSaved();
+  }, 400);
+}
+async function loadModulos(){
+  try{ const r = await window.storage.get('ciclo-vida:modulos'); modulos = r?JSON.parse(r.value):null; }catch(e){ modulos=null; }
+  if(!modulos){ modulos = {mod1:false, mod3:false, mod6:false, mod12:false, comprometidos:0}; }
+}
+async function saveModulos(){ await window.storage.set('ciclo-vida:modulos', JSON.stringify(modulos)); flashSaved(); }
+function flashSaved(){ const el=document.getElementById('saveStatus'); el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1400); }
+
+function pctOf(num, den){ if(!den||den<=0) return null; return Math.min(100, (num/den)*100); }
+function statusFor(pct, meta){ if(pct===null) return 'na'; if(pct>=meta) return 'good'; if(pct>=meta*0.85) return 'warn'; return 'bad'; }
+
+function newPromotor(){
+  return {id: Date.now()+Math.random().toString(36).slice(2,6), nombre:'', fechaIngreso:'', carta:false, usuario:false, contrato:false, imss:false, materiales:false, mod1:false, mod3:false, mod6:false, mod12:false};
+}
+
+function renderRoster(){
+  const wrap = document.getElementById('rosterTableWrap');
+  if(roster.length===0){ wrap.innerHTML = '<div class="empty-roster">Sin promotores capturados todavía. Agrega el primero con el botón de arriba.</div>'; return; }
+  const rows = roster.slice().sort((a,b)=>(a.fechaIngreso||'').localeCompare(b.fechaIngreso||'')).map(p=>{
+    const antig = p.fechaIngreso ? monthsBetween(p.fechaIngreso, new Date()) : null;
+    return `<tr data-id="${p.id}">
+      <td><input type="text" data-field="nombre" value="${p.nombre.replace(/"/g,'&quot;')}" placeholder="Nombre"></td>
+      <td><input type="date" data-field="fechaIngreso" value="${p.fechaIngreso}"></td>
+      <td class="antig">${antig===null?'—':antig+'m'}</td>
+      <td><input type="checkbox" data-field="carta" ${p.carta?'checked':''}></td>
+      <td><input type="checkbox" data-field="usuario" ${p.usuario?'checked':''}></td>
+      <td><input type="checkbox" data-field="contrato" ${p.contrato?'checked':''}></td>
+      <td><input type="checkbox" data-field="imss" ${p.imss?'checked':''}></td>
+      <td><input type="checkbox" data-field="materiales" ${p.materiales?'checked':''}></td>
+      <td><input type="checkbox" data-field="mod1" ${p.mod1?'checked':''}></td>
+      <td><input type="checkbox" data-field="mod3" ${p.mod3?'checked':''}></td>
+      <td><input type="checkbox" data-field="mod6" ${p.mod6?'checked':''}></td>
+      <td><input type="checkbox" data-field="mod12" ${p.mod12?'checked':''}></td>
+      <td><button class="del-btn" data-del="${p.id}" title="Eliminar">✕</button></td>
+    </tr>`;
+  }).join('');
+  wrap.innerHTML = `<table class="roster-table"><thead><tr>
+    <th>Nombre</th><th>Ingreso</th><th>Antig.</th><th>Carta</th><th>Usuario</th><th>Contrato</th><th>IMSS</th><th>Materiales</th><th>Mód.1</th><th>Mód.3</th><th>Mód.6</th><th>Mód.12</th><th></th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+
+  wrap.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const tr = e.target.closest('tr'); const id = tr.dataset.id;
+      const p = roster.find(x=>x.id===id); if(!p) return;
+      const field = e.target.dataset.field;
+      p[field] = e.target.type==='checkbox' ? e.target.checked : e.target.value;
+      queueSaveRoster(); renderAll();
+    });
+  });
+  wrap.querySelectorAll('.del-btn').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      roster = roster.filter(p=>p.id!==e.target.dataset.del);
+      queueSaveRoster(); renderRoster(); renderAll();
+    });
+  });
+}
+
+function cohortKR1(){
+  const inMonth = roster.filter(p=>ymOf(p.fechaIngreso)===currentMonth);
+  const den = inMonth.length;
+  return {
+    carta:{num:inMonth.filter(p=>p.carta).length, den},
+    usuario:{num:inMonth.filter(p=>p.usuario).length, den},
+    contrato:{num:inMonth.filter(p=>p.contrato).length, den},
+    imss:{num:inMonth.filter(p=>p.imss).length, den},
+  };
+}
+function cohortKR2(){
+  const ref = endOfMonth(currentMonth);
+  const due = roster.filter(p=>monthsBetween(p.fechaIngreso, ref)===2);
+  return {num: due.filter(p=>p.materiales).length, den: due.length};
+}
+function cohortKPI32(){
+  const ref = endOfMonth(currentMonth);
+  const milestones = [{m:1,f:'mod1'},{m:3,f:'mod3'},{m:6,f:'mod6'},{m:12,f:'mod12'}];
+  let num=0, den=0;
+  milestones.forEach(ms=>{
+    const elig = roster.filter(p=>monthsBetween(p.fechaIngreso, ref)===ms.m);
+    den += elig.length;
+    num += elig.filter(p=>p[ms.f]).length;
+  });
+  return {num, den};
+}
+
+function renderModuleToggles(){
+  const wrap = document.getElementById('moduleToggles');
+  const items = [['mod1','Módulo 1 (mes 1)'],['mod3','Módulo 2 (mes 3)'],['mod6','Módulo 3 (mes 6)'],['mod12','Módulo 4 (mes 12)']];
+  wrap.innerHTML = items.map(([key,label])=>`
+    <label class="mod-toggle"><input type="checkbox" data-modkey="${key}" ${modulos[key]?'checked':''}> ${label} publicado</label>
+  `).join('') + `
+    <div class="field-inline"><label>Comprometidos a la fecha</label><input type="number" min="0" max="4" id="comprometidosInput" value="${modulos.comprometidos}"></div>
+  `;
+  wrap.querySelectorAll('input[type="checkbox"]').forEach(cb=>{
+    cb.addEventListener('change', e=>{ modulos[e.target.dataset.modkey]=e.target.checked; saveModulos(); renderAll(); });
+  });
+  document.getElementById('comprometidosInput').addEventListener('input', e=>{
+    modulos.comprometidos = Math.max(0, Math.min(4, parseInt(e.target.value)||0));
+    saveModulos(); renderAll();
+  });
+}
+
+function kpiRowHTML(name, formula, num, den, meta, weight){
+  const pct = pctOf(num,den);
+  const status = statusFor(pct, meta);
+  return `<div class="kpi-row">
+    <div><div class="kpi-name">${name}</div><div class="kpi-formula">${formula}</div></div>
+    <div class="kpi-count">${num}<span class="lbl">cumplen</span></div>
+    <div class="kpi-count">${den}<span class="lbl">universo</span></div>
+    <div class="result"><div class="pct">${pct===null?'—':pct.toFixed(0)+'%'}</div><div class="weight">meta ${meta}% · peso ${weight}%</div>
+      <div class="pill ${status}">${status==='good'?'en meta':status==='warn'?'en riesgo':status==='bad'?'fuera de meta':'sin datos'}</div></div>
+  </div>`;
+}
+
+function renderKR1(){
+  const c = cohortKR1();
+  document.getElementById('kr1rows').innerHTML =
+    kpiRowHTML('% con carta de acceso y credencial antes del día 1','Nuevos ingresos del mes con carta y credencial ÷ nuevos ingresos del mes', c.carta.num, c.carta.den, 100, 25) +
+    kpiRowHTML('% con usuario creado en Emetrix antes del día 1','Nuevos ingresos con usuario Emetrix ÷ nuevos ingresos del mes', c.usuario.num, c.usuario.den, 100, 25) +
+    kpiRowHTML('% con contrato firmado antes del día 1','Nuevos ingresos con contrato firmado ÷ nuevos ingresos del mes', c.contrato.num, c.contrato.den, 100, 25) +
+    kpiRowHTML('% con alta ante el IMSS antes del día 1','Nuevos ingresos con alta IMSS ÷ nuevos ingresos del mes', c.imss.num, c.imss.den, 100, 25);
+  const pcts=[c.carta,c.usuario,c.contrato,c.imss].map(x=>pctOf(x.num,x.den)).filter(x=>x!==null);
+  const score = pcts.length ? pcts.reduce((a,b)=>a+b,0)/pcts.length : null;
+  document.getElementById('kr1score').textContent = score===null?'—':score.toFixed(0)+'%';
+  return score;
+}
+function renderKR2(){
+  const c = cohortKR2();
+  document.getElementById('kr2rows').innerHTML = kpiRowHTML(
+    '% con materiales entregados dentro del calendario comprometido',
+    'Ventanas vencidas este periodo = promotores que cumplen 2 meses de ingreso en el mes seleccionado',
+    c.num, c.den, 100, 100
+  );
+  const score = pctOf(c.num,c.den);
+  document.getElementById('kr2score').textContent = score===null?'—':score.toFixed(0)+'%';
+  return score;
+}
+function renderKR3(){
+  const publicados = ['mod1','mod3','mod6','mod12'].filter(k=>modulos[k]).length;
+  const c32 = cohortKPI32();
+  const pct1 = pctOf(publicados, modulos.comprometidos);
+  document.getElementById('kr3rows').innerHTML =
+    kpiRowHTML('% de módulos publicados y vigentes en Emetrix', 'Módulos publicados ÷ módulos comprometidos a la fecha', publicados, modulos.comprometidos, 100, 50) +
+    kpiRowHTML('% de promotores con el módulo que les toca por antigüedad completado', 'Completaron su módulo ÷ promotores que cumplieron esa antigüedad este mes', c32.num, c32.den, 90, 50);
+  const pcts = [pct1, pctOf(c32.num,c32.den)].filter(x=>x!==null);
+  const score = pcts.length ? pcts.reduce((a,b)=>a+b,0)/pcts.length : null;
+  document.getElementById('kr3score').textContent = score===null?'—':score.toFixed(0)+'%';
+  return score;
+}
+
+function renderPipeline(){
+  const track = document.getElementById('track');
+  const cKR1 = cohortKR1(), cKR2 = cohortKR2(), c32 = cohortKPI32();
+  const publicados = ['mod1','mod3','mod6','mod12'].filter(k=>modulos[k]).length;
+  const stages = [
+    {label:'Ingreso', sub:'Día 0', done:true},
+    {label:'Kit admin.', sub:'Día 1', done: cKR1.carta.den>0 && [cKR1.carta,cKR1.usuario,cKR1.contrato,cKR1.imss].every(x=>x.num>=x.den)},
+    {label:'Materiales', sub:'Mes 2', done: cKR2.den>0 && cKR2.num>=cKR2.den},
+    {label:'Módulo 1', sub:'Mes 1', done: publicados>=1},
+    {label:'Módulo 2', sub:'Mes 3', done: publicados>=2},
+    {label:'Módulo 3', sub:'Mes 6', done: publicados>=3},
+    {label:'Módulo 4', sub:'Mes 12', done: publicados>=4},
+  ];
+  track.innerHTML = stages.map(s=>`<div class="stage${s.done?' done':''}"><div class="line"></div><div class="dot"></div><div class="stage-label">${s.label}</div><div class="stage-sub">${s.sub}</div></div>`).join('');
+}
+
+function renderRing(score){
+  const c=214; const ring=document.getElementById('ringFill'); const num=document.getElementById('ringNum');
+  if(score===null){ ring.style.strokeDashoffset=c; num.textContent='—'; return; }
+  ring.style.strokeDashoffset = c-(c*score/100); num.textContent = score.toFixed(0)+'%';
+}
+
+function renderAll(){
+  const kr1=renderKR1(), kr2=renderKR2(), kr3=renderKR3();
+  const W={kr1:57,kr2:14,kr3:29};
+  let weighted=0, wt=0;
+  [['kr1',kr1],['kr2',kr2],['kr3',kr3]].forEach(([id,s])=>{ if(s!==null){ weighted+=s*W[id]; wt+=W[id]; } });
+  renderRing(wt>0 ? weighted/wt : null);
+  renderPipeline();
+}
+
+function renderMonthSelect(){
+  const sel=document.getElementById('monthSelect'); sel.innerHTML='';
+  monthIndex.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=labelForMonth(k); sel.appendChild(o); });
+  sel.value=currentMonth;
+}
+
+async function init(){
+  await loadIndex(); await loadRoster(); await loadModulos();
+  currentMonth = monthIndex[monthIndex.length-1];
+  renderMonthSelect(); renderRoster(); renderModuleToggles(); renderAll();
+
+  document.getElementById('monthSelect').onchange = e=>{ currentMonth=e.target.value; renderAll(); };
+  document.getElementById('prevMonth').onclick = ()=>{ const i=monthIndex.indexOf(currentMonth); if(i>0){ currentMonth=monthIndex[i-1]; renderMonthSelect(); renderAll(); } };
+  document.getElementById('nextMonth').onclick = async ()=>{
+    let i=monthIndex.indexOf(currentMonth);
+    if(i===monthIndex.length-1){
+      const [y,m]=currentMonth.split('-').map(Number);
+      const next=new Date(y,m,1); const key=monthKey(next);
+      if(!monthIndex.includes(key)){ monthIndex.push(key); monthIndex.sort(); await saveIndex(); }
+    }
+    i=monthIndex.indexOf(currentMonth);
+    if(i<monthIndex.length-1){ currentMonth=monthIndex[i+1]; renderMonthSelect(); renderAll(); }
+  };
+  document.getElementById('addPromotor').onclick = ()=>{
+    roster.push(newPromotor()); queueSaveRoster(); renderRoster(); renderAll();
+  };
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+import { cookies } from 'next/headers';
+import { SESSION_COOKIE, SESSION_TTL_MS, signSession, verifySession, type SessionPayload } from './session';
+
+export { SESSION_COOKIE, SESSION_TTL_MS };
+
+export class AuthConfigError extends Error {}
+
+/** Lee AUTH_SECRET del entorno. Lanza AuthConfigError si no está configurado. */
+export function authSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new AuthConfigError('Falta configurar la variable de entorno AUTH_SECRET.');
+  return secret;
+}
+
+export async function createSessionCookieValue(userId: string, rol: SessionPayload['rol']): Promise<string> {
+  return signSession({ userId, rol, exp: Date.now() + SESSION_TTL_MS }, authSecret());
+}
+
+/** Sesión del usuario actual, para usar en route handlers y server components. */
+export async function getSession(): Promise<SessionPayload | null> {
+  try {
+    const token = cookies().get(SESSION_COOKIE)?.value;
+    return await verifySession(token, authSecret());
+  } catch {
+    return null;
+  }
+}
