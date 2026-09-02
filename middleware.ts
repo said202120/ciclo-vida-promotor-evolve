@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE, verifySession } from './lib/session';
 
-// Nota: middleware corre en Edge runtime, así que no puede importar lib/auth.ts
-// (usa next/headers). Verifica el token directamente contra la cookie del request.
+// Nota: usa lib/session.ts (no lib/auth.ts, que depende de next/headers) y lee
+// la cookie directo del request — así el middleware no depende de en qué
+// runtime corra (nodejs aquí, por un bug de bundling del runtime edge).
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -36,5 +37,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+  runtime: 'nodejs',
   matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$).*)'],
 };
