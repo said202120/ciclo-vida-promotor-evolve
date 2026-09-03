@@ -9,7 +9,6 @@ create table if not exists promotores (
   usuario boolean default false,
   contrato boolean default false,
   imss boolean default false,
-  materiales boolean default false,
   mod1 boolean default false,
   mod3 boolean default false,
   mod6 boolean default false,
@@ -54,6 +53,64 @@ create table if not exists usuarios (
   rol text not null check (rol in ('gerente', 'ejecutivo')),
   created_at timestamptz default now()
 );
+
+-- Catálogo fijo de materiales del checklist de entrega (KR2). El orden
+-- controla cómo se listan dentro de cada categoría en el panel del padrón.
+create table if not exists materiales_catalogo (
+  id uuid primary key default gen_random_uuid(),
+  categoria text not null check (categoria in ('tecnologia', 'trabajo')),
+  nombre text not null unique,
+  orden int not null
+);
+
+insert into materiales_catalogo (categoria, nombre, orden) values
+  ('tecnologia', 'Equipo celular', 1),
+  ('tecnologia', 'Línea corporativa', 2),
+  ('trabajo', 'Franela Metro', 3),
+  ('trabajo', 'Cortadores', 4),
+  ('trabajo', 'Navajas', 5),
+  ('trabajo', 'Botas Van Vien', 6),
+  ('trabajo', 'Cintas', 7),
+  ('trabajo', 'Guantes', 8),
+  ('trabajo', 'Faja', 9),
+  ('trabajo', 'Marcador Delgado', 10),
+  ('trabajo', 'Quita Goma', 11),
+  ('trabajo', 'Plumero Avestruz', 12),
+  ('trabajo', 'Mochila Royal Swiss', 13)
+on conflict (nombre) do nothing;
+
+-- Seguimiento de entrega por promotor y artículo. Si no hay fila para un
+-- (promotor_id, material_id), se asume entregado = false — no hace falta
+-- insertar nada al crear un promotor nuevo.
+create table if not exists promotor_materiales (
+  promotor_id uuid not null references promotores(id) on delete cascade,
+  material_id uuid not null references materiales_catalogo(id) on delete cascade,
+  entregado boolean not null default false,
+  fecha_entrega date,
+  primary key (promotor_id, material_id)
+);
+
+-- Migración: los promotores que ya tenían el viejo checkbox booleano
+-- "materiales" en true quedan con los 13 artículos marcados como entregados
+-- (sin fecha histórica real que migrar, se usa la fecha de hoy). Guardado en
+-- un bloque condicional porque la columna vieja se elimina al final, así el
+-- script sigue siendo re-ejecutable sin error contra una base ya migrada.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'promotores' and column_name = 'materiales'
+  ) then
+    insert into promotor_materiales (promotor_id, material_id, entregado, fecha_entrega)
+    select p.id, mc.id, true, current_date
+    from promotores p
+    cross join materiales_catalogo mc
+    where p.materiales = true
+    on conflict (promotor_id, material_id) do nothing;
+
+    alter table promotores drop column materiales;
+  end if;
+end $$;
 
 -- Registro de alertas de materiales ya enviadas, para no repetirlas.
 --   mes1 -> el promotor cumplió 1 mes desde su ingreso (día exacto)

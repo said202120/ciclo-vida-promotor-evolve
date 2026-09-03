@@ -2,7 +2,7 @@
 // en su fecha de ingreso. Puramente funcional: no toca la base de datos (el
 // dedupe contra alertas_enviadas y el envío de correo viven en el caller).
 
-import type { Promotor } from './types';
+import { materialesCompletos, type Promotor } from './types';
 
 export type AlertaTipo = 'mes1' | 'mes2';
 
@@ -72,8 +72,8 @@ export function evaluarAlertas(roster: Promotor[], referencia: Date = new Date()
     }
 
     // mes2: ventana de una semana tras cumplir 2 meses (día 60-67), y solo
-    // si todavía no tiene marcados los materiales como entregados.
-    if (!p.materiales) {
+    // si todavía no tiene marcados los 13 materiales como entregados.
+    if (!materialesCompletos(p)) {
       const dias = diasEntre(ingreso, hoy);
       if (dias >= MES2_WINDOW_START_DIAS && dias <= MES2_WINDOW_END_DIAS) {
         alertas.push({ promotorId: p.id, nombre: p.nombre, tipo: 'mes2', mensaje: mensajeMes2(p.nombre) });

@@ -2,14 +2,16 @@
 
 import type { Promotor } from '@/lib/types';
 
-type BooleanField = 'carta' | 'usuario' | 'contrato' | 'imss' | 'materiales' | 'mod1' | 'mod3' | 'mod6' | 'mod12';
+type BooleanField = 'carta' | 'usuario' | 'contrato' | 'imss' | 'mod1' | 'mod3' | 'mod6' | 'mod12';
 
-const BOOLEAN_COLUMNS: Array<{ field: BooleanField; label: string }> = [
+const KIT_ADMIN_COLUMNS: Array<{ field: BooleanField; label: string }> = [
   { field: 'carta', label: 'Carta' },
   { field: 'usuario', label: 'Usuario' },
   { field: 'contrato', label: 'Contrato' },
   { field: 'imss', label: 'IMSS' },
-  { field: 'materiales', label: 'Materiales' },
+];
+
+const MODULO_COLUMNS: Array<{ field: BooleanField; label: string }> = [
   { field: 'mod1', label: 'Mód.1' },
   { field: 'mod3', label: 'Mód.3' },
   { field: 'mod6', label: 'Mód.6' },
@@ -50,7 +52,11 @@ export default function RosterTable({
           <th>Nombre</th>
           <th>Ingreso</th>
           <th>Antig.</th>
-          {BOOLEAN_COLUMNS.map((c) => (
+          {KIT_ADMIN_COLUMNS.map((c) => (
+            <th key={c.field}>{c.label}</th>
+          ))}
+          <th>Materiales</th>
+          {MODULO_COLUMNS.map((c) => (
             <th key={c.field}>{c.label}</th>
           ))}
           <th />
@@ -81,7 +87,19 @@ export default function RosterTable({
                 />
               </td>
               <td className="antig">{antig === null ? '—' : `${antig}m`}</td>
-              {BOOLEAN_COLUMNS.map((c) => (
+              {KIT_ADMIN_COLUMNS.map((c) => (
+                <td key={c.field}>
+                  <input
+                    type="checkbox"
+                    checked={p[c.field]}
+                    onChange={(e) => onFieldChange(p.id, c.field, e.target.checked)}
+                  />
+                </td>
+              ))}
+              <td className="antig">
+                {p.materialesEntregados}/{p.materialesTotal}
+              </td>
+              {MODULO_COLUMNS.map((c) => (
                 <td key={c.field}>
                   <input
                     type="checkbox"

@@ -1,21 +1,11 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
 import { requireSession } from '@/lib/auth';
-import { PROMOTOR_SELECT_COLUMNS, promotorRowToApi, type PromotorRow } from '@/lib/promotores';
+import { fetchPromotorById } from '@/lib/promotores';
 
 export const dynamic = 'force-dynamic';
 
-const EDITABLE_BOOLEAN_FIELDS = [
-  'carta',
-  'usuario',
-  'contrato',
-  'imss',
-  'materiales',
-  'mod1',
-  'mod3',
-  'mod6',
-  'mod12',
-] as const;
+const EDITABLE_BOOLEAN_FIELDS = ['carta', 'usuario', 'contrato', 'imss', 'mod1', 'mod3', 'mod6', 'mod12'] as const;
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireSession();
@@ -47,15 +37,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   values.push(id);
-  const { rows } = await sql.query(
-    `UPDATE promotores SET ${sets.join(', ')} WHERE id = $${i} RETURNING ${PROMOTOR_SELECT_COLUMNS}`,
-    values
-  );
+  const { rowCount } = await sql.query(`UPDATE promotores SET ${sets.join(', ')} WHERE id = $${i}`, values);
 
-  if (rows.length === 0) {
+  if (!rowCount) {
     return NextResponse.json({ error: 'Promotor no encontrado.' }, { status: 404 });
   }
-  return NextResponse.json(promotorRowToApi(rows[0] as PromotorRow));
+  return NextResponse.json(await fetchPromotorById(id));
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {

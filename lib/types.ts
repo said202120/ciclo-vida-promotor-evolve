@@ -6,11 +6,35 @@ export type Promotor = {
   usuario: boolean;
   contrato: boolean;
   imss: boolean;
-  materiales: boolean;
+  materialesEntregados: number;
+  materialesTotal: number;
   mod1: boolean;
   mod3: boolean;
   mod6: boolean;
   mod12: boolean;
+};
+
+/** "Materiales completos" para el KPI 2.1 y las alertas: los 13 artículos del catálogo entregados. */
+export function materialesCompletos(p: Pick<Promotor, 'materialesEntregados' | 'materialesTotal'>): boolean {
+  return p.materialesTotal > 0 && p.materialesEntregados >= p.materialesTotal;
+}
+
+export type MaterialCategoria = 'tecnologia' | 'trabajo';
+
+export type MaterialCatalogoItem = {
+  id: string;
+  categoria: MaterialCategoria;
+  nombre: string;
+  orden: number;
+};
+
+export type MaterialEstado = {
+  materialId: string;
+  categoria: MaterialCategoria;
+  nombre: string;
+  orden: number;
+  entregado: boolean;
+  fechaEntrega: string | null;
 };
 
 export type AlertaActiva = {

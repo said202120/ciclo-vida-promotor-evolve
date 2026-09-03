@@ -17,12 +17,20 @@ export async function GET() {
   const auth = await requireSession();
   if (auth.error) return auth.error;
 
+  // "Activa" = el promotor todavía no tiene los 13 artículos del catálogo
+  // marcados como entregados (mismo criterio de "completo" que el KPI 2.1).
   const { rows } = await sql.query(
     `SELECT ae.promotor_id, ae.tipo, ae.enviada_en, p.nombre
      FROM alertas_enviadas ae
      JOIN promotores p ON p.id = ae.promotor_id
+     CROSS JOIN (SELECT count(*)::int AS total FROM materiales_catalogo) cat
+     LEFT JOIN (
+       SELECT promotor_id, count(*) FILTER (WHERE entregado) AS entregados
+       FROM promotor_materiales
+       GROUP BY promotor_id
+     ) pm ON pm.promotor_id = p.id
      WHERE ae.enviada_en >= now() - interval '14 days'
-       AND p.materiales = false
+       AND coalesce(pm.entregados, 0) < cat.total
      ORDER BY ae.enviada_en DESC`
   );
 

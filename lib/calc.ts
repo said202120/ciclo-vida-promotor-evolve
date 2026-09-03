@@ -2,7 +2,7 @@
 // Portado 1:1 desde Artefacto_Ciclo_de_Vida_del_Promotor.html — no cambiar
 // fórmulas, pesos ni metas aquí sin validarlo primero contra el prototipo.
 
-import type { Dashboard, KpiId, KpiResult, Modulos, PipelineStage, Promotor } from './types';
+import { materialesCompletos, type Dashboard, type KpiId, type KpiResult, type Modulos, type PipelineStage, type Promotor } from './types';
 
 export const KPI_META: Record<KpiId, { meta: number; peso: number }> = {
   kr1_carta: { meta: 100, peso: 25 },
@@ -64,7 +64,7 @@ export function cohortKR1(roster: Promotor[], mes: string) {
 export function cohortKR2(roster: Promotor[], mes: string): KpiResult {
   const ref = endOfMonth(mes);
   const due = roster.filter((p) => monthsBetween(p.fechaIngreso, ref) === 2);
-  return makeKpi('kr2_materiales', due.filter((p) => p.materiales).length, due.length);
+  return makeKpi('kr2_materiales', due.filter((p) => materialesCompletos(p)).length, due.length);
 }
 
 export function cohortKPI32(roster: Promotor[], mes: string): KpiResult {
