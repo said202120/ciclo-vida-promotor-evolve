@@ -31,6 +31,8 @@ const CAMPO_LABEL: Record<ImportCampo, string> = {
   rfc: 'RFC',
   contratoFecha: 'Fecha de contrato firmado',
   imssFecha: 'Fecha de alta IMSS',
+  idEmetrix: 'ID Emetrix',
+  idNomina: 'ID Nómina',
   ignorar: 'Ignorar esta columna',
 };
 
@@ -55,6 +57,8 @@ function detectCampoByName(header: string, yaAsignados: Set<ImportCampo>, permit
     return 'contratoFecha';
   }
   if (permitidos.includes('imssFecha') && !yaAsignados.has('imssFecha') && norm.includes('imss')) return 'imssFecha';
+  if (permitidos.includes('idEmetrix') && !yaAsignados.has('idEmetrix') && norm.includes('emetrix')) return 'idEmetrix';
+  if (permitidos.includes('idNomina') && !yaAsignados.has('idNomina') && norm.includes('nomina')) return 'idNomina';
   return 'ignorar';
 }
 
@@ -258,7 +262,13 @@ export default function ImportarAspel() {
     setApplyResult(null);
     try {
       const resultado = await aplicarImportacion(
-        conRfc.map(({ rfc, contratoFecha, imssFecha }) => ({ rfc, contratoFecha, imssFecha }))
+        conRfc.map(({ rfc, contratoFecha, imssFecha, idEmetrix, idNomina }) => ({
+          rfc,
+          contratoFecha,
+          imssFecha,
+          idEmetrix,
+          idNomina,
+        }))
       );
       setApplyResult(resultado);
       reloadHistory();
@@ -292,8 +302,8 @@ export default function ImportarAspel() {
       {rol && (
         <p className="roster-hint" style={{ margin: '-8px 0 20px' }}>
           {rol === 'mesa_control'
-            ? 'Puedes mapear y aplicar RFC y Fecha de contrato firmado. El estatus de IMSS se muestra de solo lectura, no se puede editar desde aquí. Carta de ingreso y Usuario Emetrix se marcan aparte, en "Carta y Usuario Emetrix" arriba — no vienen en el archivo de Aspel.'
-            : 'Puedes mapear y aplicar RFC y Fecha de alta IMSS.'}
+            ? 'Puedes mapear y aplicar RFC, Fecha de contrato firmado, ID Emetrix e ID Nómina. El estatus de IMSS se muestra de solo lectura, no se puede editar desde aquí. Carta de ingreso y Usuario Emetrix se marcan aparte, en "Carta y Usuario Emetrix" arriba — no vienen en el archivo de Aspel.'
+            : 'Puedes mapear y aplicar RFC, Fecha de alta IMSS, ID Emetrix e ID Nómina.'}
         </p>
       )}
 
@@ -445,7 +455,7 @@ export default function ImportarAspel() {
                     <th>RFC del archivo</th>
                     <th>Promotor</th>
                     <th>Se va a marcar</th>
-                    <th>Fecha detectada</th>
+                    <th>Detalle detectado</th>
                     {rol === 'mesa_control' && <th>IMSS actual (solo lectura)</th>}
                   </tr>
                 </thead>
@@ -466,8 +476,10 @@ export default function ImportarAspel() {
                         {row.rfc && row.promotor ? (
                           <>
                             {row.contratoFecha && <span className="pill good">Contrato ✓</span>}{' '}
-                            {row.imssFecha && <span className="pill good">IMSS ✓</span>}
-                            {!row.contratoFecha && !row.imssFecha && '—'}
+                            {row.imssFecha && <span className="pill good">IMSS ✓</span>}{' '}
+                            {row.idEmetrix && <span className="pill good">ID Emetrix ✓</span>}{' '}
+                            {row.idNomina && <span className="pill good">ID Nómina ✓</span>}
+                            {!row.contratoFecha && !row.imssFecha && !row.idEmetrix && !row.idNomina && '—'}
                           </>
                         ) : (
                           '—'
@@ -478,7 +490,9 @@ export default function ImportarAspel() {
                           <div>Contrato: {row.contratoFechaParsed ?? `${row.contratoFecha} (sin interpretar)`}</div>
                         )}
                         {row.imssFecha && <div>IMSS: {row.imssFechaParsed ?? `${row.imssFecha} (sin interpretar)`}</div>}
-                        {!row.contratoFecha && !row.imssFecha && '—'}
+                        {row.idEmetrix && <div>ID Emetrix: {row.idEmetrix}</div>}
+                        {row.idNomina && <div>ID Nómina: {row.idNomina}</div>}
+                        {!row.contratoFecha && !row.imssFecha && !row.idEmetrix && !row.idNomina && '—'}
                       </td>
                       {rol === 'mesa_control' && (
                         <td>
@@ -506,8 +520,8 @@ export default function ImportarAspel() {
             Paso 5 · Aplicar
           </p>
           <p className="roster-hint">
-            Al confirmar, se marca {camposAAplicar.map((c) => CAMPO_LABEL[c]).join(' y ') || 'lo mapeado'} solo en
-            los {conMatch.length} promotores con coincidencia de arriba. Los RFC sin coincidencia no se tocan ni
+            Al confirmar, se actualiza {camposAAplicar.map((c) => CAMPO_LABEL[c]).join(' y ') || 'lo mapeado'} solo
+            en los {conMatch.length} promotores con coincidencia de arriba. Los RFC sin coincidencia no se tocan ni
             rompen el proceso — quedan listados al final.
           </p>
           {applyError && <p className="login-error">{applyError}</p>}

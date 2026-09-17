@@ -8,6 +8,8 @@ export type RegistroExtraido = {
   rfc: string; // normalizado: trim + mayúsculas. Puede venir vacío si la fila no trae RFC.
   contratoFecha: string | null; // texto crudo de la celda mapeada a "Fecha de contrato firmado"
   imssFecha: string | null; // texto crudo de la celda mapeada a "Fecha de alta IMSS"
+  idEmetrix: string | null; // texto crudo de la celda mapeada a "ID Emetrix" — solo referencia, no se usa para cruzar
+  idNomina: string | null; // texto crudo de la celda mapeada a "ID Nómina" — solo referencia, no se usa para cruzar
 };
 
 /** Encuentra, para cada campo único, la primera columna del archivo que se le asignó. */
@@ -15,22 +17,28 @@ function buildColumnIndex(headers: string[], mapeo: ImportMapeo) {
   let rfcIdx = -1;
   let contratoIdx = -1;
   let imssIdx = -1;
+  let idEmetrixIdx = -1;
+  let idNominaIdx = -1;
   headers.forEach((h, i) => {
     const campo = mapeo[h];
     if (campo === 'rfc' && rfcIdx === -1) rfcIdx = i;
     if (campo === 'contratoFecha' && contratoIdx === -1) contratoIdx = i;
     if (campo === 'imssFecha' && imssIdx === -1) imssIdx = i;
+    if (campo === 'idEmetrix' && idEmetrixIdx === -1) idEmetrixIdx = i;
+    if (campo === 'idNomina' && idNominaIdx === -1) idNominaIdx = i;
   });
-  return { rfcIdx, contratoIdx, imssIdx };
+  return { rfcIdx, contratoIdx, imssIdx, idEmetrixIdx, idNominaIdx };
 }
 
 /** Convierte cada fila cruda del archivo en un registro según el mapeo confirmado. */
 export function extractRegistros(headers: string[], rows: string[][], mapeo: ImportMapeo): RegistroExtraido[] {
-  const { rfcIdx, contratoIdx, imssIdx } = buildColumnIndex(headers, mapeo);
+  const { rfcIdx, contratoIdx, imssIdx, idEmetrixIdx, idNominaIdx } = buildColumnIndex(headers, mapeo);
   return rows.map((row) => ({
     rfc: rfcIdx >= 0 ? (row[rfcIdx] ?? '').trim().toUpperCase() : '',
     contratoFecha: contratoIdx >= 0 ? (row[contratoIdx] ?? '').trim() || null : null,
     imssFecha: imssIdx >= 0 ? (row[imssIdx] ?? '').trim() || null : null,
+    idEmetrix: idEmetrixIdx >= 0 ? (row[idEmetrixIdx] ?? '').trim() || null : null,
+    idNomina: idNominaIdx >= 0 ? (row[idNominaIdx] ?? '').trim() || null : null,
   }));
 }
 

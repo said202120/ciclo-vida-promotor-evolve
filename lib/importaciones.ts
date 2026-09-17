@@ -17,7 +17,7 @@ import type {
 } from './types';
 
 const MAX_ROWS = 5000;
-const CAMPOS_VALIDOS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'ignorar'];
+const CAMPOS_VALIDOS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'idEmetrix', 'idNomina', 'ignorar'];
 
 function cellToDisplay(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return '';
@@ -132,7 +132,15 @@ const CAMPO_A_COLUMNAS: Record<'contratoFecha' | 'imssFecha', { bool: string; fe
   imssFecha: { bool: 'imss', fecha: 'fecha_imss' },
 };
 
-type DatosRegistro = Record<keyof typeof CAMPO_A_COLUMNAS, string | null>;
+// Campos de referencia: texto plano, sin booleano ni fecha asociados — solo
+// se guardan cuando el RFC ya hizo match, nunca se usan para buscarlo.
+const CAMPO_A_COLUMNA_TEXTO: Record<'idEmetrix' | 'idNomina', string> = {
+  idEmetrix: 'id_emetrix',
+  idNomina: 'id_nomina',
+};
+
+type DatosRegistro = Record<keyof typeof CAMPO_A_COLUMNAS, string | null> &
+  Record<keyof typeof CAMPO_A_COLUMNA_TEXTO, string | null>;
 
 // Aplica los cambios detectados: cruza por RFC contra el padrón actual y
 // marca el booleano correspondiente en true (con su fecha si se pudo
@@ -154,10 +162,12 @@ export async function aplicarImportacion(
   for (const r of registros) {
     const rfc = r.rfc.trim().toUpperCase();
     if (!rfc) continue;
-    const prev = porRfc.get(rfc) ?? { contratoFecha: null, imssFecha: null };
+    const prev = porRfc.get(rfc) ?? { contratoFecha: null, imssFecha: null, idEmetrix: null, idNomina: null };
     porRfc.set(rfc, {
       contratoFecha: permitidos.has('contratoFecha') ? (r.contratoFecha ?? prev.contratoFecha) : null,
       imssFecha: permitidos.has('imssFecha') ? (r.imssFecha ?? prev.imssFecha) : null,
+      idEmetrix: permitidos.has('idEmetrix') ? (r.idEmetrix ?? prev.idEmetrix) : null,
+      idNomina: permitidos.has('idNomina') ? (r.idNomina ?? prev.idNomina) : null,
     });
   }
 
@@ -200,6 +210,13 @@ export async function aplicarImportacion(
         sets.push(`${columnaFecha} = $${i++}`);
         values.push(fecha);
       }
+    }
+
+    for (const campo of Object.keys(CAMPO_A_COLUMNA_TEXTO) as Array<keyof typeof CAMPO_A_COLUMNA_TEXTO>) {
+      const valor = datos[campo];
+      if (!valor) continue;
+      sets.push(`${CAMPO_A_COLUMNA_TEXTO[campo]} = $${i++}`);
+      values.push(valor);
     }
 
     if (sets.length === 0) continue; // hizo match pero la fila no traía nada que aplicar

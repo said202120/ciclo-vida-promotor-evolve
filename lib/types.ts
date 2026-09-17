@@ -55,7 +55,7 @@ export type ImportParseResult = {
 };
 
 /** A qué campo del promotor corresponde una columna del archivo de Aspel. */
-export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'ignorar';
+export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'idEmetrix' | 'idNomina' | 'ignorar';
 
 /** Mapeo columna del archivo (encabezado tal cual) -> campo. Se guarda en importaciones_config. */
 export type ImportMapeo = Record<string, ImportCampo>;

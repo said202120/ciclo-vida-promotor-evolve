@@ -21,6 +21,12 @@ create table if not exists promotores (
 -- contra el archivo para marcar contrato/IMSS automáticamente.
 alter table promotores add column if not exists rfc text;
 
+-- Identificadores de referencia en otros sistemas (Emetrix, Nómina). No se
+-- usan para cruzar — el cruce sigue siendo por RFC — solo se guardan como
+-- dato adicional cuando el importador de Aspel encuentra el promotor.
+alter table promotores add column if not exists id_emetrix text;
+alter table promotores add column if not exists id_nomina text;
+
 -- Fecha detectada en el archivo de Aspel para contrato/IMSS. Se llenan solo
 -- cuando el importador logra parsear una fecha válida en la columna mapeada
 -- a ese campo; el booleano contrato/imss puede quedar en true aunque la
