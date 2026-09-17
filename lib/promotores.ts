@@ -11,6 +11,7 @@ const ROSTER_SELECT = `
   select
     p.id, p.nombre, p.rfc, to_char(p.fecha_ingreso, 'YYYY-MM-DD') as fecha_ingreso,
     p.carta, p.usuario, p.contrato, p.imss, p.mod1, p.mod3, p.mod6, p.mod12,
+    p.supervisor_id,
     p.created_at, p.updated_at,
     coalesce(pm.entregados, 0)::int as materiales_entregados,
     cat.total::int as materiales_total
@@ -36,6 +37,7 @@ type PromotorRow = {
   mod3: boolean;
   mod6: boolean;
   mod12: boolean;
+  supervisor_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
   materiales_entregados: number;
@@ -56,6 +58,7 @@ function rowToApi(row: PromotorRow): Promotor {
     mod3: row.mod3,
     mod6: row.mod6,
     mod12: row.mod12,
+    supervisorId: row.supervisor_id,
     materialesEntregados: Number(row.materiales_entregados),
     materialesTotal: Number(row.materiales_total),
     // Placeholder: esta consulta es de propósito general (padrón/CRUD) y no

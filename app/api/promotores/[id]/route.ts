@@ -36,6 +36,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       values.push(body[field]);
     }
   }
+  if ('supervisorId' in body) {
+    const supervisorId = typeof body.supervisorId === 'string' && body.supervisorId ? body.supervisorId : null;
+    sets.push(`supervisor_id = $${i++}`);
+    values.push(supervisorId);
+  }
 
   if (sets.length === 0) {
     return NextResponse.json({ error: 'No hay campos válidos para actualizar.' }, { status: 400 });

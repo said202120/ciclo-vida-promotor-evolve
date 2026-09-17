@@ -1371,3 +1371,237 @@ table.roster-table select.mapeo-set {
   opacity: 0.6;
   cursor: default;
 }
+
+/* Maestro de marcas/supervisores/ejecutivos (/marcas) */
+.marca-nombre-input {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: transparent;
+  min-width: 240px;
+}
+.marca-nombre-input:hover,
+.marca-nombre-input:focus {
+  border-color: var(--line);
+  background: var(--paper);
+}
+.marca-detalle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 14px;
+}
+@media (max-width: 720px) {
+  .marca-detalle-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.persona-lista {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.persona-lista li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.persona-lista input[type='text'] {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+}
+.persona-nueva {
+  display: flex;
+  gap: 8px;
+}
+.persona-nueva input[type='text'] {
+  flex: 1;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+/* Exámenes de capacitación (/capacitaciones) */
+.capacitacion-umbral-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.capacitacion-umbral-input {
+  width: 52px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  text-align: center;
+}
+.capacitacion-descripcion-input {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink-soft);
+  background: transparent;
+}
+.capacitacion-descripcion-input:hover,
+.capacitacion-descripcion-input:focus {
+  border-color: var(--line);
+  background: var(--paper);
+}
+.capacitacion-pregunta-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 10px;
+  background: var(--paper);
+}
+.capacitacion-pregunta-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.capacitacion-pregunta-num {
+  font-weight: 600;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+.capacitacion-pregunta-head input[type='text'] {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--panel);
+}
+.capacitacion-opcion-radio {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.capacitacion-opcion-radio input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--good);
+  cursor: pointer;
+}
+
+/* Estatus de capacitación en el padrón */
+.capacitacion-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.capacitacion-badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.capacitacion-badge.aprobado {
+  color: var(--good);
+  background: var(--good-soft);
+  border-color: var(--good);
+}
+.capacitacion-badge.reprobado {
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-color: var(--bad);
+}
+
+/* Examen público de capacitación (/q/{codigo}) */
+.capacitacion-quiz-pregunta {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.capacitacion-quiz-pregunta:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.capacitacion-quiz-texto {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 10px;
+}
+.capacitacion-quiz-opcion {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 0;
+  font-size: 13.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.capacitacion-quiz-opcion input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.capacitacion-resultado {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 12px 0;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+.capacitacion-resultado.aprobado {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.capacitacion-resultado.reprobado {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.capacitacion-resultado-pct {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+}
+.capacitacion-resultado-previo {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin: -8px 0 16px;
+}

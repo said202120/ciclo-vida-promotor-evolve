@@ -1,8 +1,9 @@
 'use client';
 
-import type { MaterialEstado, Promotor } from '@/lib/types';
+import type { CapacitacionModulo, CapacitacionResultado, MaterialEstado, Promotor, SupervisorConMarca } from '@/lib/types';
 import MaterialesCell from './MaterialesCell';
 import EncuestaLinkButton from './EncuestaLinkButton';
+import CapacitacionLinkButton from './CapacitacionLinkButton';
 
 type BooleanField = 'carta' | 'usuario' | 'contrato' | 'imss' | 'mod1' | 'mod3' | 'mod6' | 'mod12';
 
@@ -29,12 +30,22 @@ function monthsSince(fechaIngreso: string | null): number | null {
 
 export default function RosterTable({
   promotores,
+  supervisores,
+  capacitacionModulos,
+  capacitacionResultados,
   onFieldChange,
   onDelete,
   onMaterialToggle,
 }: {
   promotores: Promotor[];
-  onFieldChange: (id: string, field: BooleanField | 'nombre' | 'rfc' | 'fechaIngreso', value: string | boolean) => void;
+  supervisores: SupervisorConMarca[];
+  capacitacionModulos: CapacitacionModulo[];
+  capacitacionResultados: Array<{ promotorId: string } & CapacitacionResultado>;
+  onFieldChange: (
+    id: string,
+    field: BooleanField | 'nombre' | 'rfc' | 'fechaIngreso' | 'supervisorId',
+    value: string | boolean | null
+  ) => void;
   onDelete: (id: string) => void;
   onMaterialToggle: (promotorId: string, materialId: string, entregado: boolean) => Promise<MaterialEstado[]>;
 }) {
@@ -49,6 +60,21 @@ export default function RosterTable({
 
   const rows = [...promotores].sort((a, b) => (a.fechaIngreso || '').localeCompare(b.fechaIngreso || ''));
 
+  const marcaGroups: Array<{ marcaNombre: string; supervisores: SupervisorConMarca[] }> = [];
+  for (const s of supervisores) {
+    let grupo = marcaGroups.find((g) => g.marcaNombre === s.marcaNombre);
+    if (!grupo) {
+      grupo = { marcaNombre: s.marcaNombre, supervisores: [] };
+      marcaGroups.push(grupo);
+    }
+    grupo.supervisores.push(s);
+  }
+
+  const resultadoPorClave = new Map<string, CapacitacionResultado>();
+  for (const r of capacitacionResultados) {
+    resultadoPorClave.set(`${r.promotorId}:${r.moduloId}`, r);
+  }
+
   return (
     <table className="roster-table">
       <thead>
@@ -57,6 +83,7 @@ export default function RosterTable({
           <th>RFC</th>
           <th>Ingreso</th>
           <th>Antig.</th>
+          <th>Supervisor</th>
           {KIT_ADMIN_COLUMNS.map((c) => (
             <th key={c.field}>{c.label}</th>
           ))}
@@ -65,6 +92,7 @@ export default function RosterTable({
             <th key={c.field}>{c.label}</th>
           ))}
           <th>Encuesta</th>
+          {capacitacionModulos.length > 0 && <th>Capacitación</th>}
           <th />
         </tr>
       </thead>
@@ -103,6 +131,23 @@ export default function RosterTable({
                 />
               </td>
               <td className="antig">{antig === null ? '—' : `${antig}m`}</td>
+              <td>
+                <select
+                  value={p.supervisorId ?? ''}
+                  onChange={(e) => onFieldChange(p.id, 'supervisorId', e.target.value || null)}
+                >
+                  <option value="">Sin asignar</option>
+                  {marcaGroups.map((g) => (
+                    <optgroup key={g.marcaNombre} label={g.marcaNombre}>
+                      {g.supervisores.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nombre}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </td>
               {KIT_ADMIN_COLUMNS.map((c) => (
                 <td key={c.field}>
                   <input
@@ -135,6 +180,21 @@ export default function RosterTable({
                   <EncuestaLinkButton promotorId={p.id} tipo="materiales" etiqueta="📦 Materiales" />
                 </div>
               </td>
+              {capacitacionModulos.length > 0 && (
+                <td>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                    {capacitacionModulos.map((m) => (
+                      <CapacitacionLinkButton
+                        key={m.id}
+                        promotorId={p.id}
+                        moduloId={m.id}
+                        moduloNombre={m.nombre}
+                        resultado={resultadoPorClave.get(`${p.id}:${m.id}`)}
+                      />
+                    ))}
+                  </div>
+                </td>
+              )}
               <td>
                 <button className="del-btn" title="Eliminar" onClick={() => onDelete(p.id)}>
                   ✕

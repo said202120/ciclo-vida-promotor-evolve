@@ -43,7 +43,7 @@ export async function requireGerente(): Promise<AuthResult> {
   const result = await requireSession();
   if (result.error) return result;
   if (result.session.rol !== 'gerente') {
-    return { error: NextResponse.json({ error: 'Solo el gerente puede administrar usuarios.' }, { status: 403 }) };
+    return { error: NextResponse.json({ error: 'Solo el gerente tiene acceso a esta sección.' }, { status: 403 }) };
   }
   return result;
 }

@@ -1,7 +1,14 @@
 import type {
   AlertaActiva,
+  CapacitacionEnvioPayload,
+  CapacitacionEnvioResultado,
+  CapacitacionModulo,
+  CapacitacionModuloConPreguntas,
+  CapacitacionPublica,
+  CapacitacionResultado,
   ComparacionIngreso,
   Dashboard,
+  Ejecutivo,
   EncuestaMaterialesPayload,
   EncuestaMaterialesPublica,
   EncuestaPublica,
@@ -11,6 +18,8 @@ import type {
   ImportMapeo,
   ImportParseResult,
   IngresoMes,
+  Marca,
+  MarcaConDetalle,
   MaterialEstado,
   MaterialResumenItem,
   Modulos,
@@ -18,6 +27,8 @@ import type {
   PromotorParaImportar,
   RecordatorioMateriales,
   Rol,
+  Supervisor,
+  SupervisorConMarca,
   Usuario,
 } from './types';
 import type { RegistroExtraido } from './import-shared';
@@ -215,4 +226,171 @@ export function fetchComparacionIngresos(mes: string): Promise<ComparacionIngres
 
 export function fetchRecordatoriosMateriales(): Promise<RecordatorioMateriales[]> {
   return fetch('/api/recordatorios-materiales').then((r) => json(r));
+}
+
+export function fetchMarcas(): Promise<MarcaConDetalle[]> {
+  return fetch('/api/marcas').then((r) => json(r));
+}
+
+export function fetchSupervisoresConMarca(): Promise<SupervisorConMarca[]> {
+  return fetch('/api/supervisores').then((r) => json(r));
+}
+
+export function createMarca(nombre: string): Promise<Marca> {
+  return fetch('/api/marcas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre }),
+  }).then((r) => json(r));
+}
+
+export function renameMarca(id: string, nombre: string): Promise<{ ok: true }> {
+  return fetch(`/api/marcas/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre }),
+  }).then((r) => json(r));
+}
+
+export function deleteMarca(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/marcas/${id}`, { method: 'DELETE' }).then((r) => json(r));
+}
+
+export function createSupervisor(nombre: string, marcaId: string): Promise<Supervisor> {
+  return fetch('/api/supervisores', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre, marcaId }),
+  }).then((r) => json(r));
+}
+
+export function renameSupervisor(id: string, nombre: string): Promise<{ ok: true }> {
+  return fetch(`/api/supervisores/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre }),
+  }).then((r) => json(r));
+}
+
+export function deleteSupervisor(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/supervisores/${id}`, { method: 'DELETE' }).then((r) => json(r));
+}
+
+export function createEjecutivo(nombre: string, marcaId: string): Promise<Ejecutivo> {
+  return fetch('/api/ejecutivos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre, marcaId }),
+  }).then((r) => json(r));
+}
+
+export function renameEjecutivo(id: string, nombre: string): Promise<{ ok: true }> {
+  return fetch(`/api/ejecutivos/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre }),
+  }).then((r) => json(r));
+}
+
+export function deleteEjecutivo(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/ejecutivos/${id}`, { method: 'DELETE' }).then((r) => json(r));
+}
+
+export function fetchCapacitacionModulosBasico(): Promise<CapacitacionModulo[]> {
+  return fetch('/api/capacitacion-modulos/basico').then((r) => json(r));
+}
+
+export function fetchCapacitacionResultados(): Promise<Array<{ promotorId: string } & CapacitacionResultado>> {
+  return fetch('/api/capacitaciones/resultados').then((r) => json(r));
+}
+
+export function fetchCapacitacionModulosConPreguntas(): Promise<CapacitacionModuloConPreguntas[]> {
+  return fetch('/api/capacitacion-modulos').then((r) => json(r));
+}
+
+export function createCapacitacionModulo(nombre: string, descripcion: string | null): Promise<CapacitacionModulo> {
+  return fetch('/api/capacitacion-modulos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre, descripcion }),
+  }).then((r) => json(r));
+}
+
+export function updateCapacitacionModulo(
+  id: string,
+  patch: { nombre?: string; descripcion?: string | null; umbralAprobacion?: number }
+): Promise<{ ok: true }> {
+  return fetch(`/api/capacitacion-modulos/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).then((r) => json(r));
+}
+
+export function deleteCapacitacionModulo(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/capacitacion-modulos/${id}`, { method: 'DELETE' }).then((r) => json(r));
+}
+
+export function createCapacitacionPregunta(moduloId: string, texto: string): Promise<{ id: string; texto: string }> {
+  return fetch('/api/capacitacion-preguntas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ moduloId, texto }),
+  }).then((r) => json(r));
+}
+
+export function updateCapacitacionPregunta(id: string, texto: string): Promise<{ ok: true }> {
+  return fetch(`/api/capacitacion-preguntas/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto }),
+  }).then((r) => json(r));
+}
+
+export function deleteCapacitacionPregunta(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/capacitacion-preguntas/${id}`, { method: 'DELETE' }).then((r) => json(r));
+}
+
+export function createCapacitacionOpcion(preguntaId: string, texto: string): Promise<{ id: string; texto: string; correcta: boolean }> {
+  return fetch('/api/capacitacion-opciones', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preguntaId, texto }),
+  }).then((r) => json(r));
+}
+
+export function updateCapacitacionOpcionTexto(id: string, texto: string): Promise<{ ok: true }> {
+  return fetch(`/api/capacitacion-opciones/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto }),
+  }).then((r) => json(r));
+}
+
+export function marcarOpcionCorrecta(id: string, preguntaId: string): Promise<{ ok: true }> {
+  return fetch(`/api/capacitacion-opciones/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ correcta: true, preguntaId }),
+  }).then((r) => json(r));
+}
+
+export function deleteCapacitacionOpcion(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/capacitacion-opciones/${id}`, { method: 'DELETE' }).then((r) => json(r));
+}
+
+export function fetchCapacitacionLink(promotorId: string, moduloId: string): Promise<{ codigo: string }> {
+  return fetch(`/api/promotores/${promotorId}/capacitacion-link?moduloId=${moduloId}`).then((r) => json(r));
+}
+
+export function fetchCapacitacion(codigo: string): Promise<CapacitacionPublica> {
+  return fetch(`/api/capacitaciones/${codigo}`).then((r) => json(r));
+}
+
+export function enviarCapacitacion(codigo: string, payload: CapacitacionEnvioPayload): Promise<CapacitacionEnvioResultado> {
+  return fetch(`/api/capacitaciones/${codigo}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json(r));
 }

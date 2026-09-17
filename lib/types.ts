@@ -26,6 +26,8 @@ export type Promotor = {
   mod3: boolean;
   mod6: boolean;
   mod12: boolean;
+  /** Supervisor del maestro de marcas asignado a este promotor (Módulo 1 de capacitaciones). null si no tiene. */
+  supervisorId: string | null;
 };
 
 /** "Materiales completos" para las alertas de materiales: los 13 artículos del catálogo entregados. */
@@ -284,4 +286,108 @@ export type RecordatorioMateriales = {
   promotorId: string;
   nombre: string;
   fechaIngreso: string;
+};
+
+/** Maestro de marcas/supervisores/ejecutivos, base del Módulo 1 de capacitaciones. */
+export type Marca = {
+  id: string;
+  nombre: string;
+};
+
+export type Supervisor = {
+  id: string;
+  nombre: string;
+  marcaId: string;
+};
+
+export type Ejecutivo = {
+  id: string;
+  nombre: string;
+  marcaId: string;
+};
+
+export type MarcaConDetalle = Marca & {
+  supervisores: Supervisor[];
+  ejecutivos: Ejecutivo[];
+};
+
+/** Supervisor + el nombre de su marca, para poblar el selector de "supervisor asignado" en el padrón. */
+export type SupervisorConMarca = Supervisor & {
+  marcaNombre: string;
+};
+
+/**
+ * Examen de capacitación por contenido (distinto de las casillas
+ * mod1/mod3/mod6/mod12, que son por antigüedad). "orden" define la
+ * secuencia de desbloqueo: el módulo con orden=N requiere haber aprobado el
+ * de orden=N-1.
+ */
+export type CapacitacionModulo = {
+  id: string;
+  orden: number;
+  nombre: string;
+  descripcion: string | null;
+  umbralAprobacion: number;
+};
+
+export type CapacitacionOpcion = {
+  id: string;
+  texto: string;
+  correcta: boolean;
+};
+
+export type CapacitacionPregunta = {
+  id: string;
+  texto: string;
+  opciones: CapacitacionOpcion[];
+};
+
+/** Vista de administración (/capacitaciones, solo gerente): incluye qué opción es correcta. */
+export type CapacitacionModuloConPreguntas = CapacitacionModulo & {
+  preguntas: CapacitacionPregunta[];
+};
+
+/** Resultado más reciente de un promotor en un módulo, para el badge de estatus en el padrón. */
+export type CapacitacionResultado = {
+  moduloId: string;
+  calificacion: number;
+  aprobado: boolean;
+};
+
+/** Opción pública (sin exponer cuál es la correcta) para el examen en /q/{codigo}. */
+export type CapacitacionOpcionPublica = {
+  id: string;
+  texto: string;
+};
+
+export type CapacitacionPreguntaPublica = {
+  id: string;
+  texto: string;
+  opciones: CapacitacionOpcionPublica[];
+};
+
+/**
+ * Datos para pintar el examen público (/q/{codigo}). Si `bloqueado` es true,
+ * el promotor todavía no aprueba el módulo anterior y `preguntas` viene
+ * vacío — la pantalla debe mostrar el aviso de bloqueo, no el examen.
+ */
+export type CapacitacionPublica = {
+  promotorNombre: string;
+  moduloNombre: string;
+  moduloDescripcion: string | null;
+  umbralAprobacion: number;
+  bloqueado: boolean;
+  moduloAnteriorNombre: string | null;
+  preguntas: CapacitacionPreguntaPublica[];
+  resultadoPrevio: { calificacion: number; aprobado: boolean } | null;
+};
+
+export type CapacitacionEnvioPayload = {
+  respuestas: Array<{ preguntaId: string; opcionId: string }>;
+};
+
+export type CapacitacionEnvioResultado = {
+  calificacion: number;
+  aprobado: boolean;
+  umbralAprobacion: number;
 };

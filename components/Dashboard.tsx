@@ -3,17 +3,30 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { AlertaActiva, Dashboard as DashboardData, MaterialEstado, Modulos, Promotor, Usuario } from '@/lib/types';
+import type {
+  AlertaActiva,
+  CapacitacionModulo,
+  CapacitacionResultado,
+  Dashboard as DashboardData,
+  MaterialEstado,
+  Modulos,
+  Promotor,
+  SupervisorConMarca,
+  Usuario,
+} from '@/lib/types';
 import {
   cerrarMes,
   createPromotor,
   deletePromotor,
   fetchAlertas,
+  fetchCapacitacionModulosBasico,
+  fetchCapacitacionResultados,
   fetchDashboard,
   fetchMe,
   fetchMeses,
   fetchModulos,
   fetchPromotores,
+  fetchSupervisoresConMarca,
   logout,
   updateModulos,
   updatePromotor,
@@ -53,6 +66,16 @@ function TopBar({ user, onLogout }: { user: Usuario | null; onLogout: () => void
                 Usuarios
               </a>
             )}
+            {user.rol === 'gerente' && (
+              <a className="topbar-link" href="/marcas">
+                Marcas
+              </a>
+            )}
+            {user.rol === 'gerente' && (
+              <a className="topbar-link" href="/capacitaciones">
+                Exámenes
+              </a>
+            )}
             <ChangePasswordButton />
             <button className="topbar-link" onClick={onLogout}>
               Cerrar sesión
@@ -76,6 +99,11 @@ export default function Dashboard() {
   const [meses, setMeses] = useState<string[]>([]);
   const [currentMonth, setCurrentMonth] = useState<string | null>(null);
   const [promotores, setPromotores] = useState<Promotor[]>([]);
+  const [supervisores, setSupervisores] = useState<SupervisorConMarca[]>([]);
+  const [capacitacionModulos, setCapacitacionModulos] = useState<CapacitacionModulo[]>([]);
+  const [capacitacionResultados, setCapacitacionResultados] = useState<Array<{ promotorId: string } & CapacitacionResultado>>(
+    []
+  );
   const [modulos, setModulos] = useState<Modulos | null>(null);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [alertas, setAlertas] = useState<AlertaActiva[]>([]);
@@ -96,18 +124,25 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       try {
-        const [meRes, mesesRes, promotoresRes, modulosRes, alertasRes] = await Promise.all([
-          fetchMe(),
-          fetchMeses(),
-          fetchPromotores(),
-          fetchModulos(),
-          fetchAlertas(),
-        ]);
+        const [meRes, mesesRes, promotoresRes, modulosRes, alertasRes, supervisoresRes, capModulosRes, capResultadosRes] =
+          await Promise.all([
+            fetchMe(),
+            fetchMeses(),
+            fetchPromotores(),
+            fetchModulos(),
+            fetchAlertas(),
+            fetchSupervisoresConMarca(),
+            fetchCapacitacionModulosBasico(),
+            fetchCapacitacionResultados(),
+          ]);
         setUser(meRes);
         setMeses(mesesRes.meses);
         setPromotores(promotoresRes);
         setModulos(modulosRes);
         setAlertas(alertasRes);
+        setSupervisores(supervisoresRes);
+        setCapacitacionModulos(capModulosRes);
+        setCapacitacionResultados(capResultadosRes);
         const initialMonth = mesesRes.meses.includes(mesesRes.actual)
           ? mesesRes.actual
           : mesesRes.meses[mesesRes.meses.length - 1];
@@ -160,7 +195,7 @@ export default function Dashboard() {
     }
   }
 
-  async function handleFieldChange(id: string, field: string, value: string | boolean) {
+  async function handleFieldChange(id: string, field: string, value: string | boolean | null) {
     setPromotores((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
     try {
       await updatePromotor(id, { [field]: value } as Partial<Promotor>);
@@ -324,6 +359,9 @@ export default function Dashboard() {
         </p>
         <RosterTable
           promotores={promotores}
+          supervisores={supervisores}
+          capacitacionModulos={capacitacionModulos}
+          capacitacionResultados={capacitacionResultados}
           onFieldChange={handleFieldChange}
           onDelete={handleDelete}
           onMaterialToggle={handleMaterialToggle}

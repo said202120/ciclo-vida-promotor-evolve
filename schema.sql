@@ -278,6 +278,160 @@ create table if not exists importaciones_log (
   no_encontrados int not null default 0
 );
 
+-- Maestro de marcas/supervisores/ejecutivos, base para el Módulo 1 de
+-- capacitaciones. Administrado desde /marcas (solo gerente). Borrar una
+-- marca borra también sus supervisores y ejecutivos (se advierte en la UI
+-- antes de confirmar).
+create table if not exists marcas (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique,
+  created_at timestamptz default now()
+);
+
+create table if not exists supervisores (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  marca_id uuid not null references marcas(id) on delete cascade,
+  created_at timestamptz default now(),
+  unique (nombre, marca_id)
+);
+
+create table if not exists ejecutivos (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  marca_id uuid not null references marcas(id) on delete cascade,
+  created_at timestamptz default now(),
+  unique (nombre, marca_id)
+);
+
+insert into marcas (nombre) values
+  ('SPIN MASTER'), ('HANES'), ('ZURU'), ('AJEMEX'), ('RUZ'),
+  ('DISNEY'), ('ADM'), ('COMERCIALIZADORA HISPANA'), ('GIFAN'), ('JUGUETIMAX')
+on conflict (nombre) do nothing;
+
+insert into supervisores (nombre, marca_id)
+select v.nombre, m.id
+from (values
+  ('Español Martínez Jorge Luis', 'SPIN MASTER'),
+  ('González Peña Martín Alejandro', 'SPIN MASTER'),
+  ('Ruiz Cruz Cristian', 'SPIN MASTER'),
+  ('Sánchez Ruiz Erika Nallely', 'SPIN MASTER'),
+  ('Montes Bermúdez Edith', 'SPIN MASTER'),
+  ('Rojo Avelar Verónica', 'SPIN MASTER'),
+  ('Olivares Hinojosa Rosa Nely', 'SPIN MASTER'),
+  ('Gómez García Osiriz', 'SPIN MASTER'),
+  ('Martínez Ledezma Norma Nelly', 'HANES'),
+  ('Reyes Rodríguez María Teresa', 'HANES'),
+  ('Amador Alcalá Víctor Hugo', 'HANES'),
+  ('Gutiérrez Solís Oyuki', 'HANES'),
+  ('Menchaca Velasco Angélica Areli', 'RUZ'),
+  ('Anguiano Martínez Valeria', 'RUZ'),
+  ('González Rosano José Guadalupe', 'RUZ'),
+  ('Armenta Lucero Elizabeth', 'ADM'),
+  ('Clemente Salazar Jorge Fernando', 'ADM'),
+  ('Colín Suárez Patricia', 'ADM'),
+  ('Cruz Hernández Edgar Sebastián', 'ADM'),
+  ('De la Cruz López Luis Fernando', 'ADM'),
+  ('Delgado Montes de Oca Oscar Bernardo', 'ADM'),
+  ('Espinosa Pérez Pablo Abel', 'ADM'),
+  ('Flores Ramos José de Jesús', 'ADM'),
+  ('Gallegos Morales Ana Victoria', 'ADM'),
+  ('Martínez Muñoz Israel', 'ADM'),
+  ('Mejía Tejeda Luis David', 'ADM'),
+  ('Méndez Castillo Alma Teresa', 'ADM'),
+  ('Palacios Romero José Arturo', 'ADM'),
+  ('Peña Gallegos Bertha Alicia', 'ADM'),
+  ('Pinal Sánchez Estrella Guadalupe', 'ADM'),
+  ('Quintana Nogueda José de Jesús', 'ADM'),
+  ('Tuñón Francisco Marco Polo', 'ADM'),
+  ('Souza Raúl', 'GIFAN'),
+  ('Juárez David', 'GIFAN'),
+  ('Bojórquez Prisciliano', 'GIFAN'),
+  ('Bustos Conrado', 'GIFAN'),
+  ('Granillo Víctor', 'GIFAN')
+) as v(nombre, marca_nombre)
+join marcas m on m.nombre = v.marca_nombre
+on conflict (nombre, marca_id) do nothing;
+
+insert into ejecutivos (nombre, marca_id)
+select v.nombre, m.id
+from (values
+  ('Ochoa Verónica', 'SPIN MASTER'),
+  ('Martínez Fabián', 'HANES'),
+  ('Fomperosa Luis', 'ZURU'),
+  ('Cruz Valeria', 'AJEMEX'),
+  ('Delgadillo Fernando', 'RUZ'),
+  ('Obregón Alan', 'DISNEY'),
+  ('Pedraza Lizbet', 'ADM'),
+  ('Quintanar Fernanda', 'COMERCIALIZADORA HISPANA'),
+  ('Quintanar Fernanda', 'GIFAN'),
+  ('Sandoval Erick', 'JUGUETIMAX')
+) as v(nombre, marca_nombre)
+join marcas m on m.nombre = v.marca_nombre
+on conflict (nombre, marca_id) do nothing;
+
+-- Supervisor asignado al promotor (Módulo 1 de capacitaciones). Va después
+-- de crear la tabla supervisores porque la referencia. Si se borra el
+-- supervisor del maestro, el promotor se queda sin asignar (no se borra).
+alter table promotores add column if not exists supervisor_id uuid references supervisores(id) on delete set null;
+
+-- Exámenes de capacitación por contenido (distinto de las casillas
+-- mod1/mod3/mod6/mod12 del padrón, que son checkboxes de antigüedad, no de
+-- contenido). "orden" define la secuencia de desbloqueo: un módulo con
+-- orden=N solo se puede presentar si el promotor ya aprobó el de orden=N-1.
+-- Administrado desde /capacitaciones (solo gerente); el promotor lo presenta
+-- sin login en /q/{codigo}.
+create table if not exists capacitacion_modulos (
+  id uuid primary key default gen_random_uuid(),
+  orden int not null unique,
+  nombre text not null,
+  descripcion text,
+  umbral_aprobacion int not null default 90,
+  created_at timestamptz default now()
+);
+
+create table if not exists capacitacion_preguntas (
+  id uuid primary key default gen_random_uuid(),
+  modulo_id uuid not null references capacitacion_modulos(id) on delete cascade,
+  orden int not null default 0,
+  texto text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists capacitacion_opciones (
+  id uuid primary key default gen_random_uuid(),
+  pregunta_id uuid not null references capacitacion_preguntas(id) on delete cascade,
+  orden int not null default 0,
+  texto text not null,
+  correcta boolean not null default false,
+  created_at timestamptz default now()
+);
+
+-- Un link único por promotor y módulo, sin login, como encuestas_links.
+-- Reintentos ilimitados: cada envío nuevo sobreescribe el resultado anterior
+-- de ese módulo en capacitacion_resultados (no se guarda historial).
+create table if not exists capacitacion_links (
+  id uuid primary key default gen_random_uuid(),
+  promotor_id uuid not null references promotores(id) on delete cascade,
+  modulo_id uuid not null references capacitacion_modulos(id) on delete cascade,
+  codigo text not null unique,
+  created_at timestamptz default now(),
+  unique (promotor_id, modulo_id)
+);
+
+create table if not exists capacitacion_resultados (
+  promotor_id uuid not null references promotores(id) on delete cascade,
+  modulo_id uuid not null references capacitacion_modulos(id) on delete cascade,
+  calificacion numeric not null,
+  aprobado boolean not null,
+  respondido_en timestamptz not null default now(),
+  primary key (promotor_id, modulo_id)
+);
+
+insert into capacitacion_modulos (orden, nombre, descripcion, umbral_aprobacion) values
+  (1, 'Compañía', 'Administración, comunicación y seguridad de Personal', 90)
+on conflict (orden) do nothing;
+
 -- Trigger simple para updated_at en promotores
 create or replace function set_updated_at()
 returns trigger as $$
