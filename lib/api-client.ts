@@ -335,18 +335,19 @@ export function deleteCapacitacionModulo(id: string): Promise<{ ok: true }> {
 export function createCapacitacionPregunta(
   moduloId: string,
   texto: string,
-  tipo: CapacitacionPreguntaTipo = 'texto'
-): Promise<{ id: string; texto: string; tipo: CapacitacionPreguntaTipo }> {
+  tipo: CapacitacionPreguntaTipo = 'texto',
+  campoAbiertoLabel: string | null = null
+): Promise<{ id: string; texto: string; tipo: CapacitacionPreguntaTipo; campoAbiertoLabel: string | null }> {
   return fetch('/api/capacitacion-preguntas', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ moduloId, texto, tipo }),
+    body: JSON.stringify({ moduloId, texto, tipo, campoAbiertoLabel }),
   }).then((r) => json(r));
 }
 
 export function updateCapacitacionPregunta(
   id: string,
-  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo }
+  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo; campoAbiertoLabel?: string | null }
 ): Promise<{ ok: true }> {
   return fetch(`/api/capacitacion-preguntas/${id}`, {
     method: 'PATCH',

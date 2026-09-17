@@ -21,7 +21,8 @@ export async function POST(request: Request) {
   if (!TIPOS_VALIDOS.includes(tipo as CapacitacionPreguntaTipo)) {
     return NextResponse.json({ error: `tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}.` }, { status: 400 });
   }
+  const campoAbiertoLabel = typeof body.campoAbiertoLabel === 'string' && body.campoAbiertoLabel.trim() ? body.campoAbiertoLabel.trim() : null;
 
-  const pregunta = await createCapacitacionPregunta(moduloId, texto, tipo as CapacitacionPreguntaTipo);
+  const pregunta = await createCapacitacionPregunta(moduloId, texto, tipo as CapacitacionPreguntaTipo, campoAbiertoLabel);
   return NextResponse.json(pregunta, { status: 201 });
 }

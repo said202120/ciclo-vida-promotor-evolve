@@ -412,6 +412,11 @@ alter table capacitacion_preguntas drop constraint if exists capacitacion_pregun
 alter table capacitacion_preguntas add constraint capacitacion_preguntas_tipo_check
   check (tipo in ('texto', 'supervisor_directo', 'coordinador_cuenta'));
 
+-- Campo de texto libre OPCIONAL debajo de la pregunta (p.ej. "¿Cuáles?" bajo
+-- un Sí/No). Informativo, nunca califica. null = esta pregunta no lleva
+-- campo abierto.
+alter table capacitacion_preguntas add column if not exists campo_abierto_label text;
+
 create table if not exists capacitacion_opciones (
   id uuid primary key default gen_random_uuid(),
   pregunta_id uuid not null references capacitacion_preguntas(id) on delete cascade,
@@ -445,6 +450,23 @@ create table if not exists capacitacion_resultados (
 insert into capacitacion_modulos (orden, nombre, descripcion, umbral_aprobacion) values
   (1, 'Compañía', 'Administración, comunicación y seguridad de Personal', 90)
 on conflict (orden) do nothing;
+
+insert into capacitacion_modulos (orden, nombre, descripcion, umbral_aprobacion) values
+  (2, 'Marca', 'Conocimiento de marca general', 90)
+on conflict (orden) do nothing;
+
+-- Respuestas al campo abierto opcional (ver capacitacion_preguntas.campo_abierto_label):
+-- no califican, solo se guardan para consulta. Reintentos ilimitados: cada
+-- envío nuevo sobreescribe la respuesta anterior de esa pregunta; si el
+-- promotor la deja vacía en un reenvío, se borra (no queda un texto viejo
+-- huérfano).
+create table if not exists capacitacion_respuestas_abiertas (
+  promotor_id uuid not null references promotores(id) on delete cascade,
+  pregunta_id uuid not null references capacitacion_preguntas(id) on delete cascade,
+  texto text not null,
+  respondido_en timestamptz not null default now(),
+  primary key (promotor_id, pregunta_id)
+);
 
 -- Trigger simple para updated_at en promotores
 create or replace function set_updated_at()

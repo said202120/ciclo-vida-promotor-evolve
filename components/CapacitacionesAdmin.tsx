@@ -27,6 +27,7 @@ export default function CapacitacionesAdmin() {
 
   const [nuevaPregunta, setNuevaPregunta] = useState<Record<string, string>>({});
   const [nuevaPreguntaTipo, setNuevaPreguntaTipo] = useState<Record<string, CapacitacionPreguntaTipo>>({});
+  const [nuevaPreguntaCampoAbierto, setNuevaPreguntaCampoAbierto] = useState<Record<string, string>>({});
   const [nuevaOpcion, setNuevaOpcion] = useState<Record<string, string>>({});
 
   const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
@@ -107,9 +108,15 @@ export default function CapacitacionesAdmin() {
     const texto = (nuevaPregunta[moduloId] ?? '').trim();
     if (!texto) return;
     try {
-      await createCapacitacionPregunta(moduloId, texto, nuevaPreguntaTipo[moduloId] ?? 'texto');
+      await createCapacitacionPregunta(
+        moduloId,
+        texto,
+        nuevaPreguntaTipo[moduloId] ?? 'texto',
+        (nuevaPreguntaCampoAbierto[moduloId] ?? '').trim() || null
+      );
       setNuevaPregunta((prev) => ({ ...prev, [moduloId]: '' }));
       setNuevaPreguntaTipo((prev) => ({ ...prev, [moduloId]: 'texto' }));
+      setNuevaPreguntaCampoAbierto((prev) => ({ ...prev, [moduloId]: '' }));
       setError(null);
       reload();
     } catch (err) {
@@ -121,6 +128,12 @@ export default function CapacitacionesAdmin() {
     const texto = valorNuevo.trim();
     if (!texto || texto === actual) return;
     conError(updateCapacitacionPregunta(id, { texto }), 'No se pudo actualizar la pregunta.');
+  }
+
+  function handleCampoAbiertoPregunta(id: string, actual: string | null, valorNuevo: string) {
+    const campoAbiertoLabel = valorNuevo.trim() || null;
+    if (campoAbiertoLabel === actual) return;
+    conError(updateCapacitacionPregunta(id, { campoAbiertoLabel }), 'No se pudo actualizar el campo abierto.');
   }
 
   function handleTipoPregunta(id: string, actual: CapacitacionPreguntaTipo, valorNuevo: string) {
@@ -266,6 +279,13 @@ export default function CapacitacionesAdmin() {
                     </option>
                   ))}
                 </select>
+                <input
+                  type="text"
+                  className="capacitacion-campo-abierto-input"
+                  placeholder="Campo abierto opcional (p.ej. ¿Cuáles?) — dejar vacío si no aplica"
+                  defaultValue={pregunta.campoAbiertoLabel ?? ''}
+                  onBlur={(e) => handleCampoAbiertoPregunta(pregunta.id, pregunta.campoAbiertoLabel, e.target.value)}
+                />
 
                 {pregunta.tipo === 'texto' ? (
                   <>
@@ -378,6 +398,13 @@ export default function CapacitacionesAdmin() {
                   </option>
                 ))}
               </select>
+              <input
+                type="text"
+                className="capacitacion-campo-abierto-input"
+                placeholder="Campo abierto opcional (p.ej. ¿Cuáles?)"
+                value={nuevaPreguntaCampoAbierto[modulo.id] ?? ''}
+                onChange={(e) => setNuevaPreguntaCampoAbierto((prev) => ({ ...prev, [modulo.id]: e.target.value }))}
+              />
               <button type="button" className="add-row" onClick={() => handleAddPregunta(modulo.id)}>
                 + Agregar pregunta
               </button>

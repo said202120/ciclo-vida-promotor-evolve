@@ -39,8 +39,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ cod
     return NextResponse.json({ error: 'Respuestas inválidas.' }, { status: 400 });
   }
 
+  const respuestasAbiertasRaw = Array.isArray(body.respuestasAbiertas) ? body.respuestasAbiertas : [];
+  if (
+    !respuestasAbiertasRaw.every(
+      (r: unknown) =>
+        r &&
+        typeof r === 'object' &&
+        typeof (r as { preguntaId?: unknown }).preguntaId === 'string' &&
+        typeof (r as { texto?: unknown }).texto === 'string'
+    )
+  ) {
+    return NextResponse.json({ error: 'Respuestas de campo abierto inválidas.' }, { status: 400 });
+  }
+
   try {
-    const resultado = await guardarRespuestaCapacitacion(codigo, respuestas);
+    const resultado = await guardarRespuestaCapacitacion(codigo, respuestas, respuestasAbiertasRaw);
     if (!resultado) {
       return NextResponse.json({ error: 'Este link no es válido.' }, { status: 404 });
     }

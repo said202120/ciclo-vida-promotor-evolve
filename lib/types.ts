@@ -350,6 +350,8 @@ export type CapacitacionPregunta = {
   texto: string;
   tipo: CapacitacionPreguntaTipo;
   opciones: CapacitacionOpcion[];
+  /** Etiqueta del campo de texto libre opcional bajo la pregunta (p.ej. "¿Cuáles?"), o null si no lleva uno. Nunca califica. */
+  campoAbiertoLabel: string | null;
 };
 
 /** Vista de administración (/capacitaciones, solo gerente): incluye qué opción es correcta. */
@@ -374,6 +376,10 @@ export type CapacitacionPreguntaPublica = {
   id: string;
   texto: string;
   opciones: CapacitacionOpcionPublica[];
+  /** Etiqueta del campo de texto libre opcional bajo la pregunta (p.ej. "¿Cuáles?"), o null si no lleva uno. */
+  campoAbiertoLabel: string | null;
+  /** Lo último que el promotor escribió en ese campo abierto, para precargarlo en un reintento. null si nunca contestó. */
+  respuestaAbiertaPrevia: string | null;
 };
 
 /**
@@ -396,6 +402,8 @@ export type CapacitacionPublica = {
 
 export type CapacitacionEnvioPayload = {
   respuestas: Array<{ preguntaId: string; opcionId: string }>;
+  /** Respuestas a los campos abiertos opcionales (ver campoAbiertoLabel) — nunca califican. */
+  respuestasAbiertas?: Array<{ preguntaId: string; texto: string }>;
 };
 
 export type CapacitacionEnvioResultado = {

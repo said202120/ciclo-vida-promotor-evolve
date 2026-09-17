@@ -54,7 +54,7 @@ export async function fetchCapacitacionModulosBasico(): Promise<CapacitacionModu
 export async function fetchCapacitacionModulosConPreguntas(): Promise<CapacitacionModuloConPreguntas[]> {
   const [{ rows: modRows }, { rows: pregRows }, { rows: opcRows }] = await Promise.all([
     sql.query('select id, orden, nombre, descripcion, umbral_aprobacion from capacitacion_modulos order by orden'),
-    sql.query('select id, modulo_id, texto, tipo from capacitacion_preguntas order by orden, created_at'),
+    sql.query('select id, modulo_id, texto, tipo, campo_abierto_label from capacitacion_preguntas order by orden, created_at'),
     sql.query(
       `select o.id, o.pregunta_id, o.texto, o.correcta
        from capacitacion_opciones o
@@ -79,6 +79,7 @@ export async function fetchCapacitacionModulosConPreguntas(): Promise<Capacitaci
       texto: p.texto as string,
       tipo: p.tipo as CapacitacionPreguntaTipo,
       opciones: opcionesPorPregunta.get(p.id as string) ?? [],
+      campoAbiertoLabel: p.campo_abierto_label as string | null,
     });
     preguntasPorModulo.set(moduloId, lista);
   }
@@ -141,21 +142,28 @@ export async function deleteCapacitacionModulo(id: string): Promise<void> {
 export async function createCapacitacionPregunta(
   moduloId: string,
   texto: string,
-  tipo: CapacitacionPreguntaTipo = 'texto'
+  tipo: CapacitacionPreguntaTipo = 'texto',
+  campoAbiertoLabel: string | null = null
 ): Promise<CapacitacionPregunta> {
   const { rows } = await sql.query(
-    `insert into capacitacion_preguntas (modulo_id, orden, texto, tipo)
-     values ($1, coalesce((select max(orden) + 1 from capacitacion_preguntas where modulo_id = $1), 1), $2, $3)
-     returning id, texto, tipo`,
-    [moduloId, texto, tipo]
+    `insert into capacitacion_preguntas (modulo_id, orden, texto, tipo, campo_abierto_label)
+     values ($1, coalesce((select max(orden) + 1 from capacitacion_preguntas where modulo_id = $1), 1), $2, $3, $4)
+     returning id, texto, tipo, campo_abierto_label`,
+    [moduloId, texto, tipo, campoAbiertoLabel]
   );
-  return { id: rows[0].id as string, texto: rows[0].texto as string, tipo: rows[0].tipo as CapacitacionPreguntaTipo, opciones: [] };
+  return {
+    id: rows[0].id as string,
+    texto: rows[0].texto as string,
+    tipo: rows[0].tipo as CapacitacionPreguntaTipo,
+    opciones: [],
+    campoAbiertoLabel: rows[0].campo_abierto_label as string | null,
+  };
 }
 
 /** Si `tipo` cambia a uno dinámico, se borran las opciones capturadas a mano (ya no aplican). */
 export async function updateCapacitacionPregunta(
   id: string,
-  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo }
+  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo; campoAbiertoLabel?: string | null }
 ): Promise<void> {
   if (patch.tipo !== undefined && patch.tipo !== 'texto') {
     await sql.query('delete from capacitacion_opciones where pregunta_id = $1', [id]);
@@ -170,6 +178,10 @@ export async function updateCapacitacionPregunta(
   if (patch.tipo !== undefined) {
     sets.push(`tipo = $${i++}`);
     values.push(patch.tipo);
+  }
+  if (patch.campoAbiertoLabel !== undefined) {
+    sets.push(`campo_abierto_label = $${i++}`);
+    values.push(patch.campoAbiertoLabel);
   }
   if (sets.length === 0) return;
   values.push(id);
@@ -318,6 +330,29 @@ async function generarOpcionesCoordinadorCuenta(
   return { opciones, razonBloqueo: null };
 }
 
+/**
+ * Si el módulo requiere haber aprobado el anterior en la secuencia y el
+ * promotor no lo ha hecho, devuelve el mensaje de bloqueo; null si puede
+ * presentarlo. Se usa tanto en el GET público como en el POST de envío —
+ * este último no debe confiar solo en que el promotor nunca haya visto las
+ * preguntas bloqueadas, hay que revalidar la secuencia al calificar también.
+ */
+async function razonBloqueoPorSecuencia(promotorId: string, moduloNombre: string, orden: number): Promise<string | null> {
+  if (orden <= 1) return null;
+  const { rows: prevRows } = await sql.query(
+    `select m.nombre, cr.aprobado
+     from capacitacion_modulos m
+     left join capacitacion_resultados cr on cr.modulo_id = m.id and cr.promotor_id = $1
+     where m.orden = $2`,
+    [promotorId, orden - 1]
+  );
+  const prev = prevRows[0];
+  if (prev && prev.aprobado !== true) {
+    return `Antes de presentar "${moduloNombre}" necesitas aprobar el módulo "${prev.nombre}". Pide a tu ejecutivo el link de ese módulo.`;
+  }
+  return null;
+}
+
 /** Datos para pintar el examen público (/q/{codigo}): preguntas sin exponer cuál opción es la correcta. */
 export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise<CapacitacionPublica | null> {
   const { rows } = await sql.query(
@@ -336,22 +371,9 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
   const moduloId = row.modulo_id as string;
   const orden = row.orden as number;
 
-  let bloqueado = false;
-  let razonBloqueo: string | null = null;
-  if (orden > 1) {
-    const { rows: prevRows } = await sql.query(
-      `select m.nombre, cr.aprobado
-       from capacitacion_modulos m
-       left join capacitacion_resultados cr on cr.modulo_id = m.id and cr.promotor_id = $1
-       where m.orden = $2`,
-      [promotorId, orden - 1]
-    );
-    const prev = prevRows[0];
-    if (prev && prev.aprobado !== true) {
-      bloqueado = true;
-      razonBloqueo = `Antes de presentar "${row.modulo_nombre}" necesitas aprobar el módulo "${prev.nombre}". Pide a tu ejecutivo el link de ese módulo.`;
-    }
-  }
+  const razonBloqueoSecuencia = await razonBloqueoPorSecuencia(promotorId, row.modulo_nombre as string, orden);
+  let bloqueado = razonBloqueoSecuencia !== null;
+  let razonBloqueo: string | null = razonBloqueoSecuencia;
 
   const { rows: resultRows } = await sql.query(
     'select calificacion, aprobado from capacitacion_resultados where promotor_id = $1 and modulo_id = $2',
@@ -364,7 +386,7 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
   let preguntas: CapacitacionPreguntaPublica[] = [];
   if (!bloqueado) {
     const { rows: pregRows } = await sql.query(
-      'select id, texto, tipo from capacitacion_preguntas where modulo_id = $1 order by orden, created_at',
+      'select id, texto, tipo, campo_abierto_label from capacitacion_preguntas where modulo_id = $1 order by orden, created_at',
       [moduloId]
     );
 
@@ -383,10 +405,25 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
       }
     }
 
+    const todasLasPreguntaIds = pregRows.map((p) => p.id as string);
+    const { rows: abiertasRows } = await sql.query(
+      `select pregunta_id, texto from capacitacion_respuestas_abiertas where promotor_id = $1 and pregunta_id = any($2::uuid[])`,
+      [promotorId, todasLasPreguntaIds]
+    );
+    const abiertaPreviaPorPregunta = new Map(abiertasRows.map((r) => [r.pregunta_id as string, r.texto as string]));
+
     for (const p of pregRows) {
       const tipo = p.tipo as CapacitacionPreguntaTipo;
+      const campoAbiertoLabel = p.campo_abierto_label as string | null;
+      const respuestaAbiertaPrevia = abiertaPreviaPorPregunta.get(p.id as string) ?? null;
       if (tipo === 'texto') {
-        preguntas.push({ id: p.id as string, texto: p.texto as string, opciones: opcionesPorPreguntaTexto.get(p.id as string) ?? [] });
+        preguntas.push({
+          id: p.id as string,
+          texto: p.texto as string,
+          opciones: opcionesPorPreguntaTexto.get(p.id as string) ?? [],
+          campoAbiertoLabel,
+          respuestaAbiertaPrevia,
+        });
         continue;
       }
       const generador = tipo === 'supervisor_directo' ? generarOpcionesSupervisorDirecto : generarOpcionesCoordinadorCuenta;
@@ -397,7 +434,13 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
         preguntas = [];
         break;
       }
-      preguntas.push({ id: p.id as string, texto: p.texto as string, opciones: resultado.opciones });
+      preguntas.push({
+        id: p.id as string,
+        texto: p.texto as string,
+        opciones: resultado.opciones,
+        campoAbiertoLabel,
+        respuestaAbiertaPrevia,
+      });
     }
   }
 
@@ -429,15 +472,24 @@ export class RespuestasInvalidasError extends Error {}
  */
 export async function guardarRespuestaCapacitacion(
   codigo: string,
-  respuestas: Array<{ preguntaId: string; opcionId: string }>
+  respuestas: Array<{ preguntaId: string; opcionId: string }>,
+  respuestasAbiertas: Array<{ preguntaId: string; texto: string }> = []
 ): Promise<{ calificacion: number; aprobado: boolean; umbralAprobacion: number } | null> {
   const destino = await fetchCapacitacionLinkDestino(codigo);
   if (!destino) return null;
   const { promotorId, moduloId } = destino;
 
-  const { rows: modRows } = await sql.query('select umbral_aprobacion from capacitacion_modulos where id = $1', [moduloId]);
-  const umbralAprobacion = modRows[0]?.umbral_aprobacion as number | undefined;
-  if (umbralAprobacion === undefined) return null;
+  const { rows: modRows } = await sql.query('select nombre, orden, umbral_aprobacion from capacitacion_modulos where id = $1', [
+    moduloId,
+  ]);
+  const modRow = modRows[0];
+  if (!modRow) return null;
+  const umbralAprobacion = modRow.umbral_aprobacion as number;
+
+  const razonBloqueoSecuencia = await razonBloqueoPorSecuencia(promotorId, modRow.nombre as string, modRow.orden as number);
+  if (razonBloqueoSecuencia) {
+    throw new RespuestasInvalidasError(razonBloqueoSecuencia);
+  }
 
   const { rows: pregRows } = await sql.query('select id, tipo from capacitacion_preguntas where modulo_id = $1', [moduloId]);
   if (pregRows.length === 0) {
@@ -507,6 +559,26 @@ export async function guardarRespuestaCapacitacion(
        respondido_en = excluded.respondido_en`,
     [promotorId, moduloId, calificacion, aprobado]
   );
+
+  // Campos abiertos: informativos, nunca califican. Una respuesta vacía en un
+  // reenvío borra la anterior en vez de dejarla huérfana.
+  for (const a of respuestasAbiertas) {
+    if (!tipoPorPreguntaId.has(a.preguntaId)) continue; // pregunta de otro módulo, se ignora
+    const texto = a.texto.trim();
+    if (texto) {
+      await sql.query(
+        `insert into capacitacion_respuestas_abiertas (promotor_id, pregunta_id, texto, respondido_en)
+         values ($1, $2, $3, now())
+         on conflict (promotor_id, pregunta_id) do update set texto = excluded.texto, respondido_en = excluded.respondido_en`,
+        [promotorId, a.preguntaId, texto]
+      );
+    } else {
+      await sql.query('delete from capacitacion_respuestas_abiertas where promotor_id = $1 and pregunta_id = $2', [
+        promotorId,
+        a.preguntaId,
+      ]);
+    }
+  }
 
   return { calificacion, aprobado, umbralAprobacion };
 }

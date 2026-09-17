@@ -6,6 +6,13 @@ import { enviarCapacitacion } from '@/lib/api-client';
 
 export default function CapacitacionForm({ codigo, inicial }: { codigo: string; inicial: CapacitacionPublica }) {
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
+  const [respuestasAbiertas, setRespuestasAbiertas] = useState<Record<string, string>>(() => {
+    const iniciales: Record<string, string> = {};
+    for (const p of inicial.preguntas) {
+      if (p.campoAbiertoLabel && p.respuestaAbiertaPrevia) iniciales[p.id] = p.respuestaAbiertaPrevia;
+    }
+    return iniciales;
+  });
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<CapacitacionEnvioResultado | null>(null);
@@ -23,6 +30,9 @@ export default function CapacitacionForm({ codigo, inicial }: { codigo: string; 
     try {
       const payload = {
         respuestas: inicial.preguntas.map((p) => ({ preguntaId: p.id, opcionId: respuestas[p.id] })),
+        respuestasAbiertas: inicial.preguntas
+          .filter((p) => p.campoAbiertoLabel)
+          .map((p) => ({ preguntaId: p.id, texto: respuestasAbiertas[p.id] ?? '' })),
       };
       const res = await enviarCapacitacion(codigo, payload);
       setResultado(res);
@@ -129,6 +139,17 @@ export default function CapacitacionForm({ codigo, inicial }: { codigo: string; 
                 {opcion.texto}
               </label>
             ))}
+            {pregunta.campoAbiertoLabel && (
+              <label className="capacitacion-quiz-abierto">
+                {pregunta.campoAbiertoLabel}
+                <input
+                  type="text"
+                  value={respuestasAbiertas[pregunta.id] ?? ''}
+                  onChange={(e) => setRespuestasAbiertas((prev) => ({ ...prev, [pregunta.id]: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </label>
+            )}
           </div>
         ))}
 
