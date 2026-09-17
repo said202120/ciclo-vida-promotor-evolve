@@ -9,13 +9,20 @@ export type Promotor = {
   imss: boolean;
   materialesEntregados: number;
   materialesTotal: number;
+  /**
+   * Checklist de 10 materiales (ver MATERIALES_ENCUESTA) verificado por ambos
+   * lados: true solo si sistema (promotor_materiales) Y la respuesta de la
+   * encuesta del promotor coinciden en que sí lo recibió, en los 10. null si
+   * el promotor todavía no contesta la encuesta — usado por el KPI 2.1.
+   */
+  materialesVerificados: boolean | null;
   mod1: boolean;
   mod3: boolean;
   mod6: boolean;
   mod12: boolean;
 };
 
-/** "Materiales completos" para el KPI 2.1 y las alertas: los 13 artículos del catálogo entregados. */
+/** "Materiales completos" para las alertas de materiales: los 13 artículos del catálogo entregados. */
 export function materialesCompletos(p: Pick<Promotor, 'materialesEntregados' | 'materialesTotal'>): boolean {
   return p.materialesTotal > 0 && p.materialesEntregados >= p.materialesTotal;
 }

@@ -58,6 +58,10 @@ function rowToApi(row: PromotorRow): Promotor {
     mod12: row.mod12,
     materialesEntregados: Number(row.materiales_entregados),
     materialesTotal: Number(row.materiales_total),
+    // Placeholder: esta consulta es de propósito general (padrón/CRUD) y no
+    // trae la comparación con la encuesta. lib/roster.ts la rellena con el
+    // valor real para los endpoints de cálculo de KPI que sí la necesitan.
+    materialesVerificados: null,
   };
 }
 

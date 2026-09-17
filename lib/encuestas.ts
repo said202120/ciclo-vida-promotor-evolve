@@ -224,3 +224,36 @@ export async function fetchComparacionIngresos(mes: string): Promise<Comparacion
     };
   });
 }
+
+/**
+ * Para el KPI 2.1 ("% con materiales entregados dentro del calendario
+ * comprometido"): por promotor, si ya contestó la encuesta y, de los 10
+ * artículos de MATERIALES_ENCUESTA, sistema (promotor_materiales) Y la
+ * respuesta del promotor coinciden en que sí lo recibió en TODOS. null si
+ * el promotor todavía no contesta — ese caso se excluye del KPI (ni cumple
+ * ni no cumple) hasta que lo haga.
+ */
+export async function fetchMaterialesVerificados(): Promise<Map<string, boolean | null>> {
+  const { rows } = await sql.query(
+    `select
+       p.id as promotor_id,
+       (er.respondida_en is not null) as respondio,
+       bool_and(coalesce(pm.entregado, false) and coalesce(emr.recibido, false)) as cumple
+     from promotores p
+     cross join materiales_catalogo mc
+     left join promotor_materiales pm on pm.promotor_id = p.id and pm.material_id = mc.id
+     left join encuestas_respuestas er on er.promotor_id = p.id
+     left join encuesta_materiales_respuestas emr on emr.encuesta_respuesta_id = er.id and emr.material_id = mc.id
+     where mc.nombre = any($1::text[])
+     group by p.id, er.respondida_en`,
+    [MATERIALES_ENCUESTA]
+  );
+
+  const resultado = new Map<string, boolean | null>();
+  for (const row of rows) {
+    const promotorId = row.promotor_id as string;
+    const respondio = row.respondio as boolean;
+    resultado.set(promotorId, respondio ? (row.cumple as boolean) : null);
+  }
+  return resultado;
+}

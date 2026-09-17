@@ -2,7 +2,7 @@
 // Portado 1:1 desde Artefacto_Ciclo_de_Vida_del_Promotor.html — no cambiar
 // fórmulas, pesos ni metas aquí sin validarlo primero contra el prototipo.
 
-import { materialesCompletos, type Dashboard, type KpiId, type KpiResult, type Modulos, type PipelineStage, type Promotor } from './types';
+import type { Dashboard, KpiId, KpiResult, Modulos, PipelineStage, Promotor } from './types';
 
 export const KPI_META: Record<KpiId, { meta: number; peso: number }> = {
   kr1_carta: { meta: 100, peso: 25 },
@@ -61,10 +61,16 @@ export function cohortKR1(roster: Promotor[], mes: string) {
   };
 }
 
+// "Cumple" = para los 10 materiales de la encuesta, sistema (promotor_materiales)
+// Y la respuesta del promotor coinciden en que sí lo recibió, en TODOS
+// (materialesVerificados === true, ver fetchMaterialesVerificados). Un
+// promotor que aún no contesta la encuesta (materialesVerificados === null)
+// queda fuera del universo — ni cumple ni no cumple — hasta que lo haga.
 export function cohortKR2(roster: Promotor[], mes: string): KpiResult {
   const ref = endOfMonth(mes);
   const due = roster.filter((p) => monthsBetween(p.fechaIngreso, ref) === 2);
-  return makeKpi('kr2_materiales', due.filter((p) => materialesCompletos(p)).length, due.length);
+  const conRespuesta = due.filter((p) => p.materialesVerificados !== null);
+  return makeKpi('kr2_materiales', conRespuesta.filter((p) => p.materialesVerificados === true).length, conRespuesta.length);
 }
 
 export function cohortKPI32(roster: Promotor[], mes: string): KpiResult {
