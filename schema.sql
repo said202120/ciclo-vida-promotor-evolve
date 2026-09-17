@@ -148,10 +148,12 @@ begin
   end if;
 end $$;
 
--- Encuesta de verificación para promotores nuevos: un link único sin login
--- por promotor (/e/{codigo}). El promotor puede volver a abrir el mismo link
--- y actualizar su respuesta las veces que haga falta — usado_en es solo
--- informativo (primera vez que contestó), no bloquea reenvíos.
+-- Encuestas de verificación para promotores nuevos: dos encuestas
+-- independientes por promotor, cada una con su propio link único sin login
+-- (mesa_control -> /e/{codigo}, materiales -> /m/{codigo}). El promotor puede
+-- volver a abrir el mismo link y actualizar su respuesta las veces que haga
+-- falta — usado_en es solo informativo (primera vez que contestó), no
+-- bloquea reenvíos.
 create table if not exists encuestas_links (
   id uuid primary key default gen_random_uuid(),
   promotor_id uuid not null references promotores(id) on delete cascade,
@@ -160,23 +162,45 @@ create table if not exists encuestas_links (
   usado_en timestamptz
 );
 
--- Respuestas del promotor a la encuesta. Se guardan aparte del padrón a
+-- Se agregó `tipo`: antes había un solo link por promotor: ahora hay uno por
+-- encuesta. Las filas que ya existían de antes de este cambio son todas de
+-- la encuesta "Mesa de Control" (era la única que existía).
+alter table encuestas_links add column if not exists tipo text not null default 'mesa_control';
+alter table encuestas_links drop constraint if exists encuestas_links_tipo_check;
+alter table encuestas_links add constraint encuestas_links_tipo_check
+  check (tipo in ('mesa_control', 'materiales'));
+alter table encuestas_links drop constraint if exists encuestas_links_promotor_tipo_key;
+alter table encuestas_links add constraint encuestas_links_promotor_tipo_key unique (promotor_id, tipo);
+
+-- Respuestas del promotor a las encuestas. Se guardan aparte del padrón a
 -- propósito: son lo que el PROMOTOR reporta, no lo que ya registraron
 -- mesa_control/nómina/Aspel — para poder comparar ambos lados y detectar
--- discrepancias (ver lib/encuestas.ts). Una fila por promotor; cada envío
--- nuevo sobreescribe la anterior.
+-- discrepancias (ver lib/encuestas.ts). Una fila por promotor — las dos
+-- encuestas comparten la fila pero cada una solo toca sus propias columnas,
+-- nunca las de la otra. Cada envío nuevo sobreescribe la respuesta anterior
+-- de esa encuesta específica.
 create table if not exists encuestas_respuestas (
   id uuid primary key default gen_random_uuid(),
   promotor_id uuid not null unique references promotores(id) on delete cascade,
+  -- Encuesta "Mesa de Control" (bloques 1 y 2, /e/{codigo})
   contrato_reportado boolean,
   imss_reportado boolean,
   carta_reportada boolean,
   credencial_reportada boolean,
   usuario_emetrix_reportado boolean,
+  respondida_en timestamptz,
+  -- Encuesta "Materiales" (/m/{codigo}) — independiente de la de arriba
   fecha_entrega_comunicada boolean,
-  respondida_en timestamptz default now(),
+  materiales_respondida_en timestamptz,
   updated_at timestamptz default now()
 );
+
+-- Migración: la columna ya existía con default now() y sin la contraparte de
+-- materiales; se agrega la nueva y se le quita el default a la vieja (un
+-- registro nuevo de la encuesta de materiales ya no debe "contestar" también
+-- la de Mesa de Control por default).
+alter table encuestas_respuestas add column if not exists materiales_respondida_en timestamptz;
+alter table encuestas_respuestas alter column respondida_en drop default;
 
 -- Qué materiales del checklist de la encuesta (bloque 3) dice el promotor
 -- que ya recibió, artículo por artículo — mismo catálogo que usa el padrón,

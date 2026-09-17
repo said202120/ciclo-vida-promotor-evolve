@@ -26,8 +26,10 @@ import Lane from './Lane';
 import KpiRow from './KpiRow';
 import ModuleToggles from './ModuleToggles';
 import AlertBanner from './AlertBanner';
+import RecordatoriosMateriales from './RecordatoriosMateriales';
 import MaterialesResumen from './MaterialesResumen';
 import ComparacionIngresos from './ComparacionIngresos';
+import VisibilidadMaterialesCard from './VisibilidadMaterialesCard';
 import ChangePasswordButton from './ChangePasswordButton';
 
 const MONTH_NAMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -263,6 +265,7 @@ export default function Dashboard() {
       <TopBar user={user} onLogout={handleLogout} />
 
       <AlertBanner alertas={alertas} />
+      <RecordatoriosMateriales />
 
       <header>
         <div>
@@ -326,6 +329,8 @@ export default function Dashboard() {
           onMaterialToggle={handleMaterialToggle}
         />
       </div>
+
+      <VisibilidadMaterialesCard kpi={dashboard.visibilidadMateriales} />
 
       <ComparacionIngresos />
 

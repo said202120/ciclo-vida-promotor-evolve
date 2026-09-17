@@ -62,6 +62,7 @@ function rowToApi(row: PromotorRow): Promotor {
     // trae la comparación con la encuesta. lib/roster.ts la rellena con el
     // valor real para los endpoints de cálculo de KPI que sí la necesitan.
     materialesVerificados: null,
+    materialesFechaVisible: null,
   };
 }
 

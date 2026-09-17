@@ -16,6 +16,12 @@ export type Promotor = {
    * el promotor todavía no contesta la encuesta — usado por el KPI 2.1.
    */
   materialesVerificados: boolean | null;
+  /**
+   * Respuesta del promotor a "¿ya te dejaron clara la fecha de entrega de
+   * materiales?" en la encuesta de Materiales. null si todavía no contesta
+   * esa encuesta — usado por el indicador temprano de visibilidad.
+   */
+  materialesFechaVisible: boolean | null;
   mod1: boolean;
   mod3: boolean;
   mod6: boolean;
@@ -141,7 +147,8 @@ export type KpiId =
   | 'kr2_materiales'
   | 'kr3_modulos'
   | 'kr3_completado'
-  | 'okr_total';
+  | 'okr_total'
+  | 'kpi_visibilidad_materiales';
 
 export type KpiStatus = 'good' | 'warn' | 'bad' | 'na';
 
@@ -184,6 +191,13 @@ export type Dashboard = {
     score: number | null;
   };
   pipeline: PipelineStage[];
+  /**
+   * Indicador temprano, fuera del OKR ponderado (no suma a ningún score):
+   * % de nuevos ingresos que ya saben cuándo les toca recibir sus
+   * materiales. Universo = promotores dentro de sus primeros 3 días hábiles
+   * de ingreso; excluye a quien aún no contesta la encuesta de Materiales.
+   */
+  visibilidadMateriales: KpiResult;
 };
 
 /** Un artículo del checklist de materiales dentro de la encuesta pública (subconjunto del catálogo). */
@@ -193,7 +207,7 @@ export type EncuestaMaterialItem = {
   recibido: boolean;
 };
 
-/** Lo que se muestra/precarga en la encuesta pública de verificación (/e/{codigo}). */
+/** Lo que se muestra/precarga en la encuesta pública "Mesa de Control" (/e/{codigo}) — bloques 1 y 2. */
 export type EncuestaPublica = {
   promotorNombre: string;
   marca: string;
@@ -203,11 +217,9 @@ export type EncuestaPublica = {
   cartaReportada: boolean | null;
   credencialReportada: boolean | null;
   usuarioEmetrixReportado: boolean | null;
-  fechaEntregaComunicada: boolean | null;
-  materiales: EncuestaMaterialItem[];
 };
 
-/** Lo que manda el promotor al enviar la encuesta. */
+/** Lo que manda el promotor al enviar la encuesta "Mesa de Control". */
 export type EncuestaRespuestaPayload = {
   marca: string;
   puesto: string;
@@ -216,6 +228,17 @@ export type EncuestaRespuestaPayload = {
   cartaReportada: boolean;
   credencialReportada: boolean;
   usuarioEmetrixReportado: boolean;
+};
+
+/** Lo que se muestra/precarga en la encuesta pública "Materiales" (/m/{codigo}). */
+export type EncuestaMaterialesPublica = {
+  promotorNombre: string;
+  fechaEntregaComunicada: boolean | null;
+  materiales: EncuestaMaterialItem[];
+};
+
+/** Lo que manda el promotor al enviar la encuesta "Materiales". El checklist es opcional; la pregunta no. */
+export type EncuestaMaterialesPayload = {
   fechaEntregaComunicada: boolean;
   materiales: string[]; // material_id de los artículos marcados como recibidos
 };
@@ -250,4 +273,15 @@ export type ComparacionIngreso = {
   credencial: ComparacionCampo; // sistema siempre null: no existe ese dato fuera de la encuesta
   fechaEntregaComunicada: ComparacionCampo; // sistema siempre null: informativo, solo lo reporta el promotor
   materiales: ComparacionMaterial[];
+};
+
+/**
+ * Recordatorio visible en el Dashboard: promotores que cumplen 1 mes de
+ * ingreso este mes calendario (el real, "hoy" — no depende del selector de
+ * mes del tablero). Les toca la ventana de materiales el mes que sigue.
+ */
+export type RecordatorioMateriales = {
+  promotorId: string;
+  nombre: string;
+  fechaIngreso: string;
 };

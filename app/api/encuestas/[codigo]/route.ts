@@ -10,11 +10,10 @@ const CAMPOS_BOOLEANOS = [
   'cartaReportada',
   'credencialReportada',
   'usuarioEmetrixReportado',
-  'fechaEntregaComunicada',
 ] as const;
 
-// GET /api/encuestas/[codigo] — público, sin sesión. El código en la URL es
-// el control de acceso (mismo patrón que el resto del link único).
+// GET /api/encuestas/[codigo] — encuesta "Mesa de Control" (bloques 1 y 2).
+// Público, sin sesión: el código en la URL es el control de acceso.
 export async function GET(_request: Request, { params }: { params: Promise<{ codigo: string }> }) {
   const { codigo } = await params;
   const encuesta = await fetchEncuestaPorCodigo(codigo);
@@ -32,9 +31,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ cod
 
   const marca = typeof body.marca === 'string' ? body.marca.trim() : '';
   const puesto = typeof body.puesto === 'string' ? body.puesto.trim() : '';
-  const materiales = Array.isArray(body.materiales)
-    ? body.materiales.filter((x: unknown): x is string => typeof x === 'string')
-    : [];
 
   if (!marca || !puesto) {
     return NextResponse.json({ error: 'Marca y puesto son obligatorios.' }, { status: 400 });
@@ -53,8 +49,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ cod
     cartaReportada: body.cartaReportada,
     credencialReportada: body.credencialReportada,
     usuarioEmetrixReportado: body.usuarioEmetrixReportado,
-    fechaEntregaComunicada: body.fechaEntregaComunicada,
-    materiales,
   };
 
   const ok = await guardarRespuestaEncuesta(codigo, payload);

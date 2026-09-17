@@ -3,32 +3,9 @@
 import { useState, type FormEvent } from 'react';
 import type { EncuestaPublica } from '@/lib/types';
 import { enviarEncuesta } from '@/lib/api-client';
+import SiNoToggle from './SiNoToggle';
 
 const PUESTOS = ['Promotor', 'Supervisor', 'Demostrador'];
-
-function SiNoToggle({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: boolean | null;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="encuesta-pregunta">
-      <p>{label}</p>
-      <div className="encuesta-sino">
-        <button type="button" className={value === true ? 'si activo' : 'si'} onClick={() => onChange(true)}>
-          Sí
-        </button>
-        <button type="button" className={value === false ? 'no activo' : 'no'} onClick={() => onChange(false)}>
-          No
-        </button>
-      </div>
-    </div>
-  );
-}
 
 export default function EncuestaForm({ codigo, inicial }: { codigo: string; inicial: EncuestaPublica }) {
   const [marca, setMarca] = useState(inicial.marca);
@@ -43,26 +20,10 @@ export default function EncuestaForm({ codigo, inicial }: { codigo: string; inic
   const [usuarioEmetrixReportado, setUsuarioEmetrixReportado] = useState<boolean | null>(
     inicial.usuarioEmetrixReportado
   );
-  const [fechaEntregaComunicada, setFechaEntregaComunicada] = useState<boolean | null>(
-    inicial.fechaEntregaComunicada
-  );
-
-  const [materiales, setMateriales] = useState<Set<string>>(
-    new Set(inicial.materiales.filter((m) => m.recibido).map((m) => m.materialId))
-  );
 
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
-
-  function toggleMaterial(id: string, checked: boolean) {
-    setMateriales((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -73,14 +34,7 @@ export default function EncuestaForm({ codigo, inicial }: { codigo: string; inic
       setError('Completa la marca y el puesto.');
       return;
     }
-    const respuestas = [
-      contratoReportado,
-      imssReportado,
-      cartaReportada,
-      credencialReportada,
-      usuarioEmetrixReportado,
-      fechaEntregaComunicada,
-    ];
+    const respuestas = [contratoReportado, imssReportado, cartaReportada, credencialReportada, usuarioEmetrixReportado];
     if (respuestas.some((r) => r === null)) {
       setError('Responde todas las preguntas de Sí/No antes de enviar.');
       return;
@@ -96,8 +50,6 @@ export default function EncuestaForm({ codigo, inicial }: { codigo: string; inic
         cartaReportada: cartaReportada!,
         credencialReportada: credencialReportada!,
         usuarioEmetrixReportado: usuarioEmetrixReportado!,
-        fechaEntregaComunicada: fechaEntregaComunicada!,
-        materiales: [...materiales],
       });
       setEnviado(true);
     } catch (err) {
@@ -183,28 +135,6 @@ export default function EncuestaForm({ codigo, inicial }: { codigo: string; inic
             value={usuarioEmetrixReportado}
             onChange={setUsuarioEmetrixReportado}
           />
-        </section>
-
-        <section className="encuesta-bloque">
-          <h2>Materiales de trabajo</h2>
-          <SiNoToggle
-            label="¿Tu ejecutivo ya te dio fecha de entrega de materiales?"
-            value={fechaEntregaComunicada}
-            onChange={setFechaEntregaComunicada}
-          />
-          <p className="encuesta-subtitulo">Marca los artículos que ya recibiste:</p>
-          <div className="encuesta-materiales">
-            {inicial.materiales.map((m) => (
-              <label key={m.materialId} className="encuesta-material-item">
-                <input
-                  type="checkbox"
-                  checked={materiales.has(m.materialId)}
-                  onChange={(e) => toggleMaterial(m.materialId, e.target.checked)}
-                />
-                {m.nombre}
-              </label>
-            ))}
-          </div>
         </section>
 
         {error && <p className="login-error">{error}</p>}

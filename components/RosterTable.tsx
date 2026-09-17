@@ -130,7 +130,10 @@ export default function RosterTable({
                 </td>
               ))}
               <td>
-                <EncuestaLinkButton promotorId={p.id} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                  <EncuestaLinkButton promotorId={p.id} tipo="mesa_control" etiqueta="🔗 Mesa de Control" />
+                  <EncuestaLinkButton promotorId={p.id} tipo="materiales" etiqueta="📦 Materiales" />
+                </div>
               </td>
               <td>
                 <button className="del-btn" title="Eliminar" onClick={() => onDelete(p.id)}>

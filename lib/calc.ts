@@ -13,6 +13,9 @@ export const KPI_META: Record<KpiId, { meta: number; peso: number }> = {
   kr3_modulos: { meta: 100, peso: 50 },
   kr3_completado: { meta: 90, peso: 50 },
   okr_total: { meta: 100, peso: 100 },
+  // Indicador temprano, fuera del OKR ponderado — peso 0 a propósito: no
+  // suma a kr1/kr2/kr3 ni a okr_total, ver cohortVisibilidadMateriales.
+  kpi_visibilidad_materiales: { meta: 100, peso: 0 },
 };
 
 export const KR_WEIGHTS = { kr1: 57, kr2: 14, kr3: 29 } as const;
@@ -30,6 +33,22 @@ function ymOf(fechaIngreso: string | null): string | null {
 function endOfMonth(mesKey: string): Date {
   const [y, m] = mesKey.split('-').map(Number);
   return new Date(y, m - 1, 28);
+}
+
+/** Suma N días hábiles (lunes a viernes, sin calendario de festivos) a partir de una fecha. */
+function addBusinessDays(start: Date, dias: number): Date {
+  const d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  let sumados = 0;
+  while (sumados < dias) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay(); // 0 domingo, 6 sábado
+    if (dow !== 0 && dow !== 6) sumados++;
+  }
+  return d;
+}
+
+function ymOfDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export function pctOf(num: number, den: number): number | null {
@@ -71,6 +90,27 @@ export function cohortKR2(roster: Promotor[], mes: string): KpiResult {
   const due = roster.filter((p) => monthsBetween(p.fechaIngreso, ref) === 2);
   const conRespuesta = due.filter((p) => p.materialesVerificados !== null);
   return makeKpi('kr2_materiales', conRespuesta.filter((p) => p.materialesVerificados === true).length, conRespuesta.length);
+}
+
+// Indicador temprano (no pondera el OKR): universo = promotores cuyo 3er día
+// hábil de ingreso cae dentro del mes seleccionado (mismo patrón "ventana
+// vence este periodo" que cohortKR2, pero con 3 días hábiles en vez de 2
+// meses — por eso da datos desde el día 1 en vez de esperar 2 meses).
+// "Cumple" = contestaron Sí a la pregunta de visibilidad en la encuesta de
+// Materiales. Quien todavía no contesta esa encuesta queda fuera del
+// universo, igual que en el KPI 2.1.
+export function cohortVisibilidadMateriales(roster: Promotor[], mes: string): KpiResult {
+  const due = roster.filter((p) => {
+    if (!p.fechaIngreso) return false;
+    const ingreso = new Date(p.fechaIngreso + 'T00:00:00');
+    return ymOfDate(addBusinessDays(ingreso, 3)) === mes;
+  });
+  const conRespuesta = due.filter((p) => p.materialesFechaVisible !== null);
+  return makeKpi(
+    'kpi_visibilidad_materiales',
+    conRespuesta.filter((p) => p.materialesFechaVisible === true).length,
+    conRespuesta.length
+  );
 }
 
 export function cohortKPI32(roster: Promotor[], mes: string): KpiResult {
@@ -121,6 +161,7 @@ function buildPipeline(
 export function computeDashboard(roster: Promotor[], modulos: Modulos, mes: string): Dashboard {
   const kr1 = cohortKR1(roster, mes);
   const kr2materiales = cohortKR2(roster, mes);
+  const visibilidadMateriales = cohortVisibilidadMateriales(roster, mes);
   const publicadosCount = (['mod1', 'mod3', 'mod6', 'mod12'] as const).filter((k) => modulos[k]).length;
   const kr3modulos = makeKpi('kr3_modulos', publicadosCount, modulos.comprometidos);
   const kr3completado = cohortKPI32(roster, mes);
@@ -148,6 +189,7 @@ export function computeDashboard(roster: Promotor[], modulos: Modulos, mes: stri
     kr3: { modulos: kr3modulos, completado: kr3completado, score: kr3Score },
     okrTotal: { score: okrScore },
     pipeline: buildPipeline(kr1, kr2materiales, publicadosCount),
+    visibilidadMateriales,
   };
 }
 
@@ -169,6 +211,12 @@ export function dashboardToCierreRows(d: Dashboard): CierreRow[] {
     { kpiId: 'kr3_modulos', numerador: d.kr3.modulos.num, denominador: d.kr3.modulos.den, porcentaje: d.kr3.modulos.pct },
     { kpiId: 'kr3_completado', numerador: d.kr3.completado.num, denominador: d.kr3.completado.den, porcentaje: d.kr3.completado.pct },
     { kpiId: 'okr_total', numerador: null, denominador: null, porcentaje: d.okrTotal.score },
+    {
+      kpiId: 'kpi_visibilidad_materiales',
+      numerador: d.visibilidadMateriales.num,
+      denominador: d.visibilidadMateriales.den,
+      porcentaje: d.visibilidadMateriales.pct,
+    },
   ];
 }
 
@@ -201,6 +249,7 @@ export function dashboardFromCierreRows(mes: string, rows: CierreDbRow[]): Dashb
   const kr3modulos = toKpi('kr3_modulos');
   const kr3completado = toKpi('kr3_completado');
   const okrPct = num(byId.get('okr_total')?.porcentaje);
+  const visibilidadMateriales = toKpi('kpi_visibilidad_materiales');
 
   const kr1Score = laneScore([kr1.carta, kr1.usuario, kr1.contrato, kr1.imss]);
   const kr2Score = laneScore([kr2materiales]);
@@ -215,5 +264,6 @@ export function dashboardFromCierreRows(mes: string, rows: CierreDbRow[]): Dashb
     kr3: { modulos: kr3modulos, completado: kr3completado, score: kr3Score },
     okrTotal: { score: okrPct },
     pipeline: buildPipeline(kr1, kr2materiales, publicadosCount),
+    visibilidadMateriales,
   };
 }

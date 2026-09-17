@@ -1,23 +1,33 @@
-// Encuesta pública de verificación de nuevo ingreso (/e/{codigo}, sin login)
-// y la vista de comparación sistema-vs-promotor que alimenta.
+// Dos encuestas públicas de verificación de nuevo ingreso, sin login, cada
+// una con su propio link independiente por promotor:
+//   - "Mesa de Control" (/e/{codigo}, tipo='mesa_control'): bloques 1 y 2
+//     (datos generales + administrativo).
+//   - "Materiales" (/m/{codigo}, tipo='materiales'): pregunta de visibilidad
+//     de fecha de entrega + checklist opcional de los 10 artículos.
+// Alimentan la vista de comparación sistema-vs-promotor.
 //
 // Separación de datos a propósito: lo que el promotor contesta aquí NUNCA
 // sobreescribe carta/usuario/contrato/imss/promotor_materiales — esos siguen
 // siendo el dato "oficial" (Aspel/mesa_control/nómina/padrón). Las respuestas
 // del promotor se guardan aparte, en encuestas_respuestas /
-// encuesta_materiales_respuestas, precisamente para poder comparar ambos
-// lados en fetchComparacionIngresos().
+// encuesta_materiales_respuestas. Las dos encuestas comparten la fila de
+// encuestas_respuestas pero cada una solo toca sus propias columnas — nunca
+// las de la otra (ver los UPDATE SET de cada función de guardado abajo).
 
 import crypto from 'node:crypto';
 import { sql } from '@vercel/postgres';
 import type {
   ComparacionIngreso,
   ComparacionMaterial,
+  EncuestaMaterialesPayload,
+  EncuestaMaterialesPublica,
   EncuestaPublica,
   EncuestaRespuestaPayload,
 } from './types';
 
-// La encuesta solo pregunta por este subconjunto del catálogo de 13 artículos.
+export type EncuestaTipo = 'mesa_control' | 'materiales';
+
+// La encuesta de materiales solo pregunta por este subconjunto del catálogo de 13 artículos.
 export const MATERIALES_ENCUESTA = [
   'Equipo celular',
   'Línea corporativa',
@@ -31,15 +41,22 @@ export const MATERIALES_ENCUESTA = [
   'Marcador Delgado',
 ];
 
-/** Devuelve el código existente del promotor o crea uno nuevo (reintenta si hay colisión, rarísimo). */
-export async function getOrCreateEncuestaLink(promotorId: string): Promise<string> {
-  const { rows } = await sql.query('select codigo from encuestas_links where promotor_id = $1', [promotorId]);
+/** Devuelve el código existente del promotor para esa encuesta, o crea uno nuevo (reintenta si hay colisión, rarísimo). */
+export async function getOrCreateEncuestaLink(promotorId: string, tipo: EncuestaTipo): Promise<string> {
+  const { rows } = await sql.query('select codigo from encuestas_links where promotor_id = $1 and tipo = $2', [
+    promotorId,
+    tipo,
+  ]);
   if (rows[0]) return rows[0].codigo as string;
 
   for (let intento = 0; intento < 5; intento++) {
     const codigo = crypto.randomBytes(9).toString('base64url');
     try {
-      await sql.query('insert into encuestas_links (promotor_id, codigo) values ($1, $2)', [promotorId, codigo]);
+      await sql.query('insert into encuestas_links (promotor_id, codigo, tipo) values ($1, $2, $3)', [
+        promotorId,
+        codigo,
+        tipo,
+      ]);
       return codigo;
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'code' in err && err.code === '23505') continue; // choque de código, reintenta
@@ -49,32 +66,20 @@ export async function getOrCreateEncuestaLink(promotorId: string): Promise<strin
   throw new Error('No se pudo generar un código único para la encuesta.');
 }
 
-/** Datos para pintar la encuesta pública: promotor + lo que ya haya contestado antes, si algo. */
+/** Datos para pintar la encuesta pública "Mesa de Control": promotor + lo que ya haya contestado antes, si algo. */
 export async function fetchEncuestaPorCodigo(codigo: string): Promise<EncuestaPublica | null> {
   const { rows } = await sql.query(
     `select l.promotor_id, p.nombre, p.marca, p.puesto
      from encuestas_links l
      join promotores p on p.id = l.promotor_id
-     where l.codigo = $1`,
+     where l.codigo = $1 and l.tipo = 'mesa_control'`,
     [codigo]
   );
   const row = rows[0];
   if (!row) return null;
 
-  const promotorId = row.promotor_id as string;
-
-  const [{ rows: respRows }, { rows: matRows }] = await Promise.all([
-    sql.query('select * from encuestas_respuestas where promotor_id = $1', [promotorId]),
-    sql.query(
-      `select mc.id, mc.nombre, coalesce(emr.recibido, false) as recibido
-       from materiales_catalogo mc
-       left join encuestas_respuestas er on er.promotor_id = $1
-       left join encuesta_materiales_respuestas emr
-         on emr.material_id = mc.id and emr.encuesta_respuesta_id = er.id
-       where mc.nombre = any($2::text[])
-       order by mc.orden`,
-      [promotorId, MATERIALES_ENCUESTA]
-    ),
+  const { rows: respRows } = await sql.query('select * from encuestas_respuestas where promotor_id = $1', [
+    row.promotor_id,
   ]);
   const resp = respRows[0];
 
@@ -87,24 +92,20 @@ export async function fetchEncuestaPorCodigo(codigo: string): Promise<EncuestaPu
     cartaReportada: resp ? (resp.carta_reportada as boolean | null) : null,
     credencialReportada: resp ? (resp.credencial_reportada as boolean | null) : null,
     usuarioEmetrixReportado: resp ? (resp.usuario_emetrix_reportado as boolean | null) : null,
-    fechaEntregaComunicada: resp ? (resp.fecha_entrega_comunicada as boolean | null) : null,
-    materiales: matRows.map((m) => ({
-      materialId: m.id as string,
-      nombre: m.nombre as string,
-      recibido: m.recibido as boolean,
-    })),
   };
 }
 
 /**
- * Guarda la respuesta del promotor. Bloque 1 (marca/puesto) sí se escribe
- * directo en promotores — así lo pidió el flujo. Bloques 2 y 3 se guardan
- * aparte, en encuestas_respuestas / encuesta_materiales_respuestas, sin
- * tocar carta/usuario/contrato/imss/promotor_materiales.
- * Regresa false si el código no existe (link inválido).
+ * Guarda la respuesta de la encuesta "Mesa de Control". Marca/puesto sí se
+ * escriben directo en promotores. El resto (contrato/imss/carta/credencial/
+ * usuario Emetrix reportados) se guarda aparte, en encuestas_respuestas —
+ * sin tocar fecha_entrega_comunicada ni materiales_respondida_en, que son de
+ * la otra encuesta. Regresa false si el código no existe o no es de este tipo.
  */
 export async function guardarRespuestaEncuesta(codigo: string, payload: EncuestaRespuestaPayload): Promise<boolean> {
-  const { rows } = await sql.query('select promotor_id from encuestas_links where codigo = $1', [codigo]);
+  const { rows } = await sql.query("select promotor_id from encuestas_links where codigo = $1 and tipo = 'mesa_control'", [
+    codigo,
+  ]);
   const promotorId = rows[0]?.promotor_id as string | undefined;
   if (!promotorId) return false;
 
@@ -114,20 +115,18 @@ export async function guardarRespuestaEncuesta(codigo: string, payload: Encuesta
     promotorId,
   ]);
 
-  const { rows: upsertRows } = await sql.query(
+  await sql.query(
     `insert into encuestas_respuestas (
        promotor_id, contrato_reportado, imss_reportado, carta_reportada,
-       credencial_reportada, usuario_emetrix_reportado, fecha_entrega_comunicada, respondida_en
-     ) values ($1, $2, $3, $4, $5, $6, $7, now())
+       credencial_reportada, usuario_emetrix_reportado, respondida_en
+     ) values ($1, $2, $3, $4, $5, $6, now())
      on conflict (promotor_id) do update set
        contrato_reportado = excluded.contrato_reportado,
        imss_reportado = excluded.imss_reportado,
        carta_reportada = excluded.carta_reportada,
        credencial_reportada = excluded.credencial_reportada,
        usuario_emetrix_reportado = excluded.usuario_emetrix_reportado,
-       fecha_entrega_comunicada = excluded.fecha_entrega_comunicada,
-       respondida_en = excluded.respondida_en
-     returning id`,
+       respondida_en = excluded.respondida_en`,
     [
       promotorId,
       payload.contratoReportado,
@@ -135,8 +134,80 @@ export async function guardarRespuestaEncuesta(codigo: string, payload: Encuesta
       payload.cartaReportada,
       payload.credencialReportada,
       payload.usuarioEmetrixReportado,
-      payload.fechaEntregaComunicada,
     ]
+  );
+
+  await sql.query("update encuestas_links set usado_en = coalesce(usado_en, now()) where codigo = $1 and tipo = 'mesa_control'", [
+    codigo,
+  ]);
+
+  return true;
+}
+
+/** Datos para pintar la encuesta pública "Materiales": promotor + lo que ya haya contestado antes, si algo. */
+export async function fetchEncuestaMaterialesPorCodigo(codigo: string): Promise<EncuestaMaterialesPublica | null> {
+  const { rows } = await sql.query(
+    `select l.promotor_id, p.nombre
+     from encuestas_links l
+     join promotores p on p.id = l.promotor_id
+     where l.codigo = $1 and l.tipo = 'materiales'`,
+    [codigo]
+  );
+  const row = rows[0];
+  if (!row) return null;
+
+  const promotorId = row.promotor_id as string;
+
+  const [{ rows: respRows }, { rows: matRows }] = await Promise.all([
+    sql.query('select fecha_entrega_comunicada from encuestas_respuestas where promotor_id = $1', [promotorId]),
+    sql.query(
+      `select mc.id, mc.nombre, coalesce(emr.recibido, false) as recibido
+       from materiales_catalogo mc
+       left join encuestas_respuestas er on er.promotor_id = $1
+       left join encuesta_materiales_respuestas emr
+         on emr.material_id = mc.id and emr.encuesta_respuesta_id = er.id
+       where mc.nombre = any($2::text[])
+       order by mc.orden`,
+      [promotorId, MATERIALES_ENCUESTA]
+    ),
+  ]);
+
+  return {
+    promotorNombre: row.nombre as string,
+    fechaEntregaComunicada: (respRows[0]?.fecha_entrega_comunicada as boolean | null) ?? null,
+    materiales: matRows.map((m) => ({
+      materialId: m.id as string,
+      nombre: m.nombre as string,
+      recibido: m.recibido as boolean,
+    })),
+  };
+}
+
+/**
+ * Guarda la respuesta de la encuesta "Materiales". Solo toca
+ * fecha_entrega_comunicada / materiales_respondida_en y el checklist —
+ * nunca los campos de la encuesta "Mesa de Control". El checklist es
+ * opcional (puede venir vacío); la pregunta de visibilidad no. Regresa
+ * false si el código no existe o no es de este tipo.
+ */
+export async function guardarRespuestaMateriales(
+  codigo: string,
+  payload: EncuestaMaterialesPayload
+): Promise<boolean> {
+  const { rows } = await sql.query("select promotor_id from encuestas_links where codigo = $1 and tipo = 'materiales'", [
+    codigo,
+  ]);
+  const promotorId = rows[0]?.promotor_id as string | undefined;
+  if (!promotorId) return false;
+
+  const { rows: upsertRows } = await sql.query(
+    `insert into encuestas_respuestas (promotor_id, fecha_entrega_comunicada, materiales_respondida_en)
+     values ($1, $2, now())
+     on conflict (promotor_id) do update set
+       fecha_entrega_comunicada = excluded.fecha_entrega_comunicada,
+       materiales_respondida_en = excluded.materiales_respondida_en
+     returning id`,
+    [promotorId, payload.fechaEntregaComunicada]
   );
   const encuestaId = upsertRows[0].id as string;
 
@@ -157,7 +228,9 @@ export async function guardarRespuestaEncuesta(codigo: string, payload: Encuesta
     );
   }
 
-  await sql.query('update encuestas_links set usado_en = coalesce(usado_en, now()) where codigo = $1', [codigo]);
+  await sql.query("update encuestas_links set usado_en = coalesce(usado_en, now()) where codigo = $1 and tipo = 'materiales'", [
+    codigo,
+  ]);
 
   return true;
 }
@@ -227,17 +300,17 @@ export async function fetchComparacionIngresos(mes: string): Promise<Comparacion
 
 /**
  * Para el KPI 2.1 ("% con materiales entregados dentro del calendario
- * comprometido"): por promotor, si ya contestó la encuesta y, de los 10
- * artículos de MATERIALES_ENCUESTA, sistema (promotor_materiales) Y la
- * respuesta del promotor coinciden en que sí lo recibió en TODOS. null si
- * el promotor todavía no contesta — ese caso se excluye del KPI (ni cumple
- * ni no cumple) hasta que lo haga.
+ * comprometido"): por promotor, si ya contestó la encuesta de MATERIALES y,
+ * de los 10 artículos de MATERIALES_ENCUESTA, sistema (promotor_materiales)
+ * Y la respuesta del promotor coinciden en que sí lo recibió en TODOS. null
+ * si el promotor todavía no contesta esa encuesta — ese caso se excluye del
+ * KPI (ni cumple ni no cumple) hasta que lo haga.
  */
 export async function fetchMaterialesVerificados(): Promise<Map<string, boolean | null>> {
   const { rows } = await sql.query(
     `select
        p.id as promotor_id,
-       (er.respondida_en is not null) as respondio,
+       (er.materiales_respondida_en is not null) as respondio,
        bool_and(coalesce(pm.entregado, false) and coalesce(emr.recibido, false)) as cumple
      from promotores p
      cross join materiales_catalogo mc
@@ -245,7 +318,7 @@ export async function fetchMaterialesVerificados(): Promise<Map<string, boolean 
      left join encuestas_respuestas er on er.promotor_id = p.id
      left join encuesta_materiales_respuestas emr on emr.encuesta_respuesta_id = er.id and emr.material_id = mc.id
      where mc.nombre = any($1::text[])
-     group by p.id, er.respondida_en`,
+     group by p.id, er.materiales_respondida_en`,
     [MATERIALES_ENCUESTA]
   );
 
@@ -254,6 +327,25 @@ export async function fetchMaterialesVerificados(): Promise<Map<string, boolean 
     const promotorId = row.promotor_id as string;
     const respondio = row.respondio as boolean;
     resultado.set(promotorId, respondio ? (row.cumple as boolean) : null);
+  }
+  return resultado;
+}
+
+/**
+ * Para el indicador temprano "% con visibilidad de fecha de entrega de
+ * materiales": por promotor, su respuesta a esa pregunta en la encuesta de
+ * Materiales. null si todavía no contesta esa encuesta.
+ */
+export async function fetchVisibilidadMateriales(): Promise<Map<string, boolean | null>> {
+  const { rows } = await sql.query(
+    'select promotor_id, fecha_entrega_comunicada, materiales_respondida_en from encuestas_respuestas'
+  );
+
+  const resultado = new Map<string, boolean | null>();
+  for (const row of rows) {
+    const promotorId = row.promotor_id as string;
+    const respondio = row.materiales_respondida_en !== null;
+    resultado.set(promotorId, respondio ? (row.fecha_entrega_comunicada as boolean | null) : null);
   }
   return resultado;
 }

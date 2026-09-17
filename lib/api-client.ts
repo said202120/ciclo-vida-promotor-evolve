@@ -2,6 +2,8 @@ import type {
   AlertaActiva,
   ComparacionIngreso,
   Dashboard,
+  EncuestaMaterialesPayload,
+  EncuestaMaterialesPublica,
   EncuestaPublica,
   EncuestaRespuestaPayload,
   ImportAplicarResultado,
@@ -14,10 +16,12 @@ import type {
   Modulos,
   Promotor,
   PromotorParaImportar,
+  RecordatorioMateriales,
   Rol,
   Usuario,
 } from './types';
 import type { RegistroExtraido } from './import-shared';
+import type { EncuestaTipo } from './encuestas';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -177,8 +181,8 @@ export function updatePromotorMaterial(
   }).then((r) => json(r));
 }
 
-export function fetchEncuestaLink(promotorId: string): Promise<{ codigo: string }> {
-  return fetch(`/api/promotores/${promotorId}/encuesta-link`).then((r) => json(r));
+export function fetchEncuestaLink(promotorId: string, tipo: EncuestaTipo): Promise<{ codigo: string }> {
+  return fetch(`/api/promotores/${promotorId}/encuesta-link?tipo=${tipo}`).then((r) => json(r));
 }
 
 export function fetchEncuesta(codigo: string): Promise<EncuestaPublica> {
@@ -193,6 +197,22 @@ export function enviarEncuesta(codigo: string, payload: EncuestaRespuestaPayload
   }).then((r) => json(r));
 }
 
+export function fetchEncuestaMateriales(codigo: string): Promise<EncuestaMaterialesPublica> {
+  return fetch(`/api/encuestas-materiales/${codigo}`).then((r) => json(r));
+}
+
+export function enviarEncuestaMateriales(codigo: string, payload: EncuestaMaterialesPayload): Promise<{ ok: true }> {
+  return fetch(`/api/encuestas-materiales/${codigo}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json(r));
+}
+
 export function fetchComparacionIngresos(mes: string): Promise<ComparacionIngreso[]> {
   return fetch(`/api/comparacion-ingresos?mes=${mes}`).then((r) => json(r));
+}
+
+export function fetchRecordatoriosMateriales(): Promise<RecordatorioMateriales[]> {
+  return fetch('/api/recordatorios-materiales').then((r) => json(r));
 }
