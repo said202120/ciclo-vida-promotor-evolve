@@ -21,6 +21,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     sets.push(`nombre = $${i++}`);
     values.push(body.nombre.trim());
   }
+  if (typeof body.rfc === 'string') {
+    const rfc = body.rfc.trim().toUpperCase();
+    sets.push(`rfc = $${i++}`);
+    values.push(rfc || null);
+  }
   if (typeof body.fechaIngreso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.fechaIngreso)) {
     sets.push(`fecha_ingreso = $${i++}`);
     values.push(body.fechaIngreso);

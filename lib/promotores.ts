@@ -9,7 +9,7 @@ import type { Promotor } from './types';
 
 const ROSTER_SELECT = `
   select
-    p.id, p.nombre, to_char(p.fecha_ingreso, 'YYYY-MM-DD') as fecha_ingreso,
+    p.id, p.nombre, p.rfc, to_char(p.fecha_ingreso, 'YYYY-MM-DD') as fecha_ingreso,
     p.carta, p.usuario, p.contrato, p.imss, p.mod1, p.mod3, p.mod6, p.mod12,
     p.created_at, p.updated_at,
     coalesce(pm.entregados, 0)::int as materiales_entregados,
@@ -26,6 +26,7 @@ const ROSTER_SELECT = `
 type PromotorRow = {
   id: string;
   nombre: string;
+  rfc: string | null;
   fecha_ingreso: string | null;
   carta: boolean;
   usuario: boolean;
@@ -45,6 +46,7 @@ function rowToApi(row: PromotorRow): Promotor {
   return {
     id: row.id,
     nombre: row.nombre,
+    rfc: row.rfc,
     fechaIngreso: row.fecha_ingreso,
     carta: row.carta,
     usuario: row.usuario,

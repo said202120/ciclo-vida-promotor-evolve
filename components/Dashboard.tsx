@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { AlertaActiva, Dashboard as DashboardData, Modulos, Promotor, Usuario } from '@/lib/types';
+import type { AlertaActiva, Dashboard as DashboardData, MaterialEstado, Modulos, Promotor, Usuario } from '@/lib/types';
 import {
   cerrarMes,
   createPromotor,
@@ -17,6 +17,7 @@ import {
   logout,
   updateModulos,
   updatePromotor,
+  updatePromotorMaterial,
 } from '@/lib/api-client';
 import ScoreRing from './ScoreRing';
 import Pipeline from './Pipeline';
@@ -25,6 +26,7 @@ import Lane from './Lane';
 import KpiRow from './KpiRow';
 import ModuleToggles from './ModuleToggles';
 import AlertBanner from './AlertBanner';
+import MaterialesResumen from './MaterialesResumen';
 
 const MONTH_NAMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -164,6 +166,26 @@ export default function Dashboard() {
     }
   }
 
+  async function handleMaterialToggle(
+    promotorId: string,
+    materialId: string,
+    entregado: boolean
+  ): Promise<MaterialEstado[]> {
+    try {
+      const estado = await updatePromotorMaterial(promotorId, materialId, entregado);
+      const entregados = estado.filter((m) => m.entregado).length;
+      setPromotores((prev) =>
+        prev.map((p) => (p.id === promotorId ? { ...p, materialesEntregados: entregados } : p))
+      );
+      flashSaved();
+      await Promise.all([refreshDashboard(), refreshAlertas()]);
+      return estado;
+    } catch (err) {
+      reportError(err);
+      throw err;
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!window.confirm('¿Eliminar este promotor del padrón?')) return;
     try {
@@ -281,15 +303,25 @@ export default function Dashboard() {
           <p className="section-title" style={{ margin: 0 }}>
             Padrón de promotores
           </p>
-          <button className="add-row" onClick={handleAddPromotor}>
-            + Agregar promotor
-          </button>
+          <div className="roster-head-actions">
+            <a className="add-row" href="/importar-aspel">
+              ⇪ Importar Aspel
+            </a>
+            <button className="add-row" onClick={handleAddPromotor}>
+              + Agregar promotor
+            </button>
+          </div>
         </div>
         <p className="roster-hint">
           Agrega a cada persona una sola vez, el día que ingresa. Marca las casillas conforme van pasando las cosas — el
           mes o bimestre en que cuenta para cada KPI se calcula solo, a partir de su fecha de ingreso.
         </p>
-        <RosterTable promotores={promotores} onFieldChange={handleFieldChange} onDelete={handleDelete} />
+        <RosterTable
+          promotores={promotores}
+          onFieldChange={handleFieldChange}
+          onDelete={handleDelete}
+          onMaterialToggle={handleMaterialToggle}
+        />
       </div>
 
       <Lane
@@ -340,6 +372,7 @@ export default function Dashboard() {
           formula="Ventanas vencidas este periodo = promotores que cumplen 2 meses de ingreso en el mes seleccionado"
           kpi={dashboard.kr2.materiales}
         />
+        <MaterialesResumen />
       </Lane>
 
       <Lane

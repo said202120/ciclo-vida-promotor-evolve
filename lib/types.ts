@@ -1,6 +1,7 @@
 export type Promotor = {
   id: string;
   nombre: string;
+  rfc: string | null;
   fechaIngreso: string | null; // 'YYYY-MM-DD'
   carta: boolean;
   usuario: boolean;
@@ -36,6 +37,28 @@ export type MaterialEstado = {
   entregado: boolean;
   fechaEntrega: string | null;
 };
+
+/** Agregado por artículo contra TODO el padrón (no solo la cohorte del mes) — para el desglose de solo lectura. */
+export type MaterialResumenItem = {
+  materialId: string;
+  categoria: MaterialCategoria;
+  nombre: string;
+  orden: number;
+  entregados: number;
+  total: number;
+};
+
+/** Resultado crudo de leer el archivo de Aspel: encabezados tal cual vienen y todas las filas de datos como texto. */
+export type ImportParseResult = {
+  headers: string[];
+  rows: string[][];
+};
+
+/** A qué campo del promotor corresponde una columna del archivo de Aspel. */
+export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'ignorar';
+
+/** Mapeo columna del archivo (encabezado tal cual) -> campo. Se guarda en importaciones_config. */
+export type ImportMapeo = Record<string, ImportCampo>;
 
 export type AlertaActiva = {
   promotorId: string;

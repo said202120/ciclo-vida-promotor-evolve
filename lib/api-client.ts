@@ -1,4 +1,14 @@
-import type { AlertaActiva, Dashboard, Modulos, Promotor, Usuario } from './types';
+import type {
+  AlertaActiva,
+  Dashboard,
+  ImportMapeo,
+  ImportParseResult,
+  MaterialEstado,
+  MaterialResumenItem,
+  Modulos,
+  Promotor,
+  Usuario,
+} from './types';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -82,4 +92,42 @@ export function createUsuario(data: { nombre: string; email: string; password: s
 
 export function fetchAlertas(): Promise<AlertaActiva[]> {
   return fetch('/api/alertas').then((r) => json(r));
+}
+
+export function fetchPromotorMateriales(promotorId: string): Promise<MaterialEstado[]> {
+  return fetch(`/api/promotores/${promotorId}/materiales`).then((r) => json(r));
+}
+
+export function fetchMaterialesResumen(): Promise<MaterialResumenItem[]> {
+  return fetch('/api/materiales/resumen').then((r) => json(r));
+}
+
+export function parseImportFile(file: File): Promise<ImportParseResult> {
+  const form = new FormData();
+  form.append('file', file);
+  return fetch('/api/importaciones/parse', { method: 'POST', body: form }).then((r) => json(r));
+}
+
+export function fetchImportConfig(): Promise<ImportMapeo> {
+  return fetch('/api/importaciones/config').then((r) => json(r));
+}
+
+export function saveImportConfig(mapeo: ImportMapeo): Promise<ImportMapeo> {
+  return fetch('/api/importaciones/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mapeo }),
+  }).then((r) => json(r));
+}
+
+export function updatePromotorMaterial(
+  promotorId: string,
+  materialId: string,
+  entregado: boolean
+): Promise<MaterialEstado[]> {
+  return fetch(`/api/promotores/${promotorId}/materiales`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ materialId, entregado }),
+  }).then((r) => json(r));
 }

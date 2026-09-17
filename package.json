@@ -13,9 +13,12 @@
     "user:create": "node scripts/create-user.mjs"
   },
   "dependencies": {
+    "@types/papaparse": "^5.5.2",
     "@vercel/postgres": "^0.10.0",
     "bcryptjs": "^2.4.3",
+    "exceljs": "^4.4.0",
     "next": "^15.5.25",
+    "papaparse": "^5.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "resend": "^4.0.1"

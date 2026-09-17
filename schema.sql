@@ -17,6 +17,10 @@ create table if not exists promotores (
   updated_at timestamptz default now()
 );
 
+-- RFC del promotor: es la llave con la que el importador de Aspel cruza
+-- contra el archivo para marcar contrato/IMSS automáticamente.
+alter table promotores add column if not exists rfc text;
+
 create table if not exists modulos_publicados (
   id int primary key default 1,
   mod1 boolean default false,
@@ -122,6 +126,27 @@ create table if not exists alertas_enviadas (
   tipo text not null check (tipo in ('mes1', 'mes2')),
   enviada_en timestamptz default now(),
   unique (promotor_id, tipo)
+);
+
+-- Importador de Aspel: no asumimos un formato de columnas fijo, así que el
+-- mapeo (qué encabezado del archivo corresponde a qué campo) lo elige el
+-- usuario cada vez y se guarda aquí para proponerlo la próxima vez. Una sola
+-- fila, se sobreescribe.
+create table if not exists importaciones_config (
+  id int primary key default 1,
+  mapeo jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
+);
+insert into importaciones_config (id) values (1) on conflict (id) do nothing;
+
+-- Historial de corridas del importador de Aspel, para saber cuándo fue la
+-- última sincronización y cuántos RFC no hicieron match.
+create table if not exists importaciones_log (
+  id uuid primary key default gen_random_uuid(),
+  ejecutada_en timestamptz default now(),
+  usuario_id uuid references usuarios(id) on delete set null,
+  actualizados int not null default 0,
+  no_encontrados int not null default 0
 );
 
 -- Trigger simple para updated_at en promotores

@@ -1,6 +1,7 @@
 'use client';
 
-import type { Promotor } from '@/lib/types';
+import type { MaterialEstado, Promotor } from '@/lib/types';
+import MaterialesCell from './MaterialesCell';
 
 type BooleanField = 'carta' | 'usuario' | 'contrato' | 'imss' | 'mod1' | 'mod3' | 'mod6' | 'mod12';
 
@@ -29,10 +30,12 @@ export default function RosterTable({
   promotores,
   onFieldChange,
   onDelete,
+  onMaterialToggle,
 }: {
   promotores: Promotor[];
-  onFieldChange: (id: string, field: BooleanField | 'nombre' | 'fechaIngreso', value: string | boolean) => void;
+  onFieldChange: (id: string, field: BooleanField | 'nombre' | 'rfc' | 'fechaIngreso', value: string | boolean) => void;
   onDelete: (id: string) => void;
+  onMaterialToggle: (promotorId: string, materialId: string, entregado: boolean) => Promise<MaterialEstado[]>;
 }) {
   if (promotores.length === 0) {
     return (
@@ -50,6 +53,7 @@ export default function RosterTable({
       <thead>
         <tr>
           <th>Nombre</th>
+          <th>RFC</th>
           <th>Ingreso</th>
           <th>Antig.</th>
           {KIT_ADMIN_COLUMNS.map((c) => (
@@ -79,6 +83,16 @@ export default function RosterTable({
               </td>
               <td>
                 <input
+                  type="text"
+                  defaultValue={p.rfc ?? ''}
+                  placeholder="RFC"
+                  onBlur={(e) => {
+                    if (e.target.value !== (p.rfc ?? '')) onFieldChange(p.id, 'rfc', e.target.value);
+                  }}
+                />
+              </td>
+              <td>
+                <input
                   type="date"
                   defaultValue={p.fechaIngreso ?? ''}
                   onChange={(e) => {
@@ -96,8 +110,13 @@ export default function RosterTable({
                   />
                 </td>
               ))}
-              <td className="antig">
-                {p.materialesEntregados}/{p.materialesTotal}
+              <td className="materiales-td">
+                <MaterialesCell
+                  promotorId={p.id}
+                  entregados={p.materialesEntregados}
+                  total={p.materialesTotal}
+                  onToggle={onMaterialToggle}
+                />
               </td>
               {MODULO_COLUMNS.map((c) => (
                 <td key={c.field}>
