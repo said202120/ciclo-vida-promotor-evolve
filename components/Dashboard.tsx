@@ -27,6 +27,7 @@ import KpiRow from './KpiRow';
 import ModuleToggles from './ModuleToggles';
 import AlertBanner from './AlertBanner';
 import MaterialesResumen from './MaterialesResumen';
+import ComparacionIngresos from './ComparacionIngresos';
 import ChangePasswordButton from './ChangePasswordButton';
 
 const MONTH_NAMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -325,6 +326,8 @@ export default function Dashboard() {
           onMaterialToggle={handleMaterialToggle}
         />
       </div>
+
+      <ComparacionIngresos />
 
       <Lane
         owner="mesa"

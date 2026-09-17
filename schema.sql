@@ -40,6 +40,11 @@ alter table promotores add column if not exists fecha_imss date;
 alter table promotores add column if not exists fecha_carta date;
 alter table promotores add column if not exists fecha_usuario date;
 
+-- Marca a la que ingresa y puesto, capturados por el propio promotor en la
+-- encuesta de verificación de nuevo ingreso (/e/{codigo}).
+alter table promotores add column if not exists marca text;
+alter table promotores add column if not exists puesto text;
+
 create table if not exists modulos_publicados (
   id int primary key default 1,
   mod1 boolean default false,
@@ -143,6 +148,46 @@ begin
   end if;
 end $$;
 
+-- Encuesta de verificación para promotores nuevos: un link único sin login
+-- por promotor (/e/{codigo}). El promotor puede volver a abrir el mismo link
+-- y actualizar su respuesta las veces que haga falta — usado_en es solo
+-- informativo (primera vez que contestó), no bloquea reenvíos.
+create table if not exists encuestas_links (
+  id uuid primary key default gen_random_uuid(),
+  promotor_id uuid not null references promotores(id) on delete cascade,
+  codigo text not null unique,
+  created_at timestamptz default now(),
+  usado_en timestamptz
+);
+
+-- Respuestas del promotor a la encuesta. Se guardan aparte del padrón a
+-- propósito: son lo que el PROMOTOR reporta, no lo que ya registraron
+-- mesa_control/nómina/Aspel — para poder comparar ambos lados y detectar
+-- discrepancias (ver lib/encuestas.ts). Una fila por promotor; cada envío
+-- nuevo sobreescribe la anterior.
+create table if not exists encuestas_respuestas (
+  id uuid primary key default gen_random_uuid(),
+  promotor_id uuid not null unique references promotores(id) on delete cascade,
+  contrato_reportado boolean,
+  imss_reportado boolean,
+  carta_reportada boolean,
+  credencial_reportada boolean,
+  usuario_emetrix_reportado boolean,
+  fecha_entrega_comunicada boolean,
+  respondida_en timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Qué materiales del checklist de la encuesta (bloque 3) dice el promotor
+-- que ya recibió, artículo por artículo — mismo catálogo que usa el padrón,
+-- aunque la encuesta solo pregunta por un subconjunto de esos artículos.
+create table if not exists encuesta_materiales_respuestas (
+  encuesta_respuesta_id uuid not null references encuestas_respuestas(id) on delete cascade,
+  material_id uuid not null references materiales_catalogo(id) on delete cascade,
+  recibido boolean not null default false,
+  primary key (encuesta_respuesta_id, material_id)
+);
+
 -- Registro de alertas de materiales ya enviadas, para no repetirlas.
 --   mes1 -> el promotor cumplió 1 mes desde su ingreso (día exacto)
 --   mes2 -> el promotor cayó en la ventana de la semana siguiente a
@@ -221,4 +266,9 @@ $$ language plpgsql;
 drop trigger if exists trg_promotores_updated_at on promotores;
 create trigger trg_promotores_updated_at
   before update on promotores
+  for each row execute function set_updated_at();
+
+drop trigger if exists trg_encuestas_respuestas_updated_at on encuestas_respuestas;
+create trigger trg_encuestas_respuestas_updated_at
+  before update on encuestas_respuestas
   for each row execute function set_updated_at();

@@ -1163,3 +1163,211 @@ table.roster-table select.mapeo-set {
 .users-form select {
   cursor: pointer;
 }
+
+/* Comparación sistema vs. promotor (encuesta de verificación) */
+.comparacion-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 6px;
+  min-width: 96px;
+}
+.comparacion-campo.discrepa {
+  background: var(--bad-soft);
+}
+.comparacion-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+}
+.comparacion-etq {
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.comparacion-alerta {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--bad);
+  margin-top: 2px;
+}
+
+.encuesta-link-btn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.encuesta-link-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Encuesta pública de verificación de nuevo ingreso (/e/{codigo}) */
+.encuesta-wrap {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 32px 16px;
+  background: var(--paper);
+}
+.encuesta-card {
+  width: 100%;
+  max-width: 560px;
+  height: fit-content;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px 24px;
+  box-shadow:
+    0 2px 12px rgba(23, 30, 41, 0.08),
+    0 1px 3px rgba(23, 30, 41, 0.05);
+}
+.encuesta-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 22px;
+  margin: 4px 0 6px;
+}
+.encuesta-hint {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+}
+.encuesta-bloque {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  margin-top: 18px;
+}
+.encuesta-bloque:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.encuesta-bloque h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 15px;
+  margin: 0 0 14px;
+}
+.encuesta-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  margin-bottom: 14px;
+}
+.encuesta-campo input,
+.encuesta-campo select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper);
+}
+.encuesta-nombre {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.encuesta-pregunta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.encuesta-pregunta:last-child {
+  border-bottom: none;
+}
+.encuesta-pregunta p {
+  margin: 0;
+  font-size: 13.5px;
+  flex: 1;
+}
+.encuesta-sino {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.encuesta-sino button {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.encuesta-sino button.si.activo {
+  background: var(--good-soft);
+  border-color: var(--good);
+  color: var(--good);
+}
+.encuesta-sino button.no.activo {
+  background: var(--bad-soft);
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.encuesta-subtitulo {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 14px 0 8px;
+}
+.encuesta-materiales {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+@media (max-width: 480px) {
+  .encuesta-materiales {
+    grid-template-columns: 1fr;
+  }
+}
+.encuesta-material-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.encuesta-material-item input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.encuesta-submit {
+  width: 100%;
+  margin-top: 22px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 10px;
+  padding: 13px;
+  cursor: pointer;
+}
+.encuesta-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

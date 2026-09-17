@@ -2,6 +2,7 @@
 
 import type { MaterialEstado, Promotor } from '@/lib/types';
 import MaterialesCell from './MaterialesCell';
+import EncuestaLinkButton from './EncuestaLinkButton';
 
 type BooleanField = 'carta' | 'usuario' | 'contrato' | 'imss' | 'mod1' | 'mod3' | 'mod6' | 'mod12';
 
@@ -63,6 +64,7 @@ export default function RosterTable({
           {MODULO_COLUMNS.map((c) => (
             <th key={c.field}>{c.label}</th>
           ))}
+          <th>Encuesta</th>
           <th />
         </tr>
       </thead>
@@ -127,6 +129,9 @@ export default function RosterTable({
                   />
                 </td>
               ))}
+              <td>
+                <EncuestaLinkButton promotorId={p.id} />
+              </td>
               <td>
                 <button className="del-btn" title="Eliminar" onClick={() => onDelete(p.id)}>
                   ✕

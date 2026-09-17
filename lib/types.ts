@@ -178,3 +178,69 @@ export type Dashboard = {
   };
   pipeline: PipelineStage[];
 };
+
+/** Un artículo del checklist de materiales dentro de la encuesta pública (subconjunto del catálogo). */
+export type EncuestaMaterialItem = {
+  materialId: string;
+  nombre: string;
+  recibido: boolean;
+};
+
+/** Lo que se muestra/precarga en la encuesta pública de verificación (/e/{codigo}). */
+export type EncuestaPublica = {
+  promotorNombre: string;
+  marca: string;
+  puesto: string;
+  contratoReportado: boolean | null;
+  imssReportado: boolean | null;
+  cartaReportada: boolean | null;
+  credencialReportada: boolean | null;
+  usuarioEmetrixReportado: boolean | null;
+  fechaEntregaComunicada: boolean | null;
+  materiales: EncuestaMaterialItem[];
+};
+
+/** Lo que manda el promotor al enviar la encuesta. */
+export type EncuestaRespuestaPayload = {
+  marca: string;
+  puesto: string;
+  contratoReportado: boolean;
+  imssReportado: boolean;
+  cartaReportada: boolean;
+  credencialReportada: boolean;
+  usuarioEmetrixReportado: boolean;
+  fechaEntregaComunicada: boolean;
+  materiales: string[]; // material_id de los artículos marcados como recibidos
+};
+
+/**
+ * Comparación por promotor: lo que el sistema tiene registrado (padrón /
+ * mesa_control / nómina / Aspel) contra lo que el promotor reportó en la
+ * encuesta, para detectar discrepancias. `sistema`/`promotor` en null
+ * significan "sin dato" (promotor: nunca contestó la encuesta).
+ */
+export type ComparacionCampo = {
+  sistema: boolean | null;
+  promotor: boolean | null;
+};
+
+export type ComparacionMaterial = {
+  nombre: string;
+  sistema: boolean;
+  promotor: boolean | null;
+};
+
+export type ComparacionIngreso = {
+  promotorId: string;
+  nombre: string;
+  fechaIngreso: string | null;
+  respondioEncuesta: boolean;
+  respondidaEn: string | null;
+  contrato: ComparacionCampo;
+  imss: ComparacionCampo;
+  carta: ComparacionCampo;
+  usuarioEmetrix: ComparacionCampo;
+  credencial: ComparacionCampo; // sistema siempre null: no existe ese dato fuera de la encuesta
+  fechaEntregaComunicada: ComparacionCampo; // sistema siempre null: informativo, solo lo reporta el promotor
+  materiales: ComparacionMaterial[];
+};

@@ -1,6 +1,9 @@
 import type {
   AlertaActiva,
+  ComparacionIngreso,
   Dashboard,
+  EncuestaPublica,
+  EncuestaRespuestaPayload,
   ImportAplicarResultado,
   ImportLogEntry,
   ImportMapeo,
@@ -172,4 +175,24 @@ export function updatePromotorMaterial(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ materialId, entregado }),
   }).then((r) => json(r));
+}
+
+export function fetchEncuestaLink(promotorId: string): Promise<{ codigo: string }> {
+  return fetch(`/api/promotores/${promotorId}/encuesta-link`).then((r) => json(r));
+}
+
+export function fetchEncuesta(codigo: string): Promise<EncuestaPublica> {
+  return fetch(`/api/encuestas/${codigo}`).then((r) => json(r));
+}
+
+export function enviarEncuesta(codigo: string, payload: EncuestaRespuestaPayload): Promise<{ ok: true }> {
+  return fetch(`/api/encuestas/${codigo}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((r) => json(r));
+}
+
+export function fetchComparacionIngresos(mes: string): Promise<ComparacionIngreso[]> {
+  return fetch(`/api/comparacion-ingresos?mes=${mes}`).then((r) => json(r));
 }
