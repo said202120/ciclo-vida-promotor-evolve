@@ -336,9 +336,19 @@ export type CapacitacionOpcion = {
   correcta: boolean;
 };
 
+/**
+ * 'texto': opciones fijas, capturadas a mano en /capacitaciones.
+ * 'supervisor_directo' / 'coordinador_cuenta': opciones dinámicas, armadas
+ * por promotor a partir del maestro de marcas/supervisores/ejecutivos según
+ * su marca (ver lib/capacitaciones.ts) — el admin no captura opciones para
+ * estas.
+ */
+export type CapacitacionPreguntaTipo = 'texto' | 'supervisor_directo' | 'coordinador_cuenta';
+
 export type CapacitacionPregunta = {
   id: string;
   texto: string;
+  tipo: CapacitacionPreguntaTipo;
   opciones: CapacitacionOpcion[];
 };
 
@@ -368,8 +378,10 @@ export type CapacitacionPreguntaPublica = {
 
 /**
  * Datos para pintar el examen público (/q/{codigo}). Si `bloqueado` es true,
- * el promotor todavía no aprueba el módulo anterior y `preguntas` viene
- * vacío — la pantalla debe mostrar el aviso de bloqueo, no el examen.
+ * `preguntas` viene vacío y `razonBloqueo` trae el mensaje a mostrar en vez
+ * del examen (puede ser porque falta aprobar el módulo anterior, o porque el
+ * promotor todavía no tiene supervisor asignado en el padrón y el módulo
+ * tiene preguntas dinámicas que lo necesitan).
  */
 export type CapacitacionPublica = {
   promotorNombre: string;
@@ -377,7 +389,7 @@ export type CapacitacionPublica = {
   moduloDescripcion: string | null;
   umbralAprobacion: number;
   bloqueado: boolean;
-  moduloAnteriorNombre: string | null;
+  razonBloqueo: string | null;
   preguntas: CapacitacionPreguntaPublica[];
   resultadoPrevio: { calificacion: number; aprobado: boolean } | null;
 };

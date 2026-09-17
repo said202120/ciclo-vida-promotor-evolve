@@ -15,6 +15,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Pregunta y texto de la opción son obligatorios.' }, { status: 400 });
   }
 
-  const opcion = await createCapacitacionOpcion(preguntaId, texto);
-  return NextResponse.json(opcion, { status: 201 });
+  try {
+    const opcion = await createCapacitacionOpcion(preguntaId, texto);
+    return NextResponse.json(opcion, { status: 201 });
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'No se pudo crear la opción.' }, { status: 400 });
+  }
 }

@@ -4,6 +4,7 @@ import type {
   CapacitacionEnvioResultado,
   CapacitacionModulo,
   CapacitacionModuloConPreguntas,
+  CapacitacionPreguntaTipo,
   CapacitacionPublica,
   CapacitacionResultado,
   ComparacionIngreso,
@@ -331,19 +332,26 @@ export function deleteCapacitacionModulo(id: string): Promise<{ ok: true }> {
   return fetch(`/api/capacitacion-modulos/${id}`, { method: 'DELETE' }).then((r) => json(r));
 }
 
-export function createCapacitacionPregunta(moduloId: string, texto: string): Promise<{ id: string; texto: string }> {
+export function createCapacitacionPregunta(
+  moduloId: string,
+  texto: string,
+  tipo: CapacitacionPreguntaTipo = 'texto'
+): Promise<{ id: string; texto: string; tipo: CapacitacionPreguntaTipo }> {
   return fetch('/api/capacitacion-preguntas', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ moduloId, texto }),
+    body: JSON.stringify({ moduloId, texto, tipo }),
   }).then((r) => json(r));
 }
 
-export function updateCapacitacionPregunta(id: string, texto: string): Promise<{ ok: true }> {
+export function updateCapacitacionPregunta(
+  id: string,
+  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo }
+): Promise<{ ok: true }> {
   return fetch(`/api/capacitacion-preguntas/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ texto }),
+    body: JSON.stringify(patch),
   }).then((r) => json(r));
 }
 

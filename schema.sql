@@ -398,6 +398,20 @@ create table if not exists capacitacion_preguntas (
   created_at timestamptz default now()
 );
 
+-- Preguntas dinámicas: en vez de opciones fijas capturadas a mano, las
+-- opciones se arman al vuelo por promotor a partir del maestro de
+-- marcas/supervisores/ejecutivos (lib/capacitaciones.ts), según la marca del
+-- promotor (derivada de su supervisor_asignado en el padrón):
+--   supervisor_directo -> correcta = su supervisor asignado; distractores =
+--     otros supervisores de la misma marca.
+--   coordinador_cuenta -> correcta = el/los ejecutivo(s) de su marca;
+--     distractores = ejecutivos de otras marcas.
+-- Una pregunta 'texto' sigue usando capacitacion_opciones normal.
+alter table capacitacion_preguntas add column if not exists tipo text not null default 'texto';
+alter table capacitacion_preguntas drop constraint if exists capacitacion_preguntas_tipo_check;
+alter table capacitacion_preguntas add constraint capacitacion_preguntas_tipo_check
+  check (tipo in ('texto', 'supervisor_directo', 'coordinador_cuenta'));
+
 create table if not exists capacitacion_opciones (
   id uuid primary key default gen_random_uuid(),
   pregunta_id uuid not null references capacitacion_preguntas(id) on delete cascade,

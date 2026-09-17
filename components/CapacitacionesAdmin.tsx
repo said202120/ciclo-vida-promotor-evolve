@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import type { CapacitacionModuloConPreguntas } from '@/lib/types';
+import type { CapacitacionModuloConPreguntas, CapacitacionPreguntaTipo } from '@/lib/types';
 import {
   createCapacitacionModulo,
   createCapacitacionOpcion,
@@ -25,7 +25,14 @@ export default function CapacitacionesAdmin() {
   const [creando, setCreando] = useState(false);
 
   const [nuevaPregunta, setNuevaPregunta] = useState<Record<string, string>>({});
+  const [nuevaPreguntaTipo, setNuevaPreguntaTipo] = useState<Record<string, CapacitacionPreguntaTipo>>({});
   const [nuevaOpcion, setNuevaOpcion] = useState<Record<string, string>>({});
+
+  const TIPO_LABEL: Record<CapacitacionPreguntaTipo, string> = {
+    texto: 'Texto libre',
+    supervisor_directo: 'Automática: supervisor directo',
+    coordinador_cuenta: 'Automática: coordinador/gerente de cuenta',
+  };
 
   function reload() {
     fetchCapacitacionModulosConPreguntas()
@@ -91,8 +98,9 @@ export default function CapacitacionesAdmin() {
     const texto = (nuevaPregunta[moduloId] ?? '').trim();
     if (!texto) return;
     try {
-      await createCapacitacionPregunta(moduloId, texto);
+      await createCapacitacionPregunta(moduloId, texto, nuevaPreguntaTipo[moduloId] ?? 'texto');
       setNuevaPregunta((prev) => ({ ...prev, [moduloId]: '' }));
+      setNuevaPreguntaTipo((prev) => ({ ...prev, [moduloId]: 'texto' }));
       setError(null);
       reload();
     } catch (err) {
@@ -103,7 +111,20 @@ export default function CapacitacionesAdmin() {
   function handleRenamePregunta(id: string, actual: string, valorNuevo: string) {
     const texto = valorNuevo.trim();
     if (!texto || texto === actual) return;
-    conError(updateCapacitacionPregunta(id, texto), 'No se pudo actualizar la pregunta.');
+    conError(updateCapacitacionPregunta(id, { texto }), 'No se pudo actualizar la pregunta.');
+  }
+
+  function handleTipoPregunta(id: string, actual: CapacitacionPreguntaTipo, valorNuevo: string) {
+    const tipo = valorNuevo as CapacitacionPreguntaTipo;
+    if (tipo === actual) return;
+    if (
+      actual === 'texto' &&
+      tipo !== 'texto' &&
+      !window.confirm('Cambiar a un tipo automático borra las opciones capturadas a mano de esta pregunta. ¿Continuar?')
+    ) {
+      return;
+    }
+    conError(updateCapacitacionPregunta(id, { tipo }), 'No se pudo cambiar el tipo de la pregunta.');
   }
 
   function handleDeletePregunta(id: string) {
@@ -225,45 +246,66 @@ export default function CapacitacionesAdmin() {
                     ✕
                   </button>
                 </div>
-                <ul className="persona-lista">
-                  {pregunta.opciones.map((opcion) => (
-                    <li key={opcion.id}>
-                      <label className="capacitacion-opcion-radio">
-                        <input
-                          type="radio"
-                          name={`correcta-${pregunta.id}`}
-                          checked={opcion.correcta}
-                          onChange={() => handleMarcarCorrecta(pregunta.id, opcion.id)}
-                        />
-                      </label>
+                <select
+                  className="capacitacion-tipo-select"
+                  value={pregunta.tipo}
+                  onChange={(e) => handleTipoPregunta(pregunta.id, pregunta.tipo, e.target.value)}
+                >
+                  {(Object.keys(TIPO_LABEL) as CapacitacionPreguntaTipo[]).map((t) => (
+                    <option key={t} value={t}>
+                      {TIPO_LABEL[t]}
+                    </option>
+                  ))}
+                </select>
+
+                {pregunta.tipo === 'texto' ? (
+                  <>
+                    <ul className="persona-lista">
+                      {pregunta.opciones.map((opcion) => (
+                        <li key={opcion.id}>
+                          <label className="capacitacion-opcion-radio">
+                            <input
+                              type="radio"
+                              name={`correcta-${pregunta.id}`}
+                              checked={opcion.correcta}
+                              onChange={() => handleMarcarCorrecta(pregunta.id, opcion.id)}
+                            />
+                          </label>
+                          <input
+                            type="text"
+                            defaultValue={opcion.texto}
+                            onBlur={(e) => handleRenameOpcion(opcion.id, opcion.texto, e.target.value)}
+                          />
+                          <button className="del-btn" title="Eliminar opción" onClick={() => handleDeleteOpcion(opcion.id)}>
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="persona-nueva">
                       <input
                         type="text"
-                        defaultValue={opcion.texto}
-                        onBlur={(e) => handleRenameOpcion(opcion.id, opcion.texto, e.target.value)}
+                        placeholder="Nueva opción"
+                        value={nuevaOpcion[pregunta.id] ?? ''}
+                        onChange={(e) => setNuevaOpcion((prev) => ({ ...prev, [pregunta.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddOpcion(pregunta.id);
+                          }
+                        }}
                       />
-                      <button className="del-btn" title="Eliminar opción" onClick={() => handleDeleteOpcion(opcion.id)}>
-                        ✕
+                      <button type="button" className="add-row" onClick={() => handleAddOpcion(pregunta.id)}>
+                        + Agregar opción
                       </button>
-                    </li>
-                  ))}
-                </ul>
-                <div className="persona-nueva">
-                  <input
-                    type="text"
-                    placeholder="Nueva opción"
-                    value={nuevaOpcion[pregunta.id] ?? ''}
-                    onChange={(e) => setNuevaOpcion((prev) => ({ ...prev, [pregunta.id]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddOpcion(pregunta.id);
-                      }
-                    }}
-                  />
-                  <button type="button" className="add-row" onClick={() => handleAddOpcion(pregunta.id)}>
-                    + Agregar opción
-                  </button>
-                </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="capacitacion-tipo-nota">
+                    Las opciones se arman solas por promotor, a partir del maestro de{' '}
+                    <a href="/marcas">marcas/supervisores/ejecutivos</a> según su marca — no se capturan aquí.
+                  </p>
+                )}
               </div>
             ))}
 
@@ -280,6 +322,17 @@ export default function CapacitacionesAdmin() {
                   }
                 }}
               />
+              <select
+                className="capacitacion-tipo-select"
+                value={nuevaPreguntaTipo[modulo.id] ?? 'texto'}
+                onChange={(e) => setNuevaPreguntaTipo((prev) => ({ ...prev, [modulo.id]: e.target.value as CapacitacionPreguntaTipo }))}
+              >
+                {(Object.keys(TIPO_LABEL) as CapacitacionPreguntaTipo[]).map((t) => (
+                  <option key={t} value={t}>
+                    {TIPO_LABEL[t]}
+                  </option>
+                ))}
+              </select>
               <button type="button" className="add-row" onClick={() => handleAddPregunta(modulo.id)}>
                 + Agregar pregunta
               </button>

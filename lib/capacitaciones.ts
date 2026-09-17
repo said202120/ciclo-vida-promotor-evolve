@@ -15,9 +15,22 @@ import type {
   CapacitacionOpcionPublica,
   CapacitacionPregunta,
   CapacitacionPreguntaPublica,
+  CapacitacionPreguntaTipo,
   CapacitacionPublica,
   CapacitacionResultado,
 } from './types';
+
+const SIN_SUPERVISOR_MSG =
+  'Todavía no tienes un supervisor asignado en el padrón. Pide a tu ejecutivo que te lo asigne antes de presentar este examen.';
+
+function shuffle<T>(arr: T[]): T[] {
+  const copia = [...arr];
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
 
 function rowToModulo(row: { id: string; orden: number; nombre: string; descripcion: string | null; umbral_aprobacion: number }): CapacitacionModulo {
   return {
@@ -41,7 +54,7 @@ export async function fetchCapacitacionModulosBasico(): Promise<CapacitacionModu
 export async function fetchCapacitacionModulosConPreguntas(): Promise<CapacitacionModuloConPreguntas[]> {
   const [{ rows: modRows }, { rows: pregRows }, { rows: opcRows }] = await Promise.all([
     sql.query('select id, orden, nombre, descripcion, umbral_aprobacion from capacitacion_modulos order by orden'),
-    sql.query('select id, modulo_id, texto from capacitacion_preguntas order by orden, created_at'),
+    sql.query('select id, modulo_id, texto, tipo from capacitacion_preguntas order by orden, created_at'),
     sql.query(
       `select o.id, o.pregunta_id, o.texto, o.correcta
        from capacitacion_opciones o
@@ -61,7 +74,12 @@ export async function fetchCapacitacionModulosConPreguntas(): Promise<Capacitaci
   for (const p of pregRows) {
     const moduloId = p.modulo_id as string;
     const lista = preguntasPorModulo.get(moduloId) ?? [];
-    lista.push({ id: p.id as string, texto: p.texto as string, opciones: opcionesPorPregunta.get(p.id as string) ?? [] });
+    lista.push({
+      id: p.id as string,
+      texto: p.texto as string,
+      tipo: p.tipo as CapacitacionPreguntaTipo,
+      opciones: opcionesPorPregunta.get(p.id as string) ?? [],
+    });
     preguntasPorModulo.set(moduloId, lista);
   }
 
@@ -120,18 +138,42 @@ export async function deleteCapacitacionModulo(id: string): Promise<void> {
   await sql.query('delete from capacitacion_modulos where id = $1', [id]);
 }
 
-export async function createCapacitacionPregunta(moduloId: string, texto: string): Promise<CapacitacionPregunta> {
+export async function createCapacitacionPregunta(
+  moduloId: string,
+  texto: string,
+  tipo: CapacitacionPreguntaTipo = 'texto'
+): Promise<CapacitacionPregunta> {
   const { rows } = await sql.query(
-    `insert into capacitacion_preguntas (modulo_id, orden, texto)
-     values ($1, coalesce((select max(orden) + 1 from capacitacion_preguntas where modulo_id = $1), 1), $2)
-     returning id, texto`,
-    [moduloId, texto]
+    `insert into capacitacion_preguntas (modulo_id, orden, texto, tipo)
+     values ($1, coalesce((select max(orden) + 1 from capacitacion_preguntas where modulo_id = $1), 1), $2, $3)
+     returning id, texto, tipo`,
+    [moduloId, texto, tipo]
   );
-  return { id: rows[0].id as string, texto: rows[0].texto as string, opciones: [] };
+  return { id: rows[0].id as string, texto: rows[0].texto as string, tipo: rows[0].tipo as CapacitacionPreguntaTipo, opciones: [] };
 }
 
-export async function updateCapacitacionPregunta(id: string, texto: string): Promise<void> {
-  await sql.query('update capacitacion_preguntas set texto = $1 where id = $2', [texto, id]);
+/** Si `tipo` cambia a uno dinámico, se borran las opciones capturadas a mano (ya no aplican). */
+export async function updateCapacitacionPregunta(
+  id: string,
+  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo }
+): Promise<void> {
+  if (patch.tipo !== undefined && patch.tipo !== 'texto') {
+    await sql.query('delete from capacitacion_opciones where pregunta_id = $1', [id]);
+  }
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let i = 1;
+  if (patch.texto !== undefined) {
+    sets.push(`texto = $${i++}`);
+    values.push(patch.texto);
+  }
+  if (patch.tipo !== undefined) {
+    sets.push(`tipo = $${i++}`);
+    values.push(patch.tipo);
+  }
+  if (sets.length === 0) return;
+  values.push(id);
+  await sql.query(`update capacitacion_preguntas set ${sets.join(', ')} where id = $${i}`, values);
 }
 
 export async function deleteCapacitacionPregunta(id: string): Promise<void> {
@@ -139,6 +181,11 @@ export async function deleteCapacitacionPregunta(id: string): Promise<void> {
 }
 
 export async function createCapacitacionOpcion(preguntaId: string, texto: string): Promise<{ id: string; texto: string; correcta: boolean }> {
+  const { rows: pregRows } = await sql.query('select tipo from capacitacion_preguntas where id = $1', [preguntaId]);
+  if (pregRows[0]?.tipo && pregRows[0].tipo !== 'texto') {
+    throw new Error('Esta pregunta usa opciones automáticas; no se pueden agregar a mano.');
+  }
+
   const { rows } = await sql.query(
     `insert into capacitacion_opciones (pregunta_id, orden, texto)
      values ($1, coalesce((select max(orden) + 1 from capacitacion_opciones where pregunta_id = $1), 1), $2)
@@ -186,6 +233,91 @@ export async function getOrCreateCapacitacionLink(promotorId: string, moduloId: 
   throw new Error('No se pudo generar un código único para el examen.');
 }
 
+/**
+ * Marca del promotor para las preguntas dinámicas: se deriva de su
+ * supervisor_asignado en el padrón (no del campo de texto libre `marca` que
+ * llena la encuesta de verificación, que puede no coincidir con el maestro).
+ * null si el promotor no tiene supervisor asignado todavía.
+ */
+async function resolverSupervisorYMarca(
+  promotorId: string
+): Promise<{ supervisorId: string; supervisorNombre: string; marcaId: string } | null> {
+  const { rows } = await sql.query(
+    `select p.supervisor_id, s.nombre as supervisor_nombre, s.marca_id
+     from promotores p
+     join supervisores s on s.id = p.supervisor_id
+     where p.id = $1`,
+    [promotorId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return { supervisorId: row.supervisor_id as string, supervisorNombre: row.supervisor_nombre as string, marcaId: row.marca_id as string };
+}
+
+/** Opciones dinámicas para "¿Quién es tu supervisor directo?": correcta = su supervisor asignado, distractores = otros supervisores de su misma marca (o de otras si la marca no alcanza). */
+async function generarOpcionesSupervisorDirecto(
+  promotorId: string
+): Promise<{ opciones: CapacitacionOpcionPublica[]; razonBloqueo: string | null }> {
+  const contexto = await resolverSupervisorYMarca(promotorId);
+  if (!contexto) return { opciones: [], razonBloqueo: SIN_SUPERVISOR_MSG };
+  const { supervisorId, supervisorNombre, marcaId } = contexto;
+
+  const { rows: mismaMarca } = await sql.query(
+    `select id, nombre from supervisores where marca_id = $1 and id != $2 and nombre != $3 order by random() limit 3`,
+    [marcaId, supervisorId, supervisorNombre]
+  );
+  let distractores = mismaMarca as Array<{ id: string; nombre: string }>;
+  if (distractores.length < 3) {
+    const excluirIds = [supervisorId, ...distractores.map((d) => d.id)];
+    const { rows: otras } = await sql.query(
+      `select id, nombre from supervisores where not (id = any($1::uuid[])) and nombre != $2 order by random() limit $3`,
+      [excluirIds, supervisorNombre, 3 - distractores.length]
+    );
+    distractores = [...distractores, ...(otras as Array<{ id: string; nombre: string }>)];
+  }
+
+  const opciones = shuffle([
+    { id: supervisorId, texto: supervisorNombre },
+    ...distractores.map((d) => ({ id: d.id, texto: d.nombre })),
+  ]);
+  return { opciones, razonBloqueo: null };
+}
+
+/** Opciones dinámicas para "¿Quién es tu coordinador/gerente de cuenta?": correctas = ejecutivo(s) de su marca, distractores = ejecutivos de otras marcas. */
+async function generarOpcionesCoordinadorCuenta(
+  promotorId: string
+): Promise<{ opciones: CapacitacionOpcionPublica[]; razonBloqueo: string | null }> {
+  const contexto = await resolverSupervisorYMarca(promotorId);
+  if (!contexto) return { opciones: [], razonBloqueo: SIN_SUPERVISOR_MSG };
+  const { marcaId } = contexto;
+
+  const { rows: correctosRows } = await sql.query('select id, nombre from ejecutivos where marca_id = $1', [marcaId]);
+  const correctos = correctosRows as Array<{ id: string; nombre: string }>;
+  if (correctos.length === 0) {
+    return {
+      opciones: [],
+      razonBloqueo: 'Tu marca todavía no tiene un coordinador/gerente de cuenta asignado en el maestro. Avisa a tu ejecutivo.',
+    };
+  }
+
+  const nombresCorrectos = correctos.map((c) => c.nombre);
+  const faltan = Math.max(0, 4 - correctos.length);
+  let distractores: Array<{ id: string; nombre: string }> = [];
+  if (faltan > 0) {
+    const { rows: otros } = await sql.query(
+      `select id, nombre from ejecutivos where marca_id != $1 and not (nombre = any($2::text[])) order by random() limit $3`,
+      [marcaId, nombresCorrectos, faltan]
+    );
+    distractores = otros as Array<{ id: string; nombre: string }>;
+  }
+
+  const opciones = shuffle([
+    ...correctos.map((c) => ({ id: c.id, texto: c.nombre })),
+    ...distractores.map((d) => ({ id: d.id, texto: d.nombre })),
+  ]);
+  return { opciones, razonBloqueo: null };
+}
+
 /** Datos para pintar el examen público (/q/{codigo}): preguntas sin exponer cuál opción es la correcta. */
 export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise<CapacitacionPublica | null> {
   const { rows } = await sql.query(
@@ -205,7 +337,7 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
   const orden = row.orden as number;
 
   let bloqueado = false;
-  let moduloAnteriorNombre: string | null = null;
+  let razonBloqueo: string | null = null;
   if (orden > 1) {
     const { rows: prevRows } = await sql.query(
       `select m.nombre, cr.aprobado
@@ -215,9 +347,9 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
       [promotorId, orden - 1]
     );
     const prev = prevRows[0];
-    if (prev) {
-      moduloAnteriorNombre = prev.nombre as string;
-      bloqueado = prev.aprobado !== true;
+    if (prev && prev.aprobado !== true) {
+      bloqueado = true;
+      razonBloqueo = `Antes de presentar "${row.modulo_nombre}" necesitas aprobar el módulo "${prev.nombre}". Pide a tu ejecutivo el link de ese módulo.`;
     }
   }
 
@@ -231,29 +363,42 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
 
   let preguntas: CapacitacionPreguntaPublica[] = [];
   if (!bloqueado) {
-    const [{ rows: pregRows }, { rows: opcRows }] = await Promise.all([
-      sql.query('select id, texto from capacitacion_preguntas where modulo_id = $1 order by orden, created_at', [moduloId]),
-      sql.query(
-        `select o.id, o.pregunta_id, o.texto
-         from capacitacion_opciones o
-         join capacitacion_preguntas p on p.id = o.pregunta_id
-         where p.modulo_id = $1
-         order by o.orden, o.created_at`,
-        [moduloId]
-      ),
-    ]);
-    const opcionesPorPregunta = new Map<string, CapacitacionOpcionPublica[]>();
-    for (const o of opcRows) {
-      const preguntaId = o.pregunta_id as string;
-      const lista = opcionesPorPregunta.get(preguntaId) ?? [];
-      lista.push({ id: o.id as string, texto: o.texto as string });
-      opcionesPorPregunta.set(preguntaId, lista);
+    const { rows: pregRows } = await sql.query(
+      'select id, texto, tipo from capacitacion_preguntas where modulo_id = $1 order by orden, created_at',
+      [moduloId]
+    );
+
+    const textoIds = pregRows.filter((p) => p.tipo === 'texto').map((p) => p.id as string);
+    const opcionesPorPreguntaTexto = new Map<string, CapacitacionOpcionPublica[]>();
+    if (textoIds.length > 0) {
+      const { rows: opcRows } = await sql.query(
+        `select id, pregunta_id, texto from capacitacion_opciones where pregunta_id = any($1::uuid[]) order by orden, created_at`,
+        [textoIds]
+      );
+      for (const o of opcRows) {
+        const preguntaId = o.pregunta_id as string;
+        const lista = opcionesPorPreguntaTexto.get(preguntaId) ?? [];
+        lista.push({ id: o.id as string, texto: o.texto as string });
+        opcionesPorPreguntaTexto.set(preguntaId, lista);
+      }
     }
-    preguntas = pregRows.map((p) => ({
-      id: p.id as string,
-      texto: p.texto as string,
-      opciones: opcionesPorPregunta.get(p.id as string) ?? [],
-    }));
+
+    for (const p of pregRows) {
+      const tipo = p.tipo as CapacitacionPreguntaTipo;
+      if (tipo === 'texto') {
+        preguntas.push({ id: p.id as string, texto: p.texto as string, opciones: opcionesPorPreguntaTexto.get(p.id as string) ?? [] });
+        continue;
+      }
+      const generador = tipo === 'supervisor_directo' ? generarOpcionesSupervisorDirecto : generarOpcionesCoordinadorCuenta;
+      const resultado = await generador(promotorId);
+      if (resultado.razonBloqueo) {
+        bloqueado = true;
+        razonBloqueo = resultado.razonBloqueo;
+        preguntas = [];
+        break;
+      }
+      preguntas.push({ id: p.id as string, texto: p.texto as string, opciones: resultado.opciones });
+    }
   }
 
   return {
@@ -262,7 +407,7 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
     moduloDescripcion: row.modulo_descripcion as string | null,
     umbralAprobacion: row.umbral_aprobacion as number,
     bloqueado,
-    moduloAnteriorNombre,
+    razonBloqueo,
     preguntas,
     resultadoPrevio,
   };
@@ -294,35 +439,63 @@ export async function guardarRespuestaCapacitacion(
   const umbralAprobacion = modRows[0]?.umbral_aprobacion as number | undefined;
   if (umbralAprobacion === undefined) return null;
 
-  const { rows: opcRows } = await sql.query(
-    `select o.id, o.pregunta_id, o.correcta
-     from capacitacion_opciones o
-     join capacitacion_preguntas p on p.id = o.pregunta_id
-     where p.modulo_id = $1`,
-    [moduloId]
-  );
-  const opcionPorId = new Map(
-    opcRows.map((r) => [r.id as string, { preguntaId: r.pregunta_id as string, correcta: r.correcta as boolean }])
-  );
-  const preguntaIds = new Set(opcRows.map((r) => r.pregunta_id as string));
-  if (preguntaIds.size === 0) {
+  const { rows: pregRows } = await sql.query('select id, tipo from capacitacion_preguntas where modulo_id = $1', [moduloId]);
+  if (pregRows.length === 0) {
     throw new RespuestasInvalidasError('Este examen todavía no tiene preguntas configuradas.');
+  }
+  const tipoPorPreguntaId = new Map(pregRows.map((r) => [r.id as string, r.tipo as CapacitacionPreguntaTipo]));
+
+  const textoPreguntaIds = pregRows.filter((r) => r.tipo === 'texto').map((r) => r.id as string);
+  let opcionPorId = new Map<string, { preguntaId: string; correcta: boolean }>();
+  if (textoPreguntaIds.length > 0) {
+    const { rows: opcRows } = await sql.query(
+      `select id, pregunta_id, correcta from capacitacion_opciones where pregunta_id = any($1::uuid[])`,
+      [textoPreguntaIds]
+    );
+    opcionPorId = new Map(
+      opcRows.map((r) => [r.id as string, { preguntaId: r.pregunta_id as string, correcta: r.correcta as boolean }])
+    );
+  }
+
+  const necesitaDinamico = pregRows.some((r) => r.tipo !== 'texto');
+  let supervisorIdCorrecto: string | null = null;
+  let ejecutivosCorrectos: Set<string> | null = null;
+  if (necesitaDinamico) {
+    const contexto = await resolverSupervisorYMarca(promotorId);
+    if (!contexto) throw new RespuestasInvalidasError(SIN_SUPERVISOR_MSG);
+    supervisorIdCorrecto = contexto.supervisorId;
+    if (pregRows.some((r) => r.tipo === 'coordinador_cuenta')) {
+      const { rows } = await sql.query('select id from ejecutivos where marca_id = $1', [contexto.marcaId]);
+      ejecutivosCorrectos = new Set(rows.map((r) => r.id as string));
+    }
   }
 
   const respondidas = new Set<string>();
+  let correctas = 0;
   for (const r of respuestas) {
-    const opcion = opcionPorId.get(r.opcionId);
-    if (!opcion || opcion.preguntaId !== r.preguntaId || !preguntaIds.has(r.preguntaId)) {
+    const tipo = tipoPorPreguntaId.get(r.preguntaId);
+    if (!tipo || respondidas.has(r.preguntaId)) {
       throw new RespuestasInvalidasError('Una de las respuestas no es válida.');
     }
     respondidas.add(r.preguntaId);
+
+    if (tipo === 'texto') {
+      const opcion = opcionPorId.get(r.opcionId);
+      if (!opcion || opcion.preguntaId !== r.preguntaId) {
+        throw new RespuestasInvalidasError('Una de las respuestas no es válida.');
+      }
+      if (opcion.correcta) correctas++;
+    } else if (tipo === 'supervisor_directo') {
+      if (r.opcionId === supervisorIdCorrecto) correctas++;
+    } else if (tipo === 'coordinador_cuenta') {
+      if (ejecutivosCorrectos!.has(r.opcionId)) correctas++;
+    }
   }
-  if (respondidas.size !== preguntaIds.size) {
+  if (respondidas.size !== pregRows.length) {
     throw new RespuestasInvalidasError('Responde todas las preguntas antes de enviar.');
   }
 
-  const correctas = respuestas.filter((r) => opcionPorId.get(r.opcionId)!.correcta).length;
-  const calificacion = Math.round((correctas / preguntaIds.size) * 10000) / 100;
+  const calificacion = Math.round((correctas / pregRows.length) * 10000) / 100;
   const aprobado = calificacion >= umbralAprobacion;
 
   await sql.query(

@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
 import { createCapacitacionPregunta } from '@/lib/capacitaciones';
+import type { CapacitacionPreguntaTipo } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+
+const TIPOS_VALIDOS: CapacitacionPreguntaTipo[] = ['texto', 'supervisor_directo', 'coordinador_cuenta'];
 
 export async function POST(request: Request) {
   const auth = await requireGerente();
@@ -14,7 +17,11 @@ export async function POST(request: Request) {
   if (!moduloId || !texto) {
     return NextResponse.json({ error: 'Módulo y texto de la pregunta son obligatorios.' }, { status: 400 });
   }
+  const tipo = typeof body.tipo === 'string' ? body.tipo : 'texto';
+  if (!TIPOS_VALIDOS.includes(tipo as CapacitacionPreguntaTipo)) {
+    return NextResponse.json({ error: `tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}.` }, { status: 400 });
+  }
 
-  const pregunta = await createCapacitacionPregunta(moduloId, texto);
+  const pregunta = await createCapacitacionPregunta(moduloId, texto, tipo as CapacitacionPreguntaTipo);
   return NextResponse.json(pregunta, { status: 201 });
 }

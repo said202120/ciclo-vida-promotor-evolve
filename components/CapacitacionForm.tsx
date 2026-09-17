@@ -40,8 +40,7 @@ export default function CapacitacionForm({ codigo, inicial }: { codigo: string; 
           <p className="eyebrow">OKR · Operaciones · Evolve</p>
           <h1 className="encuesta-title">Módulo bloqueado</h1>
           <p className="encuesta-hint">
-            Hola {inicial.promotorNombre.split(' ')[0]}, antes de presentar &quot;{inicial.moduloNombre}&quot; necesitas
-            aprobar el módulo &quot;{inicial.moduloAnteriorNombre}&quot;. Pide a tu ejecutivo el link de ese módulo.
+            Hola {inicial.promotorNombre.split(' ')[0]}, {inicial.razonBloqueo}
           </p>
         </div>
       </div>
