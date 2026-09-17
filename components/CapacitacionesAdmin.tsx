@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import type { CapacitacionModuloConPreguntas, CapacitacionPreguntaTipo } from '@/lib/types';
+import type { CapacitacionModuloConPreguntas, CapacitacionPreguntaTipo, MarcaConDetalle } from '@/lib/types';
 import {
   createCapacitacionModulo,
   createCapacitacionOpcion,
@@ -10,6 +10,7 @@ import {
   deleteCapacitacionOpcion,
   deleteCapacitacionPregunta,
   fetchCapacitacionModulosConPreguntas,
+  fetchMarcas,
   marcarOpcionCorrecta,
   updateCapacitacionModulo,
   updateCapacitacionOpcionTexto,
@@ -28,6 +29,9 @@ export default function CapacitacionesAdmin() {
   const [nuevaPreguntaTipo, setNuevaPreguntaTipo] = useState<Record<string, CapacitacionPreguntaTipo>>({});
   const [nuevaOpcion, setNuevaOpcion] = useState<Record<string, string>>({});
 
+  const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
+  const [previewMarcaId, setPreviewMarcaId] = useState<Record<string, string>>({});
+
   const TIPO_LABEL: Record<CapacitacionPreguntaTipo, string> = {
     texto: 'Opción múltiple (manual)',
     supervisor_directo: 'Automática: supervisor directo',
@@ -42,6 +46,11 @@ export default function CapacitacionesAdmin() {
 
   useEffect(() => {
     reload();
+    fetchMarcas()
+      .then(setMarcas)
+      .catch(() => {
+        // Silencioso: la vista previa por marca es solo un extra; el resto del admin funciona sin ella.
+      });
   }, []);
 
   function conError<T>(promesa: Promise<T>, mensajeDefault: string): Promise<void> {
@@ -301,10 +310,46 @@ export default function CapacitacionesAdmin() {
                     </div>
                   </>
                 ) : (
-                  <p className="capacitacion-tipo-nota">
-                    Las opciones se arman solas por promotor, a partir del maestro de{' '}
-                    <a href="/marcas">marcas/supervisores/ejecutivos</a> según su marca — no se capturan aquí.
-                  </p>
+                  <>
+                    <p className="capacitacion-tipo-nota">
+                      Las opciones se arman solas por promotor, a partir del maestro de{' '}
+                      <a href="/marcas">marcas/supervisores/ejecutivos</a> según su marca — no se capturan aquí.
+                    </p>
+                    <div className="capacitacion-preview">
+                      <label className="capacitacion-preview-label">
+                        Vista previa por marca
+                        <select
+                          value={previewMarcaId[pregunta.id] ?? ''}
+                          onChange={(e) => setPreviewMarcaId((prev) => ({ ...prev, [pregunta.id]: e.target.value }))}
+                        >
+                          <option value="">Selecciona una marca…</option>
+                          {marcas.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.nombre}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {previewMarcaId[pregunta.id] &&
+                        (() => {
+                          const marca = marcas.find((m) => m.id === previewMarcaId[pregunta.id]);
+                          if (!marca) return null;
+                          const personas = pregunta.tipo === 'supervisor_directo' ? marca.supervisores : marca.ejecutivos;
+                          return personas.length === 0 ? (
+                            <p className="capacitacion-preview-vacio">
+                              {marca.nombre} todavía no tiene {pregunta.tipo === 'supervisor_directo' ? 'supervisores' : 'ejecutivos'}{' '}
+                              capturados.
+                            </p>
+                          ) : (
+                            <ul className="capacitacion-preview-lista">
+                              {personas.map((p) => (
+                                <li key={p.id}>{p.nombre}</li>
+                              ))}
+                            </ul>
+                          );
+                        })()}
+                    </div>
+                  </>
                 )}
               </div>
             ))}
