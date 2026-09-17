@@ -15,6 +15,46 @@ const CAMPO_LABEL: Record<ImportCampo, string> = {
 
 const CAMPO_OPTIONS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'ignorar'];
 
+function normalizeHeader(header: string): string {
+  return header
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // quita acentos (diacriticos combinados tras normalize('NFD'))
+    .toLowerCase()
+    .trim();
+}
+
+/** Adivina el campo por el nombre del encabezado cuando no hay un mapeo guardado para esa columna. */
+function detectCampoByName(header: string, yaAsignados: Set<ImportCampo>): ImportCampo {
+  const norm = normalizeHeader(header);
+  if (!yaAsignados.has('rfc') && /\brfc\b/.test(norm)) return 'rfc';
+  if (!yaAsignados.has('contratoFecha') && norm.includes('contrato')) return 'contratoFecha';
+  if (!yaAsignados.has('imssFecha') && norm.includes('imss')) return 'imssFecha';
+  return 'ignorar';
+}
+
+/** Mapeo guardado primero (columna por columna); lo que falte se adivina por nombre; el resto queda en "ignorar". */
+function proposeMapeo(headers: string[], savedConfig: ImportMapeo | null): ImportMapeo {
+  const proposed: ImportMapeo = {};
+  const yaAsignados = new Set<ImportCampo>();
+  const pendientes: string[] = [];
+
+  for (const h of headers) {
+    const saved = savedConfig?.[h];
+    if (saved) {
+      proposed[h] = saved;
+      if (saved !== 'ignorar') yaAsignados.add(saved);
+    } else {
+      pendientes.push(h);
+    }
+  }
+  for (const h of pendientes) {
+    const campo = detectCampoByName(h, yaAsignados);
+    proposed[h] = campo;
+    if (campo !== 'ignorar') yaAsignados.add(campo);
+  }
+  return proposed;
+}
+
 function validateMapeo(mapeo: ImportMapeo): string | null {
   const values = Object.values(mapeo);
   if (values.filter((c) => c === 'rfc').length !== 1) {
@@ -53,11 +93,7 @@ export default function ImportarAspel() {
 
   useEffect(() => {
     if (!parsed) return;
-    const proposed: ImportMapeo = {};
-    for (const h of parsed.headers) {
-      proposed[h] = savedConfig?.[h] ?? 'ignorar';
-    }
-    setMapeo(proposed);
+    setMapeo(proposeMapeo(parsed.headers, savedConfig));
     setMappingSaved(false);
     setMappingError(null);
     // Solo se recalcula al parsear un archivo nuevo, no en cada cambio manual del usuario.
@@ -191,9 +227,10 @@ export default function ImportarAspel() {
             Paso 3 · Mapeo de columnas
           </p>
           <p className="roster-hint">
-            Dile al sistema qué columna del archivo corresponde a qué campo. La próxima vez que subas un archivo con
-            esta misma estructura de columnas se va a proponer este mismo mapeo, pero siempre lo vas a poder ajustar
-            antes de aplicar.
+            Ya preseleccionamos lo que reconocimos por el nombre del encabezado (por ejemplo, una columna "RFC" o
+            "Fecha contrato firmado"). Revisa que quede bien y ajusta lo que haga falta — lo demás queda en "Ignorar
+            esta columna". La próxima vez que subas un archivo con esta misma estructura se va a proponer el mapeo
+            que confirmes aquí.
           </p>
           <div style={{ overflowX: 'auto' }}>
             <table className="roster-table">
