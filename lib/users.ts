@@ -17,6 +17,11 @@ export async function findUserById(id: string): Promise<Usuario | null> {
   return (rows[0] as Usuario) ?? null;
 }
 
+export async function findUserByIdConHash(id: string): Promise<UsuarioConHash | null> {
+  const { rows } = await sql.query('SELECT id, nombre, email, password_hash, rol FROM usuarios WHERE id = $1', [id]);
+  return (rows[0] as UsuarioConHash) ?? null;
+}
+
 export async function listUsers(): Promise<Usuario[]> {
   const { rows } = await sql.query('SELECT id, nombre, email, rol FROM usuarios ORDER BY created_at');
   return rows as Usuario[];
@@ -38,4 +43,10 @@ export async function createUser(data: { nombre: string; email: string; password
 
 export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash);
+}
+
+/** Cambia la contraseña de un usuario ya autenticado (self-service, no requiere rol gerente). */
+export async function setPassword(id: string, newPassword: string): Promise<void> {
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await sql.query('UPDATE usuarios SET password_hash = $1 WHERE id = $2', [passwordHash, id]);
 }

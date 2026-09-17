@@ -27,6 +27,7 @@ import KpiRow from './KpiRow';
 import ModuleToggles from './ModuleToggles';
 import AlertBanner from './AlertBanner';
 import MaterialesResumen from './MaterialesResumen';
+import ChangePasswordButton from './ChangePasswordButton';
 
 const MONTH_NAMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -49,6 +50,7 @@ function TopBar({ user, onLogout }: { user: Usuario | null; onLogout: () => void
                 Usuarios
               </a>
             )}
+            <ChangePasswordButton />
             <button className="topbar-link" onClick={onLogout}>
               Cerrar sesión
             </button>

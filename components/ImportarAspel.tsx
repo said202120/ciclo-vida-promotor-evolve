@@ -23,6 +23,7 @@ import {
 } from '@/lib/api-client';
 import { extractRegistros, parseFlexibleDate } from '@/lib/import-shared';
 import { CAMPOS_PERMITIDOS, esRolImportador, type RolImportador } from '@/lib/import-permisos';
+import ChangePasswordButton from './ChangePasswordButton';
 
 const PREVIEW_ROWS = 5;
 
@@ -289,9 +290,12 @@ export default function ImportarAspel() {
           <p className="eyebrow">OKR · Operaciones · Evolve{rol && ` · ${ROL_LABEL[rol]}`}</p>
           <h1>Importar actualización de Aspel</h1>
         </div>
-        <button type="button" className="topbar-link" onClick={handleLogout}>
-          Cerrar sesión
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <ChangePasswordButton />
+          <button type="button" className="topbar-link" onClick={handleLogout}>
+            Cerrar sesión
+          </button>
+        </div>
       </header>
 
       {rol && (

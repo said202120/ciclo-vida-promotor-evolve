@@ -83,6 +83,14 @@ export function logout(): Promise<{ ok: true }> {
   return fetch('/api/auth/logout', { method: 'POST' }).then((r) => json(r));
 }
 
+export function changePassword(passwordActual: string, passwordNueva: string): Promise<{ ok: true }> {
+  return fetch('/api/auth/password', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passwordActual, passwordNueva }),
+  }).then((r) => json(r));
+}
+
 export function fetchUsuarios(): Promise<Usuario[]> {
   return fetch('/api/usuarios').then((r) => json(r));
 }
