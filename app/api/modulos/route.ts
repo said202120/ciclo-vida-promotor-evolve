@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
-import { requireSession } from '@/lib/auth';
+import { requireDashboard } from '@/lib/auth';
 import { fetchModulos } from '@/lib/modulos';
 
 export const dynamic = 'force-dynamic';
@@ -8,14 +8,14 @@ export const dynamic = 'force-dynamic';
 const BOOL_FIELDS = ['mod1', 'mod3', 'mod6', 'mod12'] as const;
 
 export async function GET() {
-  const auth = await requireSession();
+  const auth = await requireDashboard();
   if (auth.error) return auth.error;
 
   return NextResponse.json(await fetchModulos());
 }
 
 export async function PATCH(request: Request) {
-  const auth = await requireSession();
+  const auth = await requireDashboard();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

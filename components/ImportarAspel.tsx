@@ -1,16 +1,28 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ImportAplicarResultado, ImportCampo, ImportLogEntry, ImportMapeo, ImportParseResult, Promotor } from '@/lib/types';
+import { useRouter } from 'next/navigation';
+import type {
+  ImportAplicarResultado,
+  ImportCampo,
+  ImportLogEntry,
+  ImportMapeo,
+  ImportParseResult,
+  PromotorParaImportar,
+  Usuario,
+} from '@/lib/types';
 import {
   aplicarImportacion,
   fetchImportConfig,
   fetchImportLog,
-  fetchPromotores,
+  fetchMe,
+  fetchPromotoresParaImportar,
+  logout,
   parseImportFile,
   saveImportConfig,
 } from '@/lib/api-client';
 import { extractRegistros, parseFlexibleDate } from '@/lib/import-shared';
+import { CAMPOS_PERMITIDOS, esRolImportador, type RolImportador } from '@/lib/import-permisos';
 
 const PREVIEW_ROWS = 5;
 
@@ -18,10 +30,15 @@ const CAMPO_LABEL: Record<ImportCampo, string> = {
   rfc: 'RFC',
   contratoFecha: 'Fecha de contrato firmado',
   imssFecha: 'Fecha de alta IMSS',
+  cartaFecha: 'Carta de ingreso',
+  emetrixFecha: 'Usuario Emetrix',
   ignorar: 'Ignorar esta columna',
 };
 
-const CAMPO_OPTIONS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'ignorar'];
+const ROL_LABEL: Record<RolImportador, string> = {
+  mesa_control: 'Mesa de Control',
+  nomina: 'Nómina',
+};
 
 function normalizeHeader(header: string): string {
   return header
@@ -31,24 +48,30 @@ function normalizeHeader(header: string): string {
     .trim();
 }
 
-/** Adivina el campo por el nombre del encabezado cuando no hay un mapeo guardado para esa columna. */
-function detectCampoByName(header: string, yaAsignados: Set<ImportCampo>): ImportCampo {
+/** Adivina el campo por el nombre del encabezado, solo entre los campos que el rol puede usar. */
+function detectCampoByName(header: string, yaAsignados: Set<ImportCampo>, permitidos: ImportCampo[]): ImportCampo {
   const norm = normalizeHeader(header);
-  if (!yaAsignados.has('rfc') && /\brfc\b/.test(norm)) return 'rfc';
-  if (!yaAsignados.has('contratoFecha') && norm.includes('contrato')) return 'contratoFecha';
-  if (!yaAsignados.has('imssFecha') && norm.includes('imss')) return 'imssFecha';
+  if (permitidos.includes('rfc') && !yaAsignados.has('rfc') && /\brfc\b/.test(norm)) return 'rfc';
+  if (permitidos.includes('contratoFecha') && !yaAsignados.has('contratoFecha') && norm.includes('contrato')) {
+    return 'contratoFecha';
+  }
+  if (permitidos.includes('imssFecha') && !yaAsignados.has('imssFecha') && norm.includes('imss')) return 'imssFecha';
+  if (permitidos.includes('cartaFecha') && !yaAsignados.has('cartaFecha') && norm.includes('carta')) return 'cartaFecha';
+  if (permitidos.includes('emetrixFecha') && !yaAsignados.has('emetrixFecha') && norm.includes('emetrix')) {
+    return 'emetrixFecha';
+  }
   return 'ignorar';
 }
 
 /** Mapeo guardado primero (columna por columna); lo que falte se adivina por nombre; el resto queda en "ignorar". */
-function proposeMapeo(headers: string[], savedConfig: ImportMapeo | null): ImportMapeo {
+function proposeMapeo(headers: string[], savedConfig: ImportMapeo | null, permitidos: ImportCampo[]): ImportMapeo {
   const proposed: ImportMapeo = {};
   const yaAsignados = new Set<ImportCampo>();
   const pendientes: string[] = [];
 
   for (const h of headers) {
     const saved = savedConfig?.[h];
-    if (saved) {
+    if (saved && permitidos.includes(saved)) {
       proposed[h] = saved;
       if (saved !== 'ignorar') yaAsignados.add(saved);
     } else {
@@ -56,7 +79,7 @@ function proposeMapeo(headers: string[], savedConfig: ImportMapeo | null): Impor
     }
   }
   for (const h of pendientes) {
-    const campo = detectCampoByName(h, yaAsignados);
+    const campo = detectCampoByName(h, yaAsignados, permitidos);
     proposed[h] = campo;
     if (campo !== 'ignorar') yaAsignados.add(campo);
   }
@@ -67,29 +90,36 @@ function formatFechaCorta(iso: string): string {
   return new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-function validateMapeo(mapeo: ImportMapeo): string | null {
+function validateMapeo(mapeo: ImportMapeo, rol: RolImportador | null): string | null {
+  if (!rol) return 'Cargando permisos…';
+  const camposUnicos = CAMPOS_PERMITIDOS[rol].filter((c) => c !== 'rfc');
   const values = Object.values(mapeo);
+
   if (values.filter((c) => c === 'rfc').length !== 1) {
     return 'Asigna una columna a RFC.';
   }
-  if (values.filter((c) => c === 'contratoFecha').length > 1) {
-    return 'Solo una columna puede ser "Fecha de contrato firmado".';
+  for (const campo of camposUnicos) {
+    if (values.filter((c) => c === campo).length > 1) {
+      return `Solo una columna puede ser "${CAMPO_LABEL[campo]}".`;
+    }
   }
-  if (values.filter((c) => c === 'imssFecha').length > 1) {
-    return 'Solo una columna puede ser "Fecha de alta IMSS".';
-  }
-  if (!values.some((c) => c === 'contratoFecha' || c === 'imssFecha')) {
-    return 'Asigna al menos una columna a fecha de contrato o fecha de alta IMSS.';
+  if (camposUnicos.length > 0 && !camposUnicos.some((c) => values.includes(c))) {
+    return `Asigna al menos una columna a ${camposUnicos.map((c) => CAMPO_LABEL[c]).join(' o ')}.`;
   }
   return null;
 }
 
 export default function ImportarAspel() {
+  const router = useRouter();
   const [parsed, setParsed] = useState<ImportParseResult | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const rol: RolImportador | null = usuario && esRolImportador(usuario.rol) ? usuario.rol : null;
+  const campoOptions: ImportCampo[] = rol ? [...CAMPOS_PERMITIDOS[rol], 'ignorar'] : [];
 
   const [savedConfig, setSavedConfig] = useState<ImportMapeo | null>(null);
   const [mapeo, setMapeo] = useState<ImportMapeo>({});
@@ -97,7 +127,7 @@ export default function ImportarAspel() {
   const [mappingSaving, setMappingSaving] = useState(false);
   const [mappingSaved, setMappingSaved] = useState(false);
 
-  const [promotores, setPromotores] = useState<Promotor[] | null>(null);
+  const [promotores, setPromotores] = useState<PromotorParaImportar[] | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applyResult, setApplyResult] = useState<ImportAplicarResultado | null>(null);
@@ -109,26 +139,38 @@ export default function ImportarAspel() {
       .catch(() => setHistory([]));
   }
 
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      router.push('/login');
+      router.refresh();
+    }
+  }
+
   useEffect(() => {
+    fetchMe()
+      .then(setUsuario)
+      .catch(() => setUsuario(null));
     fetchImportConfig()
       .then(setSavedConfig)
       .catch(() => setSavedConfig({}));
-    fetchPromotores()
+    fetchPromotoresParaImportar()
       .then(setPromotores)
       .catch(() => setPromotores([]));
     reloadHistory();
   }, []);
 
   useEffect(() => {
-    if (!parsed) return;
-    setMapeo(proposeMapeo(parsed.headers, savedConfig));
+    if (!parsed || !rol) return;
+    setMapeo(proposeMapeo(parsed.headers, savedConfig, campoOptions));
     setMappingSaved(false);
     setMappingError(null);
     setApplyResult(null);
     setApplyError(null);
     // Solo se recalcula al parsear un archivo nuevo, no en cada cambio manual del usuario.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsed]);
+  }, [parsed, rol]);
 
   async function handleFile(file: File) {
     setLoading(true);
@@ -161,7 +203,7 @@ export default function ImportarAspel() {
   }
 
   async function handleSaveMapeo() {
-    const validationError = validateMapeo(mapeo);
+    const validationError = validateMapeo(mapeo, rol);
     if (validationError) {
       setMappingError(validationError);
       setMappingSaved(false);
@@ -180,7 +222,7 @@ export default function ImportarAspel() {
     }
   }
 
-  const mapeoValida = parsed !== null && validateMapeo(mapeo) === null;
+  const mapeoValida = parsed !== null && validateMapeo(mapeo, rol) === null;
 
   const registros = useMemo(() => {
     if (!parsed || !mapeoValida) return [];
@@ -189,7 +231,7 @@ export default function ImportarAspel() {
   }, [parsed, mapeo, mapeoValida]);
 
   const promotorPorRfc = useMemo(() => {
-    const m = new Map<string, Promotor>();
+    const m = new Map<string, PromotorParaImportar>();
     for (const p of promotores ?? []) {
       if (p.rfc) m.set(p.rfc.trim().toUpperCase(), p);
     }
@@ -203,6 +245,8 @@ export default function ImportarAspel() {
         promotor: r.rfc ? (promotorPorRfc.get(r.rfc) ?? null) : null,
         contratoFechaParsed: r.contratoFecha ? parseFlexibleDate(r.contratoFecha) : null,
         imssFechaParsed: r.imssFecha ? parseFlexibleDate(r.imssFecha) : null,
+        cartaFechaParsed: r.cartaFecha ? parseFlexibleDate(r.cartaFecha) : null,
+        emetrixFechaParsed: r.emetrixFecha ? parseFlexibleDate(r.emetrixFecha) : null,
       })),
     [registros, promotorPorRfc]
   );
@@ -211,12 +255,24 @@ export default function ImportarAspel() {
   const conMatch = conRfc.filter((p) => p.promotor);
   const sinMatchPreview = conRfc.filter((p) => !p.promotor);
 
+  const camposAAplicar = rol
+    ? CAMPOS_PERMITIDOS[rol].filter((c) => c !== 'rfc' && Object.values(mapeo).includes(c))
+    : [];
+
   async function handleAplicar() {
     setApplying(true);
     setApplyError(null);
     setApplyResult(null);
     try {
-      const resultado = await aplicarImportacion(conRfc.map(({ rfc, contratoFecha, imssFecha }) => ({ rfc, contratoFecha, imssFecha })));
+      const resultado = await aplicarImportacion(
+        conRfc.map(({ rfc, contratoFecha, imssFecha, cartaFecha, emetrixFecha }) => ({
+          rfc,
+          contratoFecha,
+          imssFecha,
+          cartaFecha,
+          emetrixFecha,
+        }))
+      );
       setApplyResult(resultado);
       reloadHistory();
     } catch (err) {
@@ -230,13 +286,21 @@ export default function ImportarAspel() {
     <div className="wrap">
       <header>
         <div>
-          <p className="eyebrow">OKR · Operaciones · Evolve</p>
+          <p className="eyebrow">OKR · Operaciones · Evolve{rol && ` · ${ROL_LABEL[rol]}`}</p>
           <h1>Importar actualización de Aspel</h1>
         </div>
-        <a className="topbar-link" href="/">
-          ← Volver al tablero
-        </a>
+        <button type="button" className="topbar-link" onClick={handleLogout}>
+          Cerrar sesión
+        </button>
       </header>
+
+      {rol && (
+        <p className="roster-hint" style={{ margin: '-8px 0 20px' }}>
+          {rol === 'mesa_control'
+            ? 'Puedes mapear y aplicar RFC, Fecha de contrato firmado, Carta de ingreso y Usuario Emetrix. El estatus de IMSS se muestra de solo lectura, no se puede editar desde aquí.'
+            : 'Puedes mapear y aplicar RFC y Fecha de alta IMSS.'}
+        </p>
+      )}
 
       <div className="roster">
         <p className="section-title" style={{ margin: '0 0 14px' }}>
@@ -328,7 +392,7 @@ export default function ImportarAspel() {
                         value={mapeo[h] ?? 'ignorar'}
                         onChange={(e) => handleMapeoChange(h, e.target.value as ImportCampo)}
                       >
-                        {CAMPO_OPTIONS.map((c) => (
+                        {campoOptions.map((c) => (
                           <option key={c} value={c}>
                             {CAMPO_LABEL[c]}
                           </option>
@@ -387,6 +451,7 @@ export default function ImportarAspel() {
                     <th>Promotor</th>
                     <th>Se va a marcar</th>
                     <th>Fecha detectada</th>
+                    {rol === 'mesa_control' && <th>IMSS actual (solo lectura)</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -406,8 +471,10 @@ export default function ImportarAspel() {
                         {row.rfc && row.promotor ? (
                           <>
                             {row.contratoFecha && <span className="pill good">Contrato ✓</span>}{' '}
-                            {row.imssFecha && <span className="pill good">IMSS ✓</span>}
-                            {!row.contratoFecha && !row.imssFecha && '—'}
+                            {row.imssFecha && <span className="pill good">IMSS ✓</span>}{' '}
+                            {row.cartaFecha && <span className="pill good">Carta ✓</span>}{' '}
+                            {row.emetrixFecha && <span className="pill good">Emetrix ✓</span>}
+                            {!row.contratoFecha && !row.imssFecha && !row.cartaFecha && !row.emetrixFecha && '—'}
                           </>
                         ) : (
                           '—'
@@ -418,8 +485,25 @@ export default function ImportarAspel() {
                           <div>Contrato: {row.contratoFechaParsed ?? `${row.contratoFecha} (sin interpretar)`}</div>
                         )}
                         {row.imssFecha && <div>IMSS: {row.imssFechaParsed ?? `${row.imssFecha} (sin interpretar)`}</div>}
-                        {!row.contratoFecha && !row.imssFecha && '—'}
+                        {row.cartaFecha && (
+                          <div>Carta: {row.cartaFechaParsed ?? `${row.cartaFecha} (sin interpretar)`}</div>
+                        )}
+                        {row.emetrixFecha && (
+                          <div>Emetrix: {row.emetrixFechaParsed ?? `${row.emetrixFecha} (sin interpretar)`}</div>
+                        )}
+                        {!row.contratoFecha && !row.imssFecha && !row.cartaFecha && !row.emetrixFecha && '—'}
                       </td>
+                      {rol === 'mesa_control' && (
+                        <td>
+                          {row.promotor ? (
+                            <span className={`pill ${row.promotor.imss ? 'good' : 'na'}`}>
+                              {row.promotor.imss ? `IMSS ✓${row.promotor.fechaImss ? ` (${row.promotor.fechaImss})` : ''}` : 'Pendiente'}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -435,8 +519,9 @@ export default function ImportarAspel() {
             Paso 5 · Aplicar
           </p>
           <p className="roster-hint">
-            Al confirmar, se marca contrato y/o IMSS solo en los {conMatch.length} promotores con coincidencia de
-            arriba. Los RFC sin coincidencia no se tocan ni rompen el proceso — quedan listados al final.
+            Al confirmar, se marca {camposAAplicar.map((c) => CAMPO_LABEL[c]).join(' y ') || 'lo mapeado'} solo en
+            los {conMatch.length} promotores con coincidencia de arriba. Los RFC sin coincidencia no se tocan ni
+            rompen el proceso — quedan listados al final.
           </p>
           {applyError && <p className="login-error">{applyError}</p>}
           <button

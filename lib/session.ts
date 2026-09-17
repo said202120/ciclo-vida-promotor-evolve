@@ -4,7 +4,7 @@
 
 export type SessionPayload = {
   userId: string;
-  rol: 'gerente' | 'ejecutivo';
+  rol: 'gerente' | 'ejecutivo' | 'mesa_control' | 'nomina';
   exp: number; // epoch ms
 };
 

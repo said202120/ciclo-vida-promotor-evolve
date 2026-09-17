@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireSession } from '@/lib/auth';
+import { requireDashboard } from '@/lib/auth';
 import { fetchMaterialesResumen } from '@/lib/materiales';
 
 export const dynamic = 'force-dynamic';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 // (no la cohorte del mes seleccionado). Alimenta el desglose de solo lectura
 // del carril de Operaciones.
 export async function GET() {
-  const auth = await requireSession();
+  const auth = await requireDashboard();
   if (auth.error) return auth.error;
   return NextResponse.json(await fetchMaterialesResumen());
 }

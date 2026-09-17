@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
-import { requireSession } from '@/lib/auth';
+import { requireDashboard } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 // GET /api/cierres            -> lista los meses que ya tienen cierre
 // GET /api/cierres?mes=YYYY-MM -> filas crudas del cierre de ese mes (vacío si no está cerrado)
 export async function GET(request: Request) {
-  const auth = await requireSession();
+  const auth = await requireDashboard();
   if (auth.error) return auth.error;
 
   const { searchParams } = new URL(request.url);

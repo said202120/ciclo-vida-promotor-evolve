@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@vercel/postgres';
-import { requireSession } from '@/lib/auth';
+import { requireDashboard } from '@/lib/auth';
 import { fetchRoster } from '@/lib/roster';
 import { fetchModulos } from '@/lib/modulos';
 import { computeDashboard, dashboardToCierreRows } from '@/lib/calc';
@@ -14,7 +14,7 @@ const MES_RE = /^\d{4}-\d{2}$/;
 // y lo escribe (upsert) en cierres_mensuales. A partir de ahí, GET /api/kpis
 // para ese mes deja de recalcular y lee estas filas fijas.
 export async function POST(request: Request) {
-  const auth = await requireSession();
+  const auth = await requireDashboard();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

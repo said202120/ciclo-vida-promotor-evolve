@@ -8,6 +8,8 @@ export type RegistroExtraido = {
   rfc: string; // normalizado: trim + mayúsculas. Puede venir vacío si la fila no trae RFC.
   contratoFecha: string | null; // texto crudo de la celda mapeada a "Fecha de contrato firmado"
   imssFecha: string | null; // texto crudo de la celda mapeada a "Fecha de alta IMSS"
+  cartaFecha: string | null; // texto crudo de la celda mapeada a "Carta de ingreso"
+  emetrixFecha: string | null; // texto crudo de la celda mapeada a "Usuario Emetrix"
 };
 
 /** Encuentra, para cada campo único, la primera columna del archivo que se le asignó. */
@@ -15,22 +17,28 @@ function buildColumnIndex(headers: string[], mapeo: ImportMapeo) {
   let rfcIdx = -1;
   let contratoIdx = -1;
   let imssIdx = -1;
+  let cartaIdx = -1;
+  let emetrixIdx = -1;
   headers.forEach((h, i) => {
     const campo = mapeo[h];
     if (campo === 'rfc' && rfcIdx === -1) rfcIdx = i;
     if (campo === 'contratoFecha' && contratoIdx === -1) contratoIdx = i;
     if (campo === 'imssFecha' && imssIdx === -1) imssIdx = i;
+    if (campo === 'cartaFecha' && cartaIdx === -1) cartaIdx = i;
+    if (campo === 'emetrixFecha' && emetrixIdx === -1) emetrixIdx = i;
   });
-  return { rfcIdx, contratoIdx, imssIdx };
+  return { rfcIdx, contratoIdx, imssIdx, cartaIdx, emetrixIdx };
 }
 
-/** Convierte cada fila cruda del archivo en {rfc, contratoFecha, imssFecha} según el mapeo confirmado. */
+/** Convierte cada fila cruda del archivo en un registro según el mapeo confirmado. */
 export function extractRegistros(headers: string[], rows: string[][], mapeo: ImportMapeo): RegistroExtraido[] {
-  const { rfcIdx, contratoIdx, imssIdx } = buildColumnIndex(headers, mapeo);
+  const { rfcIdx, contratoIdx, imssIdx, cartaIdx, emetrixIdx } = buildColumnIndex(headers, mapeo);
   return rows.map((row) => ({
     rfc: rfcIdx >= 0 ? (row[rfcIdx] ?? '').trim().toUpperCase() : '',
     contratoFecha: contratoIdx >= 0 ? (row[contratoIdx] ?? '').trim() || null : null,
     imssFecha: imssIdx >= 0 ? (row[imssIdx] ?? '').trim() || null : null,
+    cartaFecha: cartaIdx >= 0 ? (row[cartaIdx] ?? '').trim() || null : null,
+    emetrixFecha: emetrixIdx >= 0 ? (row[emetrixIdx] ?? '').trim() || null : null,
   }));
 }
 

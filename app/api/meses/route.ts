@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
-import { requireSession } from '@/lib/auth';
+import { requireDashboard } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // Cualquier mes con cierre ya existente también se incluye, aunque quede
 // fuera de ese rango (caso raro, pero mantiene el historial visible).
 export async function GET() {
-  const auth = await requireSession();
+  const auth = await requireDashboard();
   if (auth.error) return auth.error;
 
   const [{ rows: cierreRows }, { rows: rosterRows }] = await Promise.all([

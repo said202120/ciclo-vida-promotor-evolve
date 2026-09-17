@@ -47,3 +47,23 @@ export async function requireGerente(): Promise<AuthResult> {
   }
   return result;
 }
+
+/** Tablero de operaciones (padrón, KPI, materiales, módulos, cierres): solo gerente/ejecutivo. */
+export async function requireDashboard(): Promise<AuthResult> {
+  const result = await requireSession();
+  if (result.error) return result;
+  if (result.session.rol !== 'gerente' && result.session.rol !== 'ejecutivo') {
+    return { error: NextResponse.json({ error: 'No tienes acceso al tablero.' }, { status: 403 }) };
+  }
+  return result;
+}
+
+/** Importador de Aspel: solo los perfiles de captura, mesa_control y nomina. */
+export async function requireImportador(): Promise<AuthResult> {
+  const result = await requireSession();
+  if (result.error) return result;
+  if (result.session.rol !== 'mesa_control' && result.session.rol !== 'nomina') {
+    return { error: NextResponse.json({ error: 'No tienes acceso al importador.' }, { status: 403 }) };
+  }
+  return result;
+}

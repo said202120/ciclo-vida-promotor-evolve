@@ -1,6 +1,6 @@
 // Crea (o actualiza la contraseña de) un usuario en la tabla `usuarios`.
-// Se usa para dar de alta al primer gerente — no hay pantalla de registro,
-// solo el gerente puede crear usuarios ejecutivos desde /usuarios.
+// Se usa para dar de alta al primer gerente — no hay autoregistro, todos los
+// usuarios (gerente, ejecutivo, mesa_control, nomina) se crean a mano.
 //
 // Uso:
 //   npm run user:create -- --nombre "Omar Said" --email said@evolve.com.mx --password "xxxxxxxx" --rol gerente
@@ -57,8 +57,9 @@ if (!nombre || !email || !password || !rol) {
   console.error('Uso: npm run user:create -- --nombre "Nombre" --email correo@evolve.com.mx --password "xxxxxxxx" --rol gerente|ejecutivo');
   process.exit(1);
 }
-if (!['gerente', 'ejecutivo'].includes(rol)) {
-  console.error('--rol debe ser "gerente" o "ejecutivo".');
+const ROLES_VALIDOS = ['gerente', 'ejecutivo', 'mesa_control', 'nomina'];
+if (!ROLES_VALIDOS.includes(rol)) {
+  console.error(`--rol debe ser uno de: ${ROLES_VALIDOS.join(', ')}.`);
   process.exit(1);
 }
 if (password.length < 8) {

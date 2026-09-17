@@ -9,6 +9,8 @@ import type {
   MaterialResumenItem,
   Modulos,
   Promotor,
+  PromotorParaImportar,
+  Rol,
   Usuario,
 } from './types';
 import type { RegistroExtraido } from './import-shared';
@@ -85,7 +87,7 @@ export function fetchUsuarios(): Promise<Usuario[]> {
   return fetch('/api/usuarios').then((r) => json(r));
 }
 
-export function createUsuario(data: { nombre: string; email: string; password: string }): Promise<Usuario> {
+export function createUsuario(data: { nombre: string; email: string; password: string; rol: Rol }): Promise<Usuario> {
   return fetch('/api/usuarios', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -133,6 +135,10 @@ export function aplicarImportacion(registros: RegistroExtraido[]): Promise<Impor
 
 export function fetchImportLog(): Promise<ImportLogEntry[]> {
   return fetch('/api/importaciones/log').then((r) => json(r));
+}
+
+export function fetchPromotoresParaImportar(): Promise<PromotorParaImportar[]> {
+  return fetch('/api/importaciones/promotores').then((r) => json(r));
 }
 
 export function updatePromotorMaterial(

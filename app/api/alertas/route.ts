@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
-import { requireSession } from '@/lib/auth';
+import { requireDashboard } from '@/lib/auth';
 import { mensajeMes1, mensajeMes2, type AlertaTipo } from '@/lib/alerts';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ const MENSAJES: Record<AlertaTipo, (nombre: string) => string> = {
 // (el promotor todavía no tiene materiales marcados como entregados).
 // Alimenta el banner del tablero.
 export async function GET() {
-  const auth = await requireSession();
+  const auth = await requireDashboard();
   if (auth.error) return auth.error;
 
   // "Activa" = el promotor todavía no tiene los 13 artículos del catálogo

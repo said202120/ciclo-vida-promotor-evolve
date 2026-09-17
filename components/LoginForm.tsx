@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { rutaInicioPara } from '@/lib/import-permisos';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function LoginForm() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'No se pudo iniciar sesión.');
-      router.push('/');
+      router.push(rutaInicioPara(data.rol));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido.');

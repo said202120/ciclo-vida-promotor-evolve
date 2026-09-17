@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireSession } from '@/lib/auth';
+import { requireImportador } from '@/lib/auth';
 import { parseSpreadsheet } from '@/lib/importaciones';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 // No depende de un formato de columnas fijo: solo asume que la primera fila
 // con contenido es el encabezado.
 export async function POST(request: Request) {
-  const auth = await requireSession();
+  const auth = await requireImportador();
   if (auth.error) return auth.error;
 
   const form = await request.formData().catch(() => null);

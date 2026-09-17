@@ -1104,7 +1104,8 @@ table.roster-table select.mapeo-set {
   font-weight: 500;
   color: var(--ink-soft);
 }
-.users-form input {
+.users-form input,
+.users-form select {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
@@ -1113,4 +1114,7 @@ table.roster-table select.mapeo-set {
   color: var(--ink);
   background: var(--paper);
   min-width: 180px;
+}
+.users-form select {
+  cursor: pointer;
 }

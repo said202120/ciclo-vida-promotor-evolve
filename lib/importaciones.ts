@@ -7,10 +7,24 @@ import { sql } from '@vercel/postgres';
 import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
 import { parseFlexibleDate, type RegistroExtraido } from './import-shared';
-import type { ImportAplicarResultado, ImportCampo, ImportLogEntry, ImportMapeo } from './types';
+import { CAMPOS_PERMITIDOS, campoPermitido, type RolImportador } from './import-permisos';
+import type {
+  ImportAplicarResultado,
+  ImportCampo,
+  ImportLogEntry,
+  ImportMapeo,
+  PromotorParaImportar,
+} from './types';
 
 const MAX_ROWS = 5000;
-const CAMPOS_VALIDOS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'ignorar'];
+const CAMPOS_VALIDOS: ImportCampo[] = [
+  'rfc',
+  'contratoFecha',
+  'imssFecha',
+  'cartaFecha',
+  'emetrixFecha',
+  'ignorar',
+];
 
 function cellToDisplay(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return '';
@@ -95,46 +109,71 @@ export async function parseSpreadsheet(
 }
 
 // El mapeo de columnas (qué encabezado del archivo es RFC / fecha de contrato
-// / fecha de IMSS / ignorar) se guarda en una sola fila para proponerlo la
-// próxima vez que se suba un archivo con la misma estructura de columnas.
+// / fecha de IMSS / ignorar) se guarda por rol de captura, para proponerlo la
+// próxima vez que ese rol suba un archivo con la misma estructura de columnas.
 
-export async function fetchImportConfig(): Promise<ImportMapeo> {
-  const { rows } = await sql.query('select mapeo from importaciones_config where id = 1');
+export async function fetchImportConfig(rol: RolImportador): Promise<ImportMapeo> {
+  const { rows } = await sql.query('select mapeo from importaciones_config where rol = $1', [rol]);
   const raw = rows[0]?.mapeo;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
 
   const clean: ImportMapeo = {};
   for (const [header, campo] of Object.entries(raw as Record<string, unknown>)) {
-    if (CAMPOS_VALIDOS.includes(campo as ImportCampo)) clean[header] = campo as ImportCampo;
+    if (CAMPOS_VALIDOS.includes(campo as ImportCampo) && campoPermitido(rol, campo as ImportCampo)) {
+      clean[header] = campo as ImportCampo;
+    }
   }
   return clean;
 }
 
-export async function saveImportConfig(mapeo: ImportMapeo): Promise<void> {
-  await sql.query('update importaciones_config set mapeo = $1::jsonb, updated_at = now() where id = 1', [
+export async function saveImportConfig(rol: RolImportador, mapeo: ImportMapeo): Promise<void> {
+  await sql.query('update importaciones_config set mapeo = $2::jsonb, updated_at = now() where rol = $1', [
+    rol,
     JSON.stringify(mapeo),
   ]);
 }
 
+// Qué columnas booleana/fecha corresponden a cada campo de fecha del importador.
+const CAMPO_A_COLUMNAS: Record<'contratoFecha' | 'imssFecha' | 'cartaFecha' | 'emetrixFecha', { bool: string; fecha: string }> = {
+  contratoFecha: { bool: 'contrato', fecha: 'fecha_contrato' },
+  imssFecha: { bool: 'imss', fecha: 'fecha_imss' },
+  cartaFecha: { bool: 'carta', fecha: 'fecha_carta' },
+  emetrixFecha: { bool: 'usuario', fecha: 'fecha_usuario' },
+};
+
+type DatosRegistro = Record<keyof typeof CAMPO_A_COLUMNAS, string | null>;
+
 // Aplica los cambios detectados: cruza por RFC contra el padrón actual y
-// marca contrato=true / imss=true (con su fecha si se pudo interpretar) solo
-// en los promotores que hicieron match. Nunca crea promotores nuevos ni
-// regresa un booleano ya en true a false. Cada corrida queda en
-// importaciones_log, con match o sin match.
+// marca el booleano correspondiente en true (con su fecha si se pudo
+// interpretar) solo en los promotores que hicieron match. Nunca crea
+// promotores nuevos ni regresa un booleano ya en true a false. Cada corrida
+// queda en importaciones_log, con match o sin match.
 export async function aplicarImportacion(
   registros: RegistroExtraido[],
-  usuarioId: string
+  usuarioId: string,
+  rol: RolImportador
 ): Promise<ImportAplicarResultado> {
+  // El rol acota qué campos puede escribir, sin importar lo que haya mandado
+  // el cliente: mesa_control nunca escribe IMSS, nomina nunca escribe contrato/carta/Emetrix.
+  const permitidos = new Set(CAMPOS_PERMITIDOS[rol]);
+
   // Se agrupa por RFC por si el archivo trae varias filas del mismo promotor;
   // el dato más reciente que no venga vacío gana.
-  const porRfc = new Map<string, { contratoFecha: string | null; imssFecha: string | null }>();
+  const porRfc = new Map<string, DatosRegistro>();
   for (const r of registros) {
     const rfc = r.rfc.trim().toUpperCase();
     if (!rfc) continue;
-    const prev = porRfc.get(rfc) ?? { contratoFecha: null, imssFecha: null };
+    const prev = porRfc.get(rfc) ?? {
+      contratoFecha: null,
+      imssFecha: null,
+      cartaFecha: null,
+      emetrixFecha: null,
+    };
     porRfc.set(rfc, {
-      contratoFecha: r.contratoFecha ?? prev.contratoFecha,
-      imssFecha: r.imssFecha ?? prev.imssFecha,
+      contratoFecha: permitidos.has('contratoFecha') ? (r.contratoFecha ?? prev.contratoFecha) : null,
+      imssFecha: permitidos.has('imssFecha') ? (r.imssFecha ?? prev.imssFecha) : null,
+      cartaFecha: permitidos.has('cartaFecha') ? (r.cartaFecha ?? prev.cartaFecha) : null,
+      emetrixFecha: permitidos.has('emetrixFecha') ? (r.emetrixFecha ?? prev.emetrixFecha) : null,
     });
   }
 
@@ -167,19 +206,14 @@ export async function aplicarImportacion(
     const values: unknown[] = [];
     let i = 1;
 
-    if (datos.contratoFecha) {
-      sets.push('contrato = true');
-      const fecha = parseFlexibleDate(datos.contratoFecha);
+    for (const campo of Object.keys(CAMPO_A_COLUMNAS) as Array<keyof typeof CAMPO_A_COLUMNAS>) {
+      const valorCrudo = datos[campo];
+      if (!valorCrudo) continue;
+      const { bool, fecha: columnaFecha } = CAMPO_A_COLUMNAS[campo];
+      sets.push(`${bool} = true`);
+      const fecha = parseFlexibleDate(valorCrudo);
       if (fecha) {
-        sets.push(`fecha_contrato = $${i++}`);
-        values.push(fecha);
-      }
-    }
-    if (datos.imssFecha) {
-      sets.push('imss = true');
-      const fecha = parseFlexibleDate(datos.imssFecha);
-      if (fecha) {
-        sets.push(`fecha_imss = $${i++}`);
+        sets.push(`${columnaFecha} = $${i++}`);
         values.push(fecha);
       }
     }
@@ -203,6 +237,20 @@ export async function aplicarImportacion(
   ]);
 
   return { recibidos: rfcs.length, actualizados, sinMatch };
+}
+
+/** Vista mínima del padrón (id, nombre, rfc, imss) para que el importador cruce por RFC sin exponer todo el tablero. */
+export async function fetchPromotoresParaImportar(): Promise<PromotorParaImportar[]> {
+  const { rows } = await sql.query(
+    `select id, nombre, rfc, imss, to_char(fecha_imss, 'YYYY-MM-DD') as fecha_imss from promotores`
+  );
+  return rows.map((r) => ({
+    id: r.id as string,
+    nombre: r.nombre as string,
+    rfc: (r.rfc as string | null) ?? null,
+    imss: r.imss as boolean,
+    fechaImss: (r.fecha_imss as string | null) ?? null,
+  }));
 }
 
 /** Historial de corridas del importador, más reciente primero. */

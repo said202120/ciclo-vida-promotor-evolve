@@ -21,12 +21,14 @@ create table if not exists promotores (
 -- contra el archivo para marcar contrato/IMSS automáticamente.
 alter table promotores add column if not exists rfc text;
 
--- Fecha detectada en el archivo de Aspel para contrato/IMSS. Se llenan solo
--- cuando el importador logra parsear una fecha válida en la columna mapeada
--- a ese campo; el booleano contrato/imss puede quedar en true aunque la
--- fecha no se haya podido interpretar.
+-- Fecha detectada en el archivo de Aspel para contrato/IMSS/carta/usuario
+-- Emetrix. Se llenan solo cuando el importador logra parsear una fecha
+-- válida en la columna mapeada a ese campo; el booleano correspondiente
+-- puede quedar en true aunque la fecha no se haya podido interpretar.
 alter table promotores add column if not exists fecha_contrato date;
 alter table promotores add column if not exists fecha_imss date;
+alter table promotores add column if not exists fecha_carta date;
+alter table promotores add column if not exists fecha_usuario date;
 
 create table if not exists modulos_publicados (
   id int primary key default 1,
@@ -53,9 +55,11 @@ create table if not exists cierres_mensuales (
   unique (mes, kpi_id)
 );
 
--- Usuarios con acceso al tablero. Dos roles:
---   gerente   -> acceso completo, puede crear usuarios ejecutivos
---   ejecutivo -> ve y edita el tablero igual que gerente, recibe alertas de materiales
+-- Usuarios con acceso al sistema. Cuatro roles:
+--   gerente      -> acceso completo al tablero, puede crear usuarios de cualquier rol
+--   ejecutivo    -> ve y edita el tablero igual que gerente, recibe alertas de materiales
+--   mesa_control -> solo ve la pantalla de importar Aspel (RFC, carta, usuario Emetrix, contrato; IMSS de solo lectura)
+--   nomina       -> solo ve la pantalla de importar Aspel (RFC, IMSS únicamente)
 create table if not exists usuarios (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
@@ -64,6 +68,12 @@ create table if not exists usuarios (
   rol text not null check (rol in ('gerente', 'ejecutivo')),
   created_at timestamptz default now()
 );
+
+-- Se agregaron mesa_control y nomina: perfiles de captura limitados a la
+-- pantalla de importar Aspel, creados a mano por el gerente (sin autoregistro).
+alter table usuarios drop constraint if exists usuarios_rol_check;
+alter table usuarios add constraint usuarios_rol_check
+  check (rol in ('gerente', 'ejecutivo', 'mesa_control', 'nomina'));
 
 -- Catálogo fijo de materiales del checklist de entrega (KR2). El orden
 -- controla cómo se listan dentro de cada categoría en el panel del padrón.
@@ -137,14 +147,47 @@ create table if not exists alertas_enviadas (
 
 -- Importador de Aspel: no asumimos un formato de columnas fijo, así que el
 -- mapeo (qué encabezado del archivo corresponde a qué campo) lo elige el
--- usuario cada vez y se guarda aquí para proponerlo la próxima vez. Una sola
--- fila, se sobreescribe.
+-- usuario cada vez y se guarda aquí para proponerlo la próxima vez. Un
+-- mapeo por rol de captura (mesa_control y nomina trabajan campos distintos
+-- de archivos distintos, así que no pueden compartir una sola fila).
 create table if not exists importaciones_config (
   id int primary key default 1,
   mapeo jsonb not null default '{}'::jsonb,
   updated_at timestamptz default now()
 );
-insert into importaciones_config (id) values (1) on conflict (id) do nothing;
+-- Sin insert de bootstrap aquí a propósito: el bloque de migración de abajo
+-- y los dos insert finales (uno por rol) ya cubren tanto una base nueva
+-- (tabla recién creada, sin filas) como una ya migrada a filas por rol.
+
+-- Migración: de una sola fila global a una fila por rol de captura. El mapeo
+-- que ya existía se copia a ambos roles nuevos (cada quien luego solo puede
+-- guardar los campos que le correspondan); guardado en un bloque condicional
+-- porque la columna vieja `id` se elimina al final, así el script sigue
+-- siendo re-ejecutable sin error contra una base ya migrada.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'importaciones_config' and column_name = 'id'
+  ) then
+    alter table importaciones_config add column if not exists rol text;
+    update importaciones_config set rol = 'mesa_control' where id = 1;
+    -- Se quita el pkey viejo (sobre id) antes de insertar la segunda fila,
+    -- porque su default compartido (id=1) chocaría con la fila que ya existe.
+    alter table importaciones_config drop constraint importaciones_config_pkey;
+    insert into importaciones_config (rol, mapeo, updated_at)
+      select 'nomina', mapeo, updated_at from importaciones_config where rol = 'mesa_control';
+
+    alter table importaciones_config drop column id;
+    alter table importaciones_config alter column rol set not null;
+    alter table importaciones_config add constraint importaciones_config_pkey primary key (rol);
+    alter table importaciones_config add constraint importaciones_config_rol_check
+      check (rol in ('mesa_control', 'nomina'));
+  end if;
+end $$;
+
+insert into importaciones_config (rol) values ('mesa_control') on conflict (rol) do nothing;
+insert into importaciones_config (rol) values ('nomina') on conflict (rol) do nothing;
 
 -- Historial de corridas del importador de Aspel, para saber cuándo fue la
 -- última sincronización y cuántos RFC no hicieron match.

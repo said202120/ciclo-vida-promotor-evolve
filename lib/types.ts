@@ -55,7 +55,7 @@ export type ImportParseResult = {
 };
 
 /** A qué campo del promotor corresponde una columna del archivo de Aspel. */
-export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'ignorar';
+export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'cartaFecha' | 'emetrixFecha' | 'ignorar';
 
 /** Mapeo columna del archivo (encabezado tal cual) -> campo. Se guarda en importaciones_config. */
 export type ImportMapeo = Record<string, ImportCampo>;
@@ -65,6 +65,15 @@ export type ImportAplicarResultado = {
   recibidos: number;
   actualizados: number;
   sinMatch: string[];
+};
+
+/** Vista mínima del padrón para cruzar por RFC dentro del importador, sin exponer el resto del tablero. */
+export type PromotorParaImportar = {
+  id: string;
+  nombre: string;
+  rfc: string | null;
+  imss: boolean;
+  fechaImss: string | null;
 };
 
 /** Una fila del historial de corridas del importador, para el "cuándo fue la última vez que sincronicé". */
@@ -84,7 +93,10 @@ export type AlertaActiva = {
   mensaje: string;
 };
 
-export type Rol = 'gerente' | 'ejecutivo';
+// gerente/ejecutivo: acceso completo al tablero de operaciones, sin importador.
+// mesa_control/nomina: solo ven la pantalla de importar Aspel, cada uno con
+// distintos campos permitidos (se define en una parte posterior).
+export type Rol = 'gerente' | 'ejecutivo' | 'mesa_control' | 'nomina';
 
 export type Usuario = {
   id: string;
