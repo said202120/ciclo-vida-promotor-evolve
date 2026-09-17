@@ -1,8 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import type { ImportCampo, ImportMapeo, ImportParseResult } from '@/lib/types';
-import { fetchImportConfig, parseImportFile, saveImportConfig } from '@/lib/api-client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ImportAplicarResultado, ImportCampo, ImportLogEntry, ImportMapeo, ImportParseResult, Promotor } from '@/lib/types';
+import {
+  aplicarImportacion,
+  fetchImportConfig,
+  fetchImportLog,
+  fetchPromotores,
+  parseImportFile,
+  saveImportConfig,
+} from '@/lib/api-client';
+import { extractRegistros, parseFlexibleDate } from '@/lib/import-shared';
 
 const PREVIEW_ROWS = 5;
 
@@ -55,6 +63,10 @@ function proposeMapeo(headers: string[], savedConfig: ImportMapeo | null): Impor
   return proposed;
 }
 
+function formatFechaCorta(iso: string): string {
+  return new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function validateMapeo(mapeo: ImportMapeo): string | null {
   const values = Object.values(mapeo);
   if (values.filter((c) => c === 'rfc').length !== 1) {
@@ -85,10 +97,26 @@ export default function ImportarAspel() {
   const [mappingSaving, setMappingSaving] = useState(false);
   const [mappingSaved, setMappingSaved] = useState(false);
 
+  const [promotores, setPromotores] = useState<Promotor[] | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [applyResult, setApplyResult] = useState<ImportAplicarResultado | null>(null);
+  const [history, setHistory] = useState<ImportLogEntry[] | null>(null);
+
+  function reloadHistory() {
+    fetchImportLog()
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  }
+
   useEffect(() => {
     fetchImportConfig()
       .then(setSavedConfig)
       .catch(() => setSavedConfig({}));
+    fetchPromotores()
+      .then(setPromotores)
+      .catch(() => setPromotores([]));
+    reloadHistory();
   }, []);
 
   useEffect(() => {
@@ -96,6 +124,8 @@ export default function ImportarAspel() {
     setMapeo(proposeMapeo(parsed.headers, savedConfig));
     setMappingSaved(false);
     setMappingError(null);
+    setApplyResult(null);
+    setApplyError(null);
     // Solo se recalcula al parsear un archivo nuevo, no en cada cambio manual del usuario.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed]);
@@ -119,6 +149,8 @@ export default function ImportarAspel() {
     setFileName(null);
     setError(null);
     setMapeo({});
+    setApplyResult(null);
+    setApplyError(null);
     if (inputRef.current) inputRef.current.value = '';
   }
 
@@ -145,6 +177,52 @@ export default function ImportarAspel() {
       setMappingError(err instanceof Error ? err.message : 'No se pudo guardar el mapeo.');
     } finally {
       setMappingSaving(false);
+    }
+  }
+
+  const mapeoValida = parsed !== null && validateMapeo(mapeo) === null;
+
+  const registros = useMemo(() => {
+    if (!parsed || !mapeoValida) return [];
+    return extractRegistros(parsed.headers, parsed.rows, mapeo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsed, mapeo, mapeoValida]);
+
+  const promotorPorRfc = useMemo(() => {
+    const m = new Map<string, Promotor>();
+    for (const p of promotores ?? []) {
+      if (p.rfc) m.set(p.rfc.trim().toUpperCase(), p);
+    }
+    return m;
+  }, [promotores]);
+
+  const preview = useMemo(
+    () =>
+      registros.map((r) => ({
+        ...r,
+        promotor: r.rfc ? (promotorPorRfc.get(r.rfc) ?? null) : null,
+        contratoFechaParsed: r.contratoFecha ? parseFlexibleDate(r.contratoFecha) : null,
+        imssFechaParsed: r.imssFecha ? parseFlexibleDate(r.imssFecha) : null,
+      })),
+    [registros, promotorPorRfc]
+  );
+
+  const conRfc = preview.filter((p) => p.rfc);
+  const conMatch = conRfc.filter((p) => p.promotor);
+  const sinMatchPreview = conRfc.filter((p) => !p.promotor);
+
+  async function handleAplicar() {
+    setApplying(true);
+    setApplyError(null);
+    setApplyResult(null);
+    try {
+      const resultado = await aplicarImportacion(conRfc.map(({ rfc, contratoFecha, imssFecha }) => ({ rfc, contratoFecha, imssFecha })));
+      setApplyResult(resultado);
+      reloadHistory();
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'No se pudo aplicar la importación.');
+    } finally {
+      setApplying(false);
     }
   }
 
@@ -279,6 +357,147 @@ export default function ImportarAspel() {
           </button>
         </div>
       )}
+
+      {parsed && mapeoValida && (
+        <div className="roster">
+          <p className="section-title" style={{ margin: '0 0 14px' }}>
+            Paso 4 · Vista previa de cambios
+          </p>
+          <p className="roster-hint">
+            Todavía no se aplica nada. {conRfc.length} fila{conRfc.length === 1 ? '' : 's'} con RFC en el archivo —{' '}
+            <strong>{conMatch.length}</strong> con coincidencia en el padrón
+            {sinMatchPreview.length > 0 && (
+              <>
+                {' '}
+                y <strong>{sinMatchPreview.length}</strong> sin coincidencia
+              </>
+            )}
+            {preview.length > conRfc.length && (
+              <> · {preview.length - conRfc.length} fila{preview.length - conRfc.length === 1 ? '' : 's'} sin RFC en el archivo, se omiten.</>
+            )}
+          </p>
+          {!promotores ? (
+            <p className="resumen-status">Cargando padrón…</p>
+          ) : (
+            <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+              <table className="roster-table">
+                <thead>
+                  <tr>
+                    <th>RFC del archivo</th>
+                    <th>Promotor</th>
+                    <th>Se va a marcar</th>
+                    <th>Fecha detectada</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.map((row, i) => (
+                    <tr key={i}>
+                      <td className="mono">{row.rfc || '— (sin RFC)'}</td>
+                      <td style={{ textAlign: 'left' }}>
+                        {!row.rfc ? (
+                          <span className="muted">se omite</span>
+                        ) : row.promotor ? (
+                          row.promotor.nombre
+                        ) : (
+                          <span className="resumen-error">Sin coincidencia</span>
+                        )}
+                      </td>
+                      <td>
+                        {row.rfc && row.promotor ? (
+                          <>
+                            {row.contratoFecha && <span className="pill good">Contrato ✓</span>}{' '}
+                            {row.imssFecha && <span className="pill good">IMSS ✓</span>}
+                            {!row.contratoFecha && !row.imssFecha && '—'}
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="mono" style={{ fontSize: 11.5 }}>
+                        {row.contratoFecha && (
+                          <div>Contrato: {row.contratoFechaParsed ?? `${row.contratoFecha} (sin interpretar)`}</div>
+                        )}
+                        {row.imssFecha && <div>IMSS: {row.imssFechaParsed ?? `${row.imssFecha} (sin interpretar)`}</div>}
+                        {!row.contratoFecha && !row.imssFecha && '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {parsed && mapeoValida && promotores && (
+        <div className="roster">
+          <p className="section-title" style={{ margin: '0 0 14px' }}>
+            Paso 5 · Aplicar
+          </p>
+          <p className="roster-hint">
+            Al confirmar, se marca contrato y/o IMSS solo en los {conMatch.length} promotores con coincidencia de
+            arriba. Los RFC sin coincidencia no se tocan ni rompen el proceso — quedan listados al final.
+          </p>
+          {applyError && <p className="login-error">{applyError}</p>}
+          <button
+            type="button"
+            className="close-month-btn"
+            onClick={handleAplicar}
+            disabled={applying || conMatch.length === 0}
+          >
+            {applying ? 'Aplicando…' : `Aplicar cambios a ${conMatch.length} promotor${conMatch.length === 1 ? '' : 'es'}`}
+          </button>
+
+          {applyResult && (
+            <div className="card" style={{ marginTop: 16, maxWidth: 560 }}>
+              <p className="resumen-status import-success" style={{ padding: 0, margin: '0 0 6px' }}>
+                {applyResult.actualizados} promotor{applyResult.actualizados === 1 ? '' : 'es'} actualizado
+                {applyResult.actualizados === 1 ? '' : 's'}.
+              </p>
+              {applyResult.sinMatch.length > 0 && (
+                <p style={{ margin: 0, fontSize: 13 }}>
+                  RFC sin coincidencia ({applyResult.sinMatch.length}):{' '}
+                  <span className="mono">{applyResult.sinMatch.join(', ')}</span>
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="roster">
+        <p className="section-title" style={{ margin: '0 0 14px' }}>
+          Historial de importaciones
+        </p>
+        {!history ? (
+          <p className="resumen-status">Cargando…</p>
+        ) : history.length === 0 ? (
+          <p className="roster-hint">Todavía no se ha corrido ninguna importación.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="roster-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Actualizados</th>
+                  <th>Sin coincidencia</th>
+                  <th>Usuario</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h) => (
+                  <tr key={h.id}>
+                    <td style={{ textAlign: 'left' }}>{formatFechaCorta(h.fecha)}</td>
+                    <td>{h.actualizados}</td>
+                    <td>{h.noEncontrados}</td>
+                    <td>{h.usuarioNombre ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

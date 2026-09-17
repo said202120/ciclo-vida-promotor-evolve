@@ -836,6 +836,12 @@ table.roster-table select.mapeo-set {
   background: var(--paper);
   color: var(--ink-soft);
 }
+.mono {
+  font-family: 'IBM Plex Mono', monospace;
+}
+.muted {
+  color: var(--ink-soft);
+}
 
 .resumen {
   padding: 14px 24px 18px;

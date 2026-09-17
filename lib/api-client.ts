@@ -1,6 +1,8 @@
 import type {
   AlertaActiva,
   Dashboard,
+  ImportAplicarResultado,
+  ImportLogEntry,
   ImportMapeo,
   ImportParseResult,
   MaterialEstado,
@@ -9,6 +11,7 @@ import type {
   Promotor,
   Usuario,
 } from './types';
+import type { RegistroExtraido } from './import-shared';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -118,6 +121,18 @@ export function saveImportConfig(mapeo: ImportMapeo): Promise<ImportMapeo> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mapeo }),
   }).then((r) => json(r));
+}
+
+export function aplicarImportacion(registros: RegistroExtraido[]): Promise<ImportAplicarResultado> {
+  return fetch('/api/importaciones/aplicar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ registros }),
+  }).then((r) => json(r));
+}
+
+export function fetchImportLog(): Promise<ImportLogEntry[]> {
+  return fetch('/api/importaciones/log').then((r) => json(r));
 }
 
 export function updatePromotorMaterial(

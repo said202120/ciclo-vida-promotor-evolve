@@ -60,6 +60,22 @@ export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'ignorar';
 /** Mapeo columna del archivo (encabezado tal cual) -> campo. Se guarda en importaciones_config. */
 export type ImportMapeo = Record<string, ImportCampo>;
 
+/** Resultado de aplicar el sync: cuántos promotores se actualizaron y qué RFC no encontraron dueño. */
+export type ImportAplicarResultado = {
+  recibidos: number;
+  actualizados: number;
+  sinMatch: string[];
+};
+
+/** Una fila del historial de corridas del importador, para el "cuándo fue la última vez que sincronicé". */
+export type ImportLogEntry = {
+  id: string;
+  fecha: string;
+  actualizados: number;
+  noEncontrados: number;
+  usuarioNombre: string | null;
+};
+
 export type AlertaActiva = {
   promotorId: string;
   nombre: string;

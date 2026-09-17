@@ -6,7 +6,8 @@
 import { sql } from '@vercel/postgres';
 import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
-import type { ImportCampo, ImportMapeo } from './types';
+import { parseFlexibleDate, type RegistroExtraido } from './import-shared';
+import type { ImportAplicarResultado, ImportCampo, ImportLogEntry, ImportMapeo } from './types';
 
 const MAX_ROWS = 5000;
 const CAMPOS_VALIDOS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'ignorar'];
@@ -113,4 +114,112 @@ export async function saveImportConfig(mapeo: ImportMapeo): Promise<void> {
   await sql.query('update importaciones_config set mapeo = $1::jsonb, updated_at = now() where id = 1', [
     JSON.stringify(mapeo),
   ]);
+}
+
+// Aplica los cambios detectados: cruza por RFC contra el padrón actual y
+// marca contrato=true / imss=true (con su fecha si se pudo interpretar) solo
+// en los promotores que hicieron match. Nunca crea promotores nuevos ni
+// regresa un booleano ya en true a false. Cada corrida queda en
+// importaciones_log, con match o sin match.
+export async function aplicarImportacion(
+  registros: RegistroExtraido[],
+  usuarioId: string
+): Promise<ImportAplicarResultado> {
+  // Se agrupa por RFC por si el archivo trae varias filas del mismo promotor;
+  // el dato más reciente que no venga vacío gana.
+  const porRfc = new Map<string, { contratoFecha: string | null; imssFecha: string | null }>();
+  for (const r of registros) {
+    const rfc = r.rfc.trim().toUpperCase();
+    if (!rfc) continue;
+    const prev = porRfc.get(rfc) ?? { contratoFecha: null, imssFecha: null };
+    porRfc.set(rfc, {
+      contratoFecha: r.contratoFecha ?? prev.contratoFecha,
+      imssFecha: r.imssFecha ?? prev.imssFecha,
+    });
+  }
+
+  const rfcs = [...porRfc.keys()];
+  if (rfcs.length === 0) {
+    await sql.query('insert into importaciones_log (usuario_id, actualizados, no_encontrados) values ($1, 0, 0)', [
+      usuarioId,
+    ]);
+    return { recibidos: 0, actualizados: 0, sinMatch: [] };
+  }
+
+  const { rows } = await sql.query('select id, rfc from promotores where upper(rfc) = any($1::text[])', [rfcs]);
+  const idPorRfc = new Map<string, string>();
+  for (const row of rows as Array<{ id: string; rfc: string }>) {
+    idPorRfc.set((row.rfc ?? '').toUpperCase(), row.id);
+  }
+
+  let actualizados = 0;
+  const sinMatch: string[] = [];
+
+  for (const rfc of rfcs) {
+    const promotorId = idPorRfc.get(rfc);
+    if (!promotorId) {
+      sinMatch.push(rfc);
+      continue;
+    }
+
+    const datos = porRfc.get(rfc)!;
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+
+    if (datos.contratoFecha) {
+      sets.push('contrato = true');
+      const fecha = parseFlexibleDate(datos.contratoFecha);
+      if (fecha) {
+        sets.push(`fecha_contrato = $${i++}`);
+        values.push(fecha);
+      }
+    }
+    if (datos.imssFecha) {
+      sets.push('imss = true');
+      const fecha = parseFlexibleDate(datos.imssFecha);
+      if (fecha) {
+        sets.push(`fecha_imss = $${i++}`);
+        values.push(fecha);
+      }
+    }
+
+    if (sets.length === 0) continue; // hizo match pero la fila no traía nada que aplicar
+
+    values.push(promotorId);
+    try {
+      await sql.query(`update promotores set ${sets.join(', ')} where id = $${i}`, values);
+      actualizados++;
+    } catch {
+      // Un error puntual (p. ej. de conexión) no debe tumbar el resto del lote.
+      sinMatch.push(rfc);
+    }
+  }
+
+  await sql.query('insert into importaciones_log (usuario_id, actualizados, no_encontrados) values ($1, $2, $3)', [
+    usuarioId,
+    actualizados,
+    sinMatch.length,
+  ]);
+
+  return { recibidos: rfcs.length, actualizados, sinMatch };
+}
+
+/** Historial de corridas del importador, más reciente primero. */
+export async function fetchImportLog(limit = 10): Promise<ImportLogEntry[]> {
+  const { rows } = await sql.query(
+    `select il.id, il.ejecutada_en, il.actualizados, il.no_encontrados, u.nombre as usuario_nombre
+     from importaciones_log il
+     left join usuarios u on u.id = il.usuario_id
+     order by il.ejecutada_en desc
+     limit $1`,
+    [limit]
+  );
+  return rows.map((r) => ({
+    id: r.id as string,
+    fecha: new Date(r.ejecutada_en as string).toISOString(),
+    actualizados: Number(r.actualizados),
+    noEncontrados: Number(r.no_encontrados),
+    usuarioNombre: (r.usuario_nombre as string | null) ?? null,
+  }));
 }

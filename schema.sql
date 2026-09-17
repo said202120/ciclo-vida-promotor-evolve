@@ -21,6 +21,13 @@ create table if not exists promotores (
 -- contra el archivo para marcar contrato/IMSS automáticamente.
 alter table promotores add column if not exists rfc text;
 
+-- Fecha detectada en el archivo de Aspel para contrato/IMSS. Se llenan solo
+-- cuando el importador logra parsear una fecha válida en la columna mapeada
+-- a ese campo; el booleano contrato/imss puede quedar en true aunque la
+-- fecha no se haya podido interpretar.
+alter table promotores add column if not exists fecha_contrato date;
+alter table promotores add column if not exists fecha_imss date;
+
 create table if not exists modulos_publicados (
   id int primary key default 1,
   mod1 boolean default false,
