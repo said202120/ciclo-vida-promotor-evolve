@@ -31,8 +31,6 @@ const CAMPO_LABEL: Record<ImportCampo, string> = {
   rfc: 'RFC',
   contratoFecha: 'Fecha de contrato firmado',
   imssFecha: 'Fecha de alta IMSS',
-  cartaFecha: 'Carta de ingreso',
-  emetrixFecha: 'Usuario Emetrix',
   ignorar: 'Ignorar esta columna',
 };
 
@@ -57,10 +55,6 @@ function detectCampoByName(header: string, yaAsignados: Set<ImportCampo>, permit
     return 'contratoFecha';
   }
   if (permitidos.includes('imssFecha') && !yaAsignados.has('imssFecha') && norm.includes('imss')) return 'imssFecha';
-  if (permitidos.includes('cartaFecha') && !yaAsignados.has('cartaFecha') && norm.includes('carta')) return 'cartaFecha';
-  if (permitidos.includes('emetrixFecha') && !yaAsignados.has('emetrixFecha') && norm.includes('emetrix')) {
-    return 'emetrixFecha';
-  }
   return 'ignorar';
 }
 
@@ -246,8 +240,6 @@ export default function ImportarAspel() {
         promotor: r.rfc ? (promotorPorRfc.get(r.rfc) ?? null) : null,
         contratoFechaParsed: r.contratoFecha ? parseFlexibleDate(r.contratoFecha) : null,
         imssFechaParsed: r.imssFecha ? parseFlexibleDate(r.imssFecha) : null,
-        cartaFechaParsed: r.cartaFecha ? parseFlexibleDate(r.cartaFecha) : null,
-        emetrixFechaParsed: r.emetrixFecha ? parseFlexibleDate(r.emetrixFecha) : null,
       })),
     [registros, promotorPorRfc]
   );
@@ -266,13 +258,7 @@ export default function ImportarAspel() {
     setApplyResult(null);
     try {
       const resultado = await aplicarImportacion(
-        conRfc.map(({ rfc, contratoFecha, imssFecha, cartaFecha, emetrixFecha }) => ({
-          rfc,
-          contratoFecha,
-          imssFecha,
-          cartaFecha,
-          emetrixFecha,
-        }))
+        conRfc.map(({ rfc, contratoFecha, imssFecha }) => ({ rfc, contratoFecha, imssFecha }))
       );
       setApplyResult(resultado);
       reloadHistory();
@@ -291,6 +277,11 @@ export default function ImportarAspel() {
           <h1>Importar actualización de Aspel</h1>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {rol === 'mesa_control' && (
+            <a className="topbar-link" href="/mesa-control">
+              Carta y Usuario Emetrix
+            </a>
+          )}
           <ChangePasswordButton />
           <button type="button" className="topbar-link" onClick={handleLogout}>
             Cerrar sesión
@@ -301,7 +292,7 @@ export default function ImportarAspel() {
       {rol && (
         <p className="roster-hint" style={{ margin: '-8px 0 20px' }}>
           {rol === 'mesa_control'
-            ? 'Puedes mapear y aplicar RFC, Fecha de contrato firmado, Carta de ingreso y Usuario Emetrix. El estatus de IMSS se muestra de solo lectura, no se puede editar desde aquí.'
+            ? 'Puedes mapear y aplicar RFC y Fecha de contrato firmado. El estatus de IMSS se muestra de solo lectura, no se puede editar desde aquí. Carta de ingreso y Usuario Emetrix se marcan aparte, en "Carta y Usuario Emetrix" arriba — no vienen en el archivo de Aspel.'
             : 'Puedes mapear y aplicar RFC y Fecha de alta IMSS.'}
         </p>
       )}
@@ -475,10 +466,8 @@ export default function ImportarAspel() {
                         {row.rfc && row.promotor ? (
                           <>
                             {row.contratoFecha && <span className="pill good">Contrato ✓</span>}{' '}
-                            {row.imssFecha && <span className="pill good">IMSS ✓</span>}{' '}
-                            {row.cartaFecha && <span className="pill good">Carta ✓</span>}{' '}
-                            {row.emetrixFecha && <span className="pill good">Emetrix ✓</span>}
-                            {!row.contratoFecha && !row.imssFecha && !row.cartaFecha && !row.emetrixFecha && '—'}
+                            {row.imssFecha && <span className="pill good">IMSS ✓</span>}
+                            {!row.contratoFecha && !row.imssFecha && '—'}
                           </>
                         ) : (
                           '—'
@@ -489,13 +478,7 @@ export default function ImportarAspel() {
                           <div>Contrato: {row.contratoFechaParsed ?? `${row.contratoFecha} (sin interpretar)`}</div>
                         )}
                         {row.imssFecha && <div>IMSS: {row.imssFechaParsed ?? `${row.imssFecha} (sin interpretar)`}</div>}
-                        {row.cartaFecha && (
-                          <div>Carta: {row.cartaFechaParsed ?? `${row.cartaFecha} (sin interpretar)`}</div>
-                        )}
-                        {row.emetrixFecha && (
-                          <div>Emetrix: {row.emetrixFechaParsed ?? `${row.emetrixFecha} (sin interpretar)`}</div>
-                        )}
-                        {!row.contratoFecha && !row.imssFecha && !row.cartaFecha && !row.emetrixFecha && '—'}
+                        {!row.contratoFecha && !row.imssFecha && '—'}
                       </td>
                       {rol === 'mesa_control' && (
                         <td>

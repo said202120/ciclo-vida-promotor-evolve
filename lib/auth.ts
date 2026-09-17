@@ -67,3 +67,13 @@ export async function requireImportador(): Promise<AuthResult> {
   }
   return result;
 }
+
+/** Checklist de carta de ingreso / usuario Emetrix: exclusivo del rol mesa_control. */
+export async function requireMesaControl(): Promise<AuthResult> {
+  const result = await requireSession();
+  if (result.error) return result;
+  if (result.session.rol !== 'mesa_control') {
+    return { error: NextResponse.json({ error: 'Solo Mesa de Control tiene acceso a esta pantalla.' }, { status: 403 }) };
+  }
+  return result;
+}

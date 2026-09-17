@@ -5,6 +5,7 @@ import type {
   ImportLogEntry,
   ImportMapeo,
   ImportParseResult,
+  IngresoMes,
   MaterialEstado,
   MaterialResumenItem,
   Modulos,
@@ -147,6 +148,18 @@ export function fetchImportLog(): Promise<ImportLogEntry[]> {
 
 export function fetchPromotoresParaImportar(): Promise<PromotorParaImportar[]> {
   return fetch('/api/importaciones/promotores').then((r) => json(r));
+}
+
+export function fetchIngresosMes(mes: string): Promise<IngresoMes[]> {
+  return fetch(`/api/mesa-control/ingresos?mes=${mes}`).then((r) => json(r));
+}
+
+export function updateIngresoCampo(id: string, campo: 'carta' | 'usuario', valor: boolean): Promise<{ ok: true }> {
+  return fetch(`/api/mesa-control/ingresos/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ campo, valor }),
+  }).then((r) => json(r));
 }
 
 export function updatePromotorMaterial(

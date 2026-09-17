@@ -55,7 +55,7 @@ export type ImportParseResult = {
 };
 
 /** A qué campo del promotor corresponde una columna del archivo de Aspel. */
-export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'cartaFecha' | 'emetrixFecha' | 'ignorar';
+export type ImportCampo = 'rfc' | 'contratoFecha' | 'imssFecha' | 'ignorar';
 
 /** Mapeo columna del archivo (encabezado tal cual) -> campo. Se guarda en importaciones_config. */
 export type ImportMapeo = Record<string, ImportCampo>;
@@ -74,6 +74,19 @@ export type PromotorParaImportar = {
   rfc: string | null;
   imss: boolean;
   fechaImss: string | null;
+};
+
+/**
+ * Un promotor "nuevo ingreso" del mes (mismo criterio que KR1: fecha_ingreso
+ * dentro del mes seleccionado), para el checklist de Carta de ingreso /
+ * Usuario Emetrix exclusivo de Mesa de Control.
+ */
+export type IngresoMes = {
+  id: string;
+  nombre: string;
+  fechaIngreso: string;
+  carta: boolean;
+  usuario: boolean;
 };
 
 /** Una fila del historial de corridas del importador, para el "cuándo fue la última vez que sincronicé". */

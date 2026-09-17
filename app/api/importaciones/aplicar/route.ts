@@ -13,13 +13,7 @@ function esFechaOpcional(v: unknown): v is string | null {
 function isRegistro(value: unknown): value is RegistroExtraido {
   if (!value || typeof value !== 'object') return false;
   const r = value as Record<string, unknown>;
-  return (
-    typeof r.rfc === 'string' &&
-    esFechaOpcional(r.contratoFecha) &&
-    esFechaOpcional(r.imssFecha) &&
-    esFechaOpcional(r.cartaFecha) &&
-    esFechaOpcional(r.emetrixFecha)
-  );
+  return typeof r.rfc === 'string' && esFechaOpcional(r.contratoFecha) && esFechaOpcional(r.imssFecha);
 }
 
 // POST /api/importaciones/aplicar { registros } — cruza por RFC contra el

@@ -21,12 +21,16 @@ create table if not exists promotores (
 -- contra el archivo para marcar contrato/IMSS automáticamente.
 alter table promotores add column if not exists rfc text;
 
--- Fecha detectada en el archivo de Aspel para contrato/IMSS/carta/usuario
--- Emetrix. Se llenan solo cuando el importador logra parsear una fecha
--- válida en la columna mapeada a ese campo; el booleano correspondiente
--- puede quedar en true aunque la fecha no se haya podido interpretar.
+-- Fecha detectada en el archivo de Aspel para contrato/IMSS. Se llenan solo
+-- cuando el importador logra parsear una fecha válida en la columna mapeada
+-- a ese campo; el booleano contrato/imss puede quedar en true aunque la
+-- fecha no se haya podido interpretar.
 alter table promotores add column if not exists fecha_contrato date;
 alter table promotores add column if not exists fecha_imss date;
+
+-- Fecha en que Mesa de Control marcó carta de ingreso / usuario Emetrix desde
+-- su checklist de nuevos ingresos (/mesa-control) — no vienen del archivo de
+-- Aspel, se capturan aparte.
 alter table promotores add column if not exists fecha_carta date;
 alter table promotores add column if not exists fecha_usuario date;
 

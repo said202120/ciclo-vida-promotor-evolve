@@ -17,14 +17,7 @@ import type {
 } from './types';
 
 const MAX_ROWS = 5000;
-const CAMPOS_VALIDOS: ImportCampo[] = [
-  'rfc',
-  'contratoFecha',
-  'imssFecha',
-  'cartaFecha',
-  'emetrixFecha',
-  'ignorar',
-];
+const CAMPOS_VALIDOS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'ignorar'];
 
 function cellToDisplay(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return '';
@@ -134,11 +127,9 @@ export async function saveImportConfig(rol: RolImportador, mapeo: ImportMapeo): 
 }
 
 // Qué columnas booleana/fecha corresponden a cada campo de fecha del importador.
-const CAMPO_A_COLUMNAS: Record<'contratoFecha' | 'imssFecha' | 'cartaFecha' | 'emetrixFecha', { bool: string; fecha: string }> = {
+const CAMPO_A_COLUMNAS: Record<'contratoFecha' | 'imssFecha', { bool: string; fecha: string }> = {
   contratoFecha: { bool: 'contrato', fecha: 'fecha_contrato' },
   imssFecha: { bool: 'imss', fecha: 'fecha_imss' },
-  cartaFecha: { bool: 'carta', fecha: 'fecha_carta' },
-  emetrixFecha: { bool: 'usuario', fecha: 'fecha_usuario' },
 };
 
 type DatosRegistro = Record<keyof typeof CAMPO_A_COLUMNAS, string | null>;
@@ -154,7 +145,7 @@ export async function aplicarImportacion(
   rol: RolImportador
 ): Promise<ImportAplicarResultado> {
   // El rol acota qué campos puede escribir, sin importar lo que haya mandado
-  // el cliente: mesa_control nunca escribe IMSS, nomina nunca escribe contrato/carta/Emetrix.
+  // el cliente: mesa_control nunca escribe IMSS, nomina nunca escribe contrato.
   const permitidos = new Set(CAMPOS_PERMITIDOS[rol]);
 
   // Se agrupa por RFC por si el archivo trae varias filas del mismo promotor;
@@ -163,17 +154,10 @@ export async function aplicarImportacion(
   for (const r of registros) {
     const rfc = r.rfc.trim().toUpperCase();
     if (!rfc) continue;
-    const prev = porRfc.get(rfc) ?? {
-      contratoFecha: null,
-      imssFecha: null,
-      cartaFecha: null,
-      emetrixFecha: null,
-    };
+    const prev = porRfc.get(rfc) ?? { contratoFecha: null, imssFecha: null };
     porRfc.set(rfc, {
       contratoFecha: permitidos.has('contratoFecha') ? (r.contratoFecha ?? prev.contratoFecha) : null,
       imssFecha: permitidos.has('imssFecha') ? (r.imssFecha ?? prev.imssFecha) : null,
-      cartaFecha: permitidos.has('cartaFecha') ? (r.cartaFecha ?? prev.cartaFecha) : null,
-      emetrixFecha: permitidos.has('emetrixFecha') ? (r.emetrixFecha ?? prev.emetrixFecha) : null,
     });
   }
 

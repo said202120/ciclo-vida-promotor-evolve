@@ -13,7 +13,7 @@ export function esRolImportador(rol: string): rol is RolImportador {
 
 /** Campos (además de "ignorar") que el rol puede mapear y aplicar. RFC es la llave, siempre presente. */
 export const CAMPOS_PERMITIDOS: Record<RolImportador, Exclude<ImportCampo, 'ignorar'>[]> = {
-  mesa_control: ['rfc', 'contratoFecha', 'cartaFecha', 'emetrixFecha'],
+  mesa_control: ['rfc', 'contratoFecha'],
   nomina: ['rfc', 'imssFecha'],
 };
 
