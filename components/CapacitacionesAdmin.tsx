@@ -29,7 +29,7 @@ export default function CapacitacionesAdmin() {
   const [nuevaOpcion, setNuevaOpcion] = useState<Record<string, string>>({});
 
   const TIPO_LABEL: Record<CapacitacionPreguntaTipo, string> = {
-    texto: 'Texto libre',
+    texto: 'Opción múltiple (manual)',
     supervisor_directo: 'Automática: supervisor directo',
     coordinador_cuenta: 'Automática: coordinador/gerente de cuenta',
   };
