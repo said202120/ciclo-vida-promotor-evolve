@@ -455,6 +455,10 @@ insert into capacitacion_modulos (orden, nombre, descripcion, umbral_aprobacion)
   (2, 'Marca', 'Conocimiento de marca general', 90)
 on conflict (orden) do nothing;
 
+insert into capacitacion_modulos (orden, nombre, descripcion, umbral_aprobacion) values
+  (3, 'Pasos Estructurados de una Visita', null, 90)
+on conflict (orden) do nothing;
+
 -- Respuestas al campo abierto opcional (ver capacitacion_preguntas.campo_abierto_label):
 -- no califican, solo se guardan para consulta. Reintentos ilimitados: cada
 -- envío nuevo sobreescribe la respuesta anterior de esa pregunta; si el
