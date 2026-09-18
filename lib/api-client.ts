@@ -336,18 +336,33 @@ export function createCapacitacionPregunta(
   moduloId: string,
   texto: string,
   tipo: CapacitacionPreguntaTipo = 'texto',
-  campoAbiertoLabel: string | null = null
-): Promise<{ id: string; texto: string; tipo: CapacitacionPreguntaTipo; campoAbiertoLabel: string | null }> {
+  campoAbiertoLabel: string | null = null,
+  califica = true,
+  multiSelect = false
+): Promise<{
+  id: string;
+  texto: string;
+  tipo: CapacitacionPreguntaTipo;
+  campoAbiertoLabel: string | null;
+  califica: boolean;
+  multiSelect: boolean;
+}> {
   return fetch('/api/capacitacion-preguntas', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ moduloId, texto, tipo, campoAbiertoLabel }),
+    body: JSON.stringify({ moduloId, texto, tipo, campoAbiertoLabel, califica, multiSelect }),
   }).then((r) => json(r));
 }
 
 export function updateCapacitacionPregunta(
   id: string,
-  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo; campoAbiertoLabel?: string | null }
+  patch: {
+    texto?: string;
+    tipo?: CapacitacionPreguntaTipo;
+    campoAbiertoLabel?: string | null;
+    califica?: boolean;
+    multiSelect?: boolean;
+  }
 ): Promise<{ ok: true }> {
   return fetch(`/api/capacitacion-preguntas/${id}`, {
     method: 'PATCH',

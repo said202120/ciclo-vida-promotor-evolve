@@ -352,6 +352,10 @@ export type CapacitacionPregunta = {
   opciones: CapacitacionOpcion[];
   /** Etiqueta del campo de texto libre opcional bajo la pregunta (p.ej. "¿Cuáles?"), o null si no lleva uno. Nunca califica. */
   campoAbiertoLabel: string | null;
+  /** false = pregunta "diagnóstico": no cuenta en el numerador ni el denominador de la calificación, solo se guarda para consulta. */
+  califica: boolean;
+  /** true = se puede elegir más de una opción (checkboxes). Solo tiene sentido con califica=false. */
+  multiSelect: boolean;
 };
 
 /** Vista de administración (/capacitaciones, solo gerente): incluye qué opción es correcta. */
@@ -380,6 +384,12 @@ export type CapacitacionPreguntaPublica = {
   campoAbiertoLabel: string | null;
   /** Lo último que el promotor escribió en ese campo abierto, para precargarlo en un reintento. null si nunca contestó. */
   respuestaAbiertaPrevia: string | null;
+  /** false = pregunta "diagnóstico": no afecta la calificación, se muestra con un aviso. */
+  califica: boolean;
+  /** true = elegir varias opciones (checkboxes) en vez de una sola. */
+  multiSelect: boolean;
+  /** IDs de las opciones que el promotor eligió la última vez en una pregunta de diagnóstico, para precargarlas en un reintento. Vacío si nunca contestó o si la pregunta sí califica. */
+  diagnosticoPrevio: string[];
 };
 
 /**
@@ -401,7 +411,10 @@ export type CapacitacionPublica = {
 };
 
 export type CapacitacionEnvioPayload = {
+  /** Preguntas de opción única — calificantes o de diagnóstico, ambas van aquí, una por pregunta. */
   respuestas: Array<{ preguntaId: string; opcionId: string }>;
+  /** Preguntas de diagnóstico multi_select: 0 o más opciones elegidas por pregunta. Opcional. */
+  respuestasMultiples?: Array<{ preguntaId: string; opcionIds: string[] }>;
   /** Respuestas a los campos abiertos opcionales (ver campoAbiertoLabel) — nunca califican. */
   respuestasAbiertas?: Array<{ preguntaId: string; texto: string }>;
 };

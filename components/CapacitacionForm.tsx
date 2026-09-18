@@ -5,7 +5,23 @@ import type { CapacitacionEnvioResultado, CapacitacionPublica } from '@/lib/type
 import { enviarCapacitacion } from '@/lib/api-client';
 
 export default function CapacitacionForm({ codigo, inicial }: { codigo: string; inicial: CapacitacionPublica }) {
-  const [respuestas, setRespuestas] = useState<Record<string, string>>({});
+  const preguntasUnicas = inicial.preguntas.filter((p) => !p.multiSelect);
+  const preguntasMultiples = inicial.preguntas.filter((p) => p.multiSelect);
+
+  const [respuestas, setRespuestas] = useState<Record<string, string>>(() => {
+    const iniciales: Record<string, string> = {};
+    for (const p of preguntasUnicas) {
+      if (!p.califica && p.diagnosticoPrevio[0]) iniciales[p.id] = p.diagnosticoPrevio[0];
+    }
+    return iniciales;
+  });
+  const [seleccionesMultiples, setSeleccionesMultiples] = useState<Record<string, Set<string>>>(() => {
+    const iniciales: Record<string, Set<string>> = {};
+    for (const p of preguntasMultiples) {
+      iniciales[p.id] = new Set(p.diagnosticoPrevio);
+    }
+    return iniciales;
+  });
   const [respuestasAbiertas, setRespuestasAbiertas] = useState<Record<string, string>>(() => {
     const iniciales: Record<string, string> = {};
     for (const p of inicial.preguntas) {
@@ -17,11 +33,20 @@ export default function CapacitacionForm({ codigo, inicial }: { codigo: string; 
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<CapacitacionEnvioResultado | null>(null);
 
+  function toggleMultiple(preguntaId: string, opcionId: string) {
+    setSeleccionesMultiples((prev) => {
+      const actual = new Set(prev[preguntaId] ?? []);
+      if (actual.has(opcionId)) actual.delete(opcionId);
+      else actual.add(opcionId);
+      return { ...prev, [preguntaId]: actual };
+    });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (Object.keys(respuestas).length !== inicial.preguntas.length) {
+    if (Object.keys(respuestas).length !== preguntasUnicas.length) {
       setError('Responde todas las preguntas antes de enviar.');
       return;
     }
@@ -29,7 +54,11 @@ export default function CapacitacionForm({ codigo, inicial }: { codigo: string; 
     setEnviando(true);
     try {
       const payload = {
-        respuestas: inicial.preguntas.map((p) => ({ preguntaId: p.id, opcionId: respuestas[p.id] })),
+        respuestas: preguntasUnicas.map((p) => ({ preguntaId: p.id, opcionId: respuestas[p.id] })),
+        respuestasMultiples: preguntasMultiples.map((p) => ({
+          preguntaId: p.id,
+          opcionIds: Array.from(seleccionesMultiples[p.id] ?? []),
+        })),
         respuestasAbiertas: inicial.preguntas
           .filter((p) => p.campoAbiertoLabel)
           .map((p) => ({ preguntaId: p.id, texto: respuestasAbiertas[p.id] ?? '' })),
@@ -126,19 +155,31 @@ export default function CapacitacionForm({ codigo, inicial }: { codigo: string; 
           <div className="capacitacion-quiz-pregunta" key={pregunta.id}>
             <p className="capacitacion-quiz-texto">
               {idx + 1}. {pregunta.texto}
+              {!pregunta.califica && <span className="capacitacion-quiz-diagnostico"> (Diagnóstico, no cuenta para tu calificación)</span>}
             </p>
-            {pregunta.opciones.map((opcion) => (
-              <label className="capacitacion-quiz-opcion" key={opcion.id}>
-                <input
-                  type="radio"
-                  name={`pregunta-${pregunta.id}`}
-                  checked={respuestas[pregunta.id] === opcion.id}
-                  onChange={() => setRespuestas((prev) => ({ ...prev, [pregunta.id]: opcion.id }))}
-                  required
-                />
-                {opcion.texto}
-              </label>
-            ))}
+            {pregunta.multiSelect
+              ? pregunta.opciones.map((opcion) => (
+                  <label className="capacitacion-quiz-opcion" key={opcion.id}>
+                    <input
+                      type="checkbox"
+                      checked={seleccionesMultiples[pregunta.id]?.has(opcion.id) ?? false}
+                      onChange={() => toggleMultiple(pregunta.id, opcion.id)}
+                    />
+                    {opcion.texto}
+                  </label>
+                ))
+              : pregunta.opciones.map((opcion) => (
+                  <label className="capacitacion-quiz-opcion" key={opcion.id}>
+                    <input
+                      type="radio"
+                      name={`pregunta-${pregunta.id}`}
+                      checked={respuestas[pregunta.id] === opcion.id}
+                      onChange={() => setRespuestas((prev) => ({ ...prev, [pregunta.id]: opcion.id }))}
+                      required
+                    />
+                    {opcion.texto}
+                  </label>
+                ))}
             {pregunta.campoAbiertoLabel && (
               <label className="capacitacion-quiz-abierto">
                 {pregunta.campoAbiertoLabel}

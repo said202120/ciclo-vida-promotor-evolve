@@ -417,6 +417,15 @@ alter table capacitacion_preguntas add constraint capacitacion_preguntas_tipo_ch
 -- campo abierto.
 alter table capacitacion_preguntas add column if not exists campo_abierto_label text;
 
+-- Preguntas "diagnóstico" (califica = false): no suman ni restan en la
+-- calificación (quedan fuera del numerador Y del denominador); su respuesta
+-- solo se guarda para consulta, en capacitacion_respuestas_diagnostico.
+-- multi_select: la pregunta admite elegir más de una opción a la vez
+-- (checkboxes en vez de radio buttons) — solo tiene sentido combinado con
+-- califica = false, no hay lógica de calificación para selección múltiple.
+alter table capacitacion_preguntas add column if not exists califica boolean not null default true;
+alter table capacitacion_preguntas add column if not exists multi_select boolean not null default false;
+
 create table if not exists capacitacion_opciones (
   id uuid primary key default gen_random_uuid(),
   pregunta_id uuid not null references capacitacion_preguntas(id) on delete cascade,
@@ -459,6 +468,10 @@ insert into capacitacion_modulos (orden, nombre, descripcion, umbral_aprobacion)
   (3, 'Pasos Estructurados de una Visita', null, 90)
 on conflict (orden) do nothing;
 
+insert into capacitacion_modulos (orden, nombre, descripcion, umbral_aprobacion) values
+  (4, 'Refuerzo post-capacitación', null, 90)
+on conflict (orden) do nothing;
+
 -- Respuestas al campo abierto opcional (ver capacitacion_preguntas.campo_abierto_label):
 -- no califican, solo se guardan para consulta. Reintentos ilimitados: cada
 -- envío nuevo sobreescribe la respuesta anterior de esa pregunta; si el
@@ -470,6 +483,20 @@ create table if not exists capacitacion_respuestas_abiertas (
   texto text not null,
   respondido_en timestamptz not null default now(),
   primary key (promotor_id, pregunta_id)
+);
+
+-- Respuestas a preguntas de diagnóstico (capacitacion_preguntas.califica =
+-- false): qué opción(es) eligió el promotor, solo para consulta — nunca
+-- entran a capacitacion_resultados. Una fila por opción elegida, así una
+-- pregunta multi_select puede tener varias. Reintentos ilimitados: cada
+-- envío borra las filas anteriores de esa pregunta y guarda las nuevas (una
+-- selección vacía en un reenvío la deja sin filas, no huérfana).
+create table if not exists capacitacion_respuestas_diagnostico (
+  promotor_id uuid not null references promotores(id) on delete cascade,
+  pregunta_id uuid not null references capacitacion_preguntas(id) on delete cascade,
+  opcion_id uuid not null references capacitacion_opciones(id) on delete cascade,
+  respondido_en timestamptz not null default now(),
+  primary key (promotor_id, pregunta_id, opcion_id)
 );
 
 -- Trigger simple para updated_at en promotores

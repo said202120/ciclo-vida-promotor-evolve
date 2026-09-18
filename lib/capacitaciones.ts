@@ -54,7 +54,9 @@ export async function fetchCapacitacionModulosBasico(): Promise<CapacitacionModu
 export async function fetchCapacitacionModulosConPreguntas(): Promise<CapacitacionModuloConPreguntas[]> {
   const [{ rows: modRows }, { rows: pregRows }, { rows: opcRows }] = await Promise.all([
     sql.query('select id, orden, nombre, descripcion, umbral_aprobacion from capacitacion_modulos order by orden'),
-    sql.query('select id, modulo_id, texto, tipo, campo_abierto_label from capacitacion_preguntas order by orden, created_at'),
+    sql.query(
+      'select id, modulo_id, texto, tipo, campo_abierto_label, califica, multi_select from capacitacion_preguntas order by orden, created_at'
+    ),
     sql.query(
       `select o.id, o.pregunta_id, o.texto, o.correcta
        from capacitacion_opciones o
@@ -80,6 +82,8 @@ export async function fetchCapacitacionModulosConPreguntas(): Promise<Capacitaci
       tipo: p.tipo as CapacitacionPreguntaTipo,
       opciones: opcionesPorPregunta.get(p.id as string) ?? [],
       campoAbiertoLabel: p.campo_abierto_label as string | null,
+      califica: p.califica as boolean,
+      multiSelect: p.multi_select as boolean,
     });
     preguntasPorModulo.set(moduloId, lista);
   }
@@ -143,13 +147,15 @@ export async function createCapacitacionPregunta(
   moduloId: string,
   texto: string,
   tipo: CapacitacionPreguntaTipo = 'texto',
-  campoAbiertoLabel: string | null = null
+  campoAbiertoLabel: string | null = null,
+  califica = true,
+  multiSelect = false
 ): Promise<CapacitacionPregunta> {
   const { rows } = await sql.query(
-    `insert into capacitacion_preguntas (modulo_id, orden, texto, tipo, campo_abierto_label)
-     values ($1, coalesce((select max(orden) + 1 from capacitacion_preguntas where modulo_id = $1), 1), $2, $3, $4)
-     returning id, texto, tipo, campo_abierto_label`,
-    [moduloId, texto, tipo, campoAbiertoLabel]
+    `insert into capacitacion_preguntas (modulo_id, orden, texto, tipo, campo_abierto_label, califica, multi_select)
+     values ($1, coalesce((select max(orden) + 1 from capacitacion_preguntas where modulo_id = $1), 1), $2, $3, $4, $5, $6)
+     returning id, texto, tipo, campo_abierto_label, califica, multi_select`,
+    [moduloId, texto, tipo, campoAbiertoLabel, califica, multiSelect]
   );
   return {
     id: rows[0].id as string,
@@ -157,13 +163,21 @@ export async function createCapacitacionPregunta(
     tipo: rows[0].tipo as CapacitacionPreguntaTipo,
     opciones: [],
     campoAbiertoLabel: rows[0].campo_abierto_label as string | null,
+    califica: rows[0].califica as boolean,
+    multiSelect: rows[0].multi_select as boolean,
   };
 }
 
 /** Si `tipo` cambia a uno dinámico, se borran las opciones capturadas a mano (ya no aplican). */
 export async function updateCapacitacionPregunta(
   id: string,
-  patch: { texto?: string; tipo?: CapacitacionPreguntaTipo; campoAbiertoLabel?: string | null }
+  patch: {
+    texto?: string;
+    tipo?: CapacitacionPreguntaTipo;
+    campoAbiertoLabel?: string | null;
+    califica?: boolean;
+    multiSelect?: boolean;
+  }
 ): Promise<void> {
   if (patch.tipo !== undefined && patch.tipo !== 'texto') {
     await sql.query('delete from capacitacion_opciones where pregunta_id = $1', [id]);
@@ -182,6 +196,14 @@ export async function updateCapacitacionPregunta(
   if (patch.campoAbiertoLabel !== undefined) {
     sets.push(`campo_abierto_label = $${i++}`);
     values.push(patch.campoAbiertoLabel);
+  }
+  if (patch.califica !== undefined) {
+    sets.push(`califica = $${i++}`);
+    values.push(patch.califica);
+  }
+  if (patch.multiSelect !== undefined) {
+    sets.push(`multi_select = $${i++}`);
+    values.push(patch.multiSelect);
   }
   if (sets.length === 0) return;
   values.push(id);
@@ -386,7 +408,7 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
   let preguntas: CapacitacionPreguntaPublica[] = [];
   if (!bloqueado) {
     const { rows: pregRows } = await sql.query(
-      'select id, texto, tipo, campo_abierto_label from capacitacion_preguntas where modulo_id = $1 order by orden, created_at',
+      'select id, texto, tipo, campo_abierto_label, califica, multi_select from capacitacion_preguntas where modulo_id = $1 order by orden, created_at',
       [moduloId]
     );
 
@@ -406,16 +428,32 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
     }
 
     const todasLasPreguntaIds = pregRows.map((p) => p.id as string);
-    const { rows: abiertasRows } = await sql.query(
-      `select pregunta_id, texto from capacitacion_respuestas_abiertas where promotor_id = $1 and pregunta_id = any($2::uuid[])`,
-      [promotorId, todasLasPreguntaIds]
-    );
+    const [{ rows: abiertasRows }, { rows: diagnosticoRows }] = await Promise.all([
+      sql.query(
+        `select pregunta_id, texto from capacitacion_respuestas_abiertas where promotor_id = $1 and pregunta_id = any($2::uuid[])`,
+        [promotorId, todasLasPreguntaIds]
+      ),
+      sql.query(
+        `select pregunta_id, opcion_id from capacitacion_respuestas_diagnostico where promotor_id = $1 and pregunta_id = any($2::uuid[])`,
+        [promotorId, todasLasPreguntaIds]
+      ),
+    ]);
     const abiertaPreviaPorPregunta = new Map(abiertasRows.map((r) => [r.pregunta_id as string, r.texto as string]));
+    const diagnosticoPreviaPorPregunta = new Map<string, string[]>();
+    for (const r of diagnosticoRows) {
+      const preguntaId = r.pregunta_id as string;
+      const lista = diagnosticoPreviaPorPregunta.get(preguntaId) ?? [];
+      lista.push(r.opcion_id as string);
+      diagnosticoPreviaPorPregunta.set(preguntaId, lista);
+    }
 
     for (const p of pregRows) {
       const tipo = p.tipo as CapacitacionPreguntaTipo;
       const campoAbiertoLabel = p.campo_abierto_label as string | null;
       const respuestaAbiertaPrevia = abiertaPreviaPorPregunta.get(p.id as string) ?? null;
+      const califica = p.califica as boolean;
+      const multiSelect = p.multi_select as boolean;
+      const diagnosticoPrevio = diagnosticoPreviaPorPregunta.get(p.id as string) ?? [];
       if (tipo === 'texto') {
         preguntas.push({
           id: p.id as string,
@@ -423,6 +461,9 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
           opciones: opcionesPorPreguntaTexto.get(p.id as string) ?? [],
           campoAbiertoLabel,
           respuestaAbiertaPrevia,
+          califica,
+          multiSelect,
+          diagnosticoPrevio,
         });
         continue;
       }
@@ -440,6 +481,9 @@ export async function fetchCapacitacionPublicaPorCodigo(codigo: string): Promise
         opciones: resultado.opciones,
         campoAbiertoLabel,
         respuestaAbiertaPrevia,
+        califica,
+        multiSelect,
+        diagnosticoPrevio,
       });
     }
   }
@@ -473,7 +517,8 @@ export class RespuestasInvalidasError extends Error {}
 export async function guardarRespuestaCapacitacion(
   codigo: string,
   respuestas: Array<{ preguntaId: string; opcionId: string }>,
-  respuestasAbiertas: Array<{ preguntaId: string; texto: string }> = []
+  respuestasAbiertas: Array<{ preguntaId: string; texto: string }> = [],
+  respuestasMultiples: Array<{ preguntaId: string; opcionIds: string[] }> = []
 ): Promise<{ calificacion: number; aprobado: boolean; umbralAprobacion: number } | null> {
   const destino = await fetchCapacitacionLinkDestino(codigo);
   if (!destino) return null;
@@ -491,11 +536,20 @@ export async function guardarRespuestaCapacitacion(
     throw new RespuestasInvalidasError(razonBloqueoSecuencia);
   }
 
-  const { rows: pregRows } = await sql.query('select id, tipo from capacitacion_preguntas where modulo_id = $1', [moduloId]);
+  const { rows: pregRows } = await sql.query('select id, tipo, califica, multi_select from capacitacion_preguntas where modulo_id = $1', [
+    moduloId,
+  ]);
   if (pregRows.length === 0) {
     throw new RespuestasInvalidasError('Este examen todavía no tiene preguntas configuradas.');
   }
-  const tipoPorPreguntaId = new Map(pregRows.map((r) => [r.id as string, r.tipo as CapacitacionPreguntaTipo]));
+  const preguntaInfoPorId = new Map(
+    pregRows.map((r) => [
+      r.id as string,
+      { tipo: r.tipo as CapacitacionPreguntaTipo, califica: r.califica as boolean, multiSelect: r.multi_select as boolean },
+    ])
+  );
+  const preguntasSingle = pregRows.filter((r) => !r.multi_select);
+  const preguntasMulti = pregRows.filter((r) => r.multi_select);
 
   const textoPreguntaIds = pregRows.filter((r) => r.tipo === 'texto').map((r) => r.id as string);
   let opcionPorId = new Map<string, { preguntaId: string; correcta: boolean }>();
@@ -524,30 +578,62 @@ export async function guardarRespuestaCapacitacion(
 
   const respondidas = new Set<string>();
   let correctas = 0;
+  let calificantes = 0;
+  // preguntas de diagnóstico (califica=false) de opción única: se guardan aparte, nunca cuentan en la calificación.
+  const diagnosticoSingle = new Map<string, string>();
+
   for (const r of respuestas) {
-    const tipo = tipoPorPreguntaId.get(r.preguntaId);
-    if (!tipo || respondidas.has(r.preguntaId)) {
+    const info = preguntaInfoPorId.get(r.preguntaId);
+    if (!info || info.multiSelect || respondidas.has(r.preguntaId)) {
       throw new RespuestasInvalidasError('Una de las respuestas no es válida.');
     }
     respondidas.add(r.preguntaId);
 
-    if (tipo === 'texto') {
+    let esCorrecta = false;
+    if (info.tipo === 'texto') {
       const opcion = opcionPorId.get(r.opcionId);
       if (!opcion || opcion.preguntaId !== r.preguntaId) {
         throw new RespuestasInvalidasError('Una de las respuestas no es válida.');
       }
-      if (opcion.correcta) correctas++;
-    } else if (tipo === 'supervisor_directo') {
-      if (r.opcionId === supervisorIdCorrecto) correctas++;
-    } else if (tipo === 'coordinador_cuenta') {
-      if (ejecutivosCorrectos!.has(r.opcionId)) correctas++;
+      esCorrecta = opcion.correcta;
+    } else if (info.tipo === 'supervisor_directo') {
+      esCorrecta = r.opcionId === supervisorIdCorrecto;
+    } else if (info.tipo === 'coordinador_cuenta') {
+      esCorrecta = ejecutivosCorrectos!.has(r.opcionId);
+    }
+
+    if (info.califica) {
+      calificantes++;
+      if (esCorrecta) correctas++;
+    } else if (info.tipo === 'texto') {
+      // Las dinámicas (supervisor_directo/coordinador_cuenta) no tienen fila
+      // en capacitacion_opciones — no aplica guardarlas como diagnóstico.
+      diagnosticoSingle.set(r.preguntaId, r.opcionId);
     }
   }
-  if (respondidas.size !== pregRows.length) {
+  if (respondidas.size !== preguntasSingle.length) {
     throw new RespuestasInvalidasError('Responde todas las preguntas antes de enviar.');
   }
+  if (calificantes === 0) {
+    throw new RespuestasInvalidasError('Este examen no tiene preguntas calificables configuradas.');
+  }
 
-  const calificacion = Math.round((correctas / pregRows.length) * 10000) / 100;
+  // Selección múltiple: siempre diagnóstico, siempre opcional. Solo valida
+  // que cada opción elegida sí pertenezca a esa pregunta.
+  const diagnosticoMulti = new Map<string, string[]>();
+  for (const pm of preguntasMulti) {
+    const preguntaId = pm.id as string;
+    const opcionIds = respuestasMultiples.find((r) => r.preguntaId === preguntaId)?.opcionIds ?? [];
+    for (const opcionId of opcionIds) {
+      const opcion = opcionPorId.get(opcionId);
+      if (!opcion || opcion.preguntaId !== preguntaId) {
+        throw new RespuestasInvalidasError('Una de las respuestas de selección múltiple no es válida.');
+      }
+    }
+    diagnosticoMulti.set(preguntaId, opcionIds);
+  }
+
+  const calificacion = Math.round((correctas / calificantes) * 10000) / 100;
   const aprobado = calificacion >= umbralAprobacion;
 
   await sql.query(
@@ -560,10 +646,37 @@ export async function guardarRespuestaCapacitacion(
     [promotorId, moduloId, calificacion, aprobado]
   );
 
+  // Diagnóstico de opción única: cada envío reemplaza la selección anterior.
+  for (const [preguntaId, opcionId] of diagnosticoSingle) {
+    await sql.query('delete from capacitacion_respuestas_diagnostico where promotor_id = $1 and pregunta_id = $2', [
+      promotorId,
+      preguntaId,
+    ]);
+    await sql.query('insert into capacitacion_respuestas_diagnostico (promotor_id, pregunta_id, opcion_id) values ($1, $2, $3)', [
+      promotorId,
+      preguntaId,
+      opcionId,
+    ]);
+  }
+  // Diagnóstico de selección múltiple: cada envío reemplaza las selecciones anteriores (0 o más filas nuevas).
+  for (const [preguntaId, opcionIds] of diagnosticoMulti) {
+    await sql.query('delete from capacitacion_respuestas_diagnostico where promotor_id = $1 and pregunta_id = $2', [
+      promotorId,
+      preguntaId,
+    ]);
+    for (const opcionId of opcionIds) {
+      await sql.query('insert into capacitacion_respuestas_diagnostico (promotor_id, pregunta_id, opcion_id) values ($1, $2, $3)', [
+        promotorId,
+        preguntaId,
+        opcionId,
+      ]);
+    }
+  }
+
   // Campos abiertos: informativos, nunca califican. Una respuesta vacía en un
   // reenvío borra la anterior en vez de dejarla huérfana.
   for (const a of respuestasAbiertas) {
-    if (!tipoPorPreguntaId.has(a.preguntaId)) continue; // pregunta de otro módulo, se ignora
+    if (!preguntaInfoPorId.has(a.preguntaId)) continue; // pregunta de otro módulo, se ignora
     const texto = a.texto.trim();
     if (texto) {
       await sql.query(

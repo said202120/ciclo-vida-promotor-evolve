@@ -28,6 +28,8 @@ export default function CapacitacionesAdmin() {
   const [nuevaPregunta, setNuevaPregunta] = useState<Record<string, string>>({});
   const [nuevaPreguntaTipo, setNuevaPreguntaTipo] = useState<Record<string, CapacitacionPreguntaTipo>>({});
   const [nuevaPreguntaCampoAbierto, setNuevaPreguntaCampoAbierto] = useState<Record<string, string>>({});
+  const [nuevaPreguntaCalifica, setNuevaPreguntaCalifica] = useState<Record<string, boolean>>({});
+  const [nuevaPreguntaMultiSelect, setNuevaPreguntaMultiSelect] = useState<Record<string, boolean>>({});
   const [nuevaOpcion, setNuevaOpcion] = useState<Record<string, string>>({});
 
   const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
@@ -112,11 +114,15 @@ export default function CapacitacionesAdmin() {
         moduloId,
         texto,
         nuevaPreguntaTipo[moduloId] ?? 'texto',
-        (nuevaPreguntaCampoAbierto[moduloId] ?? '').trim() || null
+        (nuevaPreguntaCampoAbierto[moduloId] ?? '').trim() || null,
+        nuevaPreguntaCalifica[moduloId] ?? true,
+        nuevaPreguntaMultiSelect[moduloId] ?? false
       );
       setNuevaPregunta((prev) => ({ ...prev, [moduloId]: '' }));
       setNuevaPreguntaTipo((prev) => ({ ...prev, [moduloId]: 'texto' }));
       setNuevaPreguntaCampoAbierto((prev) => ({ ...prev, [moduloId]: '' }));
+      setNuevaPreguntaCalifica((prev) => ({ ...prev, [moduloId]: true }));
+      setNuevaPreguntaMultiSelect((prev) => ({ ...prev, [moduloId]: false }));
       setError(null);
       reload();
     } catch (err) {
@@ -134,6 +140,14 @@ export default function CapacitacionesAdmin() {
     const campoAbiertoLabel = valorNuevo.trim() || null;
     if (campoAbiertoLabel === actual) return;
     conError(updateCapacitacionPregunta(id, { campoAbiertoLabel }), 'No se pudo actualizar el campo abierto.');
+  }
+
+  function handleCalificaPregunta(id: string, califica: boolean) {
+    conError(updateCapacitacionPregunta(id, { califica }), 'No se pudo actualizar si la pregunta califica.');
+  }
+
+  function handleMultiSelectPregunta(id: string, multiSelect: boolean) {
+    conError(updateCapacitacionPregunta(id, { multiSelect }), 'No se pudo actualizar la selección múltiple.');
   }
 
   function handleTipoPregunta(id: string, actual: CapacitacionPreguntaTipo, valorNuevo: string) {
@@ -286,6 +300,24 @@ export default function CapacitacionesAdmin() {
                   defaultValue={pregunta.campoAbiertoLabel ?? ''}
                   onBlur={(e) => handleCampoAbiertoPregunta(pregunta.id, pregunta.campoAbiertoLabel, e.target.value)}
                 />
+                <div className="capacitacion-flags">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pregunta.califica}
+                      onChange={(e) => handleCalificaPregunta(pregunta.id, e.target.checked)}
+                    />
+                    Califica
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pregunta.multiSelect}
+                      onChange={(e) => handleMultiSelectPregunta(pregunta.id, e.target.checked)}
+                    />
+                    Selección múltiple
+                  </label>
+                </div>
 
                 {pregunta.tipo === 'texto' ? (
                   <>
@@ -405,6 +437,24 @@ export default function CapacitacionesAdmin() {
                 value={nuevaPreguntaCampoAbierto[modulo.id] ?? ''}
                 onChange={(e) => setNuevaPreguntaCampoAbierto((prev) => ({ ...prev, [modulo.id]: e.target.value }))}
               />
+              <div className="capacitacion-flags">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={nuevaPreguntaCalifica[modulo.id] ?? true}
+                    onChange={(e) => setNuevaPreguntaCalifica((prev) => ({ ...prev, [modulo.id]: e.target.checked }))}
+                  />
+                  Califica
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={nuevaPreguntaMultiSelect[modulo.id] ?? false}
+                    onChange={(e) => setNuevaPreguntaMultiSelect((prev) => ({ ...prev, [modulo.id]: e.target.checked }))}
+                  />
+                  Selección múltiple
+                </label>
+              </div>
               <button type="button" className="add-row" onClick={() => handleAddPregunta(modulo.id)}>
                 + Agregar pregunta
               </button>

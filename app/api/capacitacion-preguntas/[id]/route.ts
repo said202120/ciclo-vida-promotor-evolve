@@ -13,7 +13,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const patch: { texto?: string; tipo?: CapacitacionPreguntaTipo; campoAbiertoLabel?: string | null } = {};
+  const patch: {
+    texto?: string;
+    tipo?: CapacitacionPreguntaTipo;
+    campoAbiertoLabel?: string | null;
+    califica?: boolean;
+    multiSelect?: boolean;
+  } = {};
 
   if (typeof body.texto === 'string') {
     const texto = body.texto.trim();
@@ -29,7 +35,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if ('campoAbiertoLabel' in body) {
     patch.campoAbiertoLabel = typeof body.campoAbiertoLabel === 'string' && body.campoAbiertoLabel.trim() ? body.campoAbiertoLabel.trim() : null;
   }
-  if (patch.texto === undefined && patch.tipo === undefined && patch.campoAbiertoLabel === undefined) {
+  if (typeof body.califica === 'boolean') {
+    patch.califica = body.califica;
+  }
+  if (typeof body.multiSelect === 'boolean') {
+    patch.multiSelect = body.multiSelect;
+  }
+  if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'No hay campos válidos para actualizar.' }, { status: 400 });
   }
 

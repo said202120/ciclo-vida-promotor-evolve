@@ -22,7 +22,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}.` }, { status: 400 });
   }
   const campoAbiertoLabel = typeof body.campoAbiertoLabel === 'string' && body.campoAbiertoLabel.trim() ? body.campoAbiertoLabel.trim() : null;
+  const califica = typeof body.califica === 'boolean' ? body.califica : true;
+  const multiSelect = typeof body.multiSelect === 'boolean' ? body.multiSelect : false;
 
-  const pregunta = await createCapacitacionPregunta(moduloId, texto, tipo as CapacitacionPreguntaTipo, campoAbiertoLabel);
+  const pregunta = await createCapacitacionPregunta(
+    moduloId,
+    texto,
+    tipo as CapacitacionPreguntaTipo,
+    campoAbiertoLabel,
+    califica,
+    multiSelect
+  );
   return NextResponse.json(pregunta, { status: 201 });
 }
