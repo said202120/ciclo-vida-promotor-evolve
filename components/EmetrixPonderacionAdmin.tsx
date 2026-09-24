@@ -6,9 +6,12 @@ import {
   fetchHistorialEmetrixPonderacion,
   fetchMarcas,
   fetchResultadoEmetrixPonderacion,
+  fetchResultadoTodasCuentasEmetrixPonderacion,
   updatePesoEmetrixPonderacion,
 } from '@/lib/api-client';
 import EmetrixPonderacionZona from './EmetrixPonderacionZona';
+
+const TODAS = '__todas__';
 
 const KR_LABEL: Record<EmetrixKr, string> = {
   mesa_control: 'Mesa de Control',
@@ -23,8 +26,9 @@ function formatFecha(iso: string): string {
 
 export default function EmetrixPonderacionAdmin() {
   const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
-  const [marcaId, setMarcaId] = useState('');
+  const [marcaId, setMarcaId] = useState(TODAS);
   const [resultado, setResultado] = useState<EmetrixResultadoCuenta | null>(null);
+  const [resumenTodas, setResumenTodas] = useState<EmetrixResultadoCuenta[]>([]);
   const [historial, setHistorial] = useState<EmetrixCarga[]>([]);
   const [historialMarcaId, setHistorialMarcaId] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +37,7 @@ export default function EmetrixPonderacionAdmin() {
     fetchMarcas()
       .then(setMarcas)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el maestro de marcas.'));
+    reloadResumenTodas();
     reloadHistorial('');
   }, []);
 
@@ -43,22 +48,26 @@ export default function EmetrixPonderacionAdmin() {
   }
 
   function reloadResultado(id: string) {
-    if (!id) {
-      setResultado(null);
-      return;
-    }
     fetchResultadoEmetrixPonderacion(id)
       .then(setResultado)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el resultado.'));
   }
 
+  function reloadResumenTodas() {
+    fetchResultadoTodasCuentasEmetrixPonderacion()
+      .then(setResumenTodas)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el resumen de cuentas.'));
+  }
+
   function handleCuentaChange(id: string) {
     setMarcaId(id);
-    reloadResultado(id);
+    if (id === TODAS) reloadResumenTodas();
+    else reloadResultado(id);
   }
 
   function handleGuardado() {
-    reloadResultado(marcaId);
+    if (marcaId !== TODAS) reloadResultado(marcaId);
+    reloadResumenTodas();
     reloadHistorial(historialMarcaId);
   }
 
@@ -97,7 +106,7 @@ export default function EmetrixPonderacionAdmin() {
       <div className="month-bar emetrix-cuenta-bar">
         <span className="emetrix-cuenta-label">Cuenta</span>
         <select value={marcaId} onChange={(e) => handleCuentaChange(e.target.value)}>
-          <option value="">Selecciona una cuenta…</option>
+          <option value={TODAS}>Todas las cuentas</option>
           {marcas.map((m) => (
             <option key={m.id} value={m.id}>
               {m.nombre}
@@ -106,81 +115,114 @@ export default function EmetrixPonderacionAdmin() {
         </select>
       </div>
 
-      <div className="emetrix-zonas-grid">
-        <EmetrixPonderacionZona
-          kr="mesa_control"
-          marcaId={marcaId}
-          estado={resultado?.krs.find((k) => k.kr === 'mesa_control')}
-          requiereCelular={false}
-          onGuardado={handleGuardado}
-        />
-        <EmetrixPonderacionZona
-          kr="materiales"
-          marcaId={marcaId}
-          estado={resultado?.krs.find((k) => k.kr === 'materiales')}
-          requiereCelular={true}
-          onGuardado={handleGuardado}
-        />
-        <EmetrixPonderacionZona
-          kr="marca"
-          marcaId={marcaId}
-          estado={resultado?.krs.find((k) => k.kr === 'marca')}
-          requiereCelular={false}
-          onGuardado={handleGuardado}
-        />
-      </div>
-
-      <div className="roster">
-        <p className="section-title" style={{ margin: '0 0 14px' }}>
-          Resultado por cuenta
-        </p>
-        {!marcaId ? (
-          <p className="roster-hint">Selecciona una cuenta arriba para ver su resultado.</p>
-        ) : (
-          resultado && (
+      {marcaId === TODAS ? (
+        <div className="roster">
+          <p className="section-title" style={{ margin: '0 0 14px' }}>
+            Resumen de todas las cuentas
+          </p>
+          {resumenTodas.length === 0 ? (
+            <p className="resumen-status">Ninguna cuenta tiene cargas todavía.</p>
+          ) : (
             <table className="roster-table">
               <thead>
                 <tr>
-                  <th>KR</th>
-                  <th>Universo</th>
-                  <th>Cumplieron</th>
-                  <th>% Cumplimiento</th>
-                  <th>Peso</th>
-                  <th>Aportación</th>
+                  <th>Cuenta</th>
+                  <th>Mesa de Control</th>
+                  <th>Materiales</th>
+                  <th>Marca</th>
+                  <th>Total OKR</th>
                 </tr>
               </thead>
               <tbody>
-                {resultado.krs.map((k) => (
-                  <tr key={k.kr}>
-                    <td style={{ textAlign: 'left' }}>{KR_LABEL[k.kr]}</td>
-                    <td>{k.universo ?? '—'}</td>
-                    <td>{k.cumplieron ?? '—'}</td>
-                    <td>{k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin carga'}</td>
-                    <td>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={0.1}
-                        defaultValue={k.peso}
-                        onBlur={(e) => handlePesoChange(k.kr, e.target.value)}
-                        style={{ width: 64 }}
-                      />
-                      %
-                    </td>
-                    <td>{k.aportacion}%</td>
+                {resumenTodas.map((r) => (
+                  <tr key={r.marcaId}>
+                    <td style={{ textAlign: 'left' }}>{r.marcaNombre}</td>
+                    {(['mesa_control', 'materiales', 'marca'] as EmetrixKr[]).map((kr) => {
+                      const k = r.krs.find((x) => x.kr === kr);
+                      return <td key={kr}>{k && k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>;
+                    })}
+                    <td style={{ fontWeight: 700 }}>{r.total}%</td>
                   </tr>
                 ))}
-                <tr>
-                  <td style={{ textAlign: 'left', fontWeight: 700 }}>Total</td>
-                  <td colSpan={4} />
-                  <td style={{ fontWeight: 700 }}>{resultado.total}%</td>
-                </tr>
               </tbody>
             </table>
-          )
-        )}
-      </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="emetrix-zonas-grid">
+            <EmetrixPonderacionZona
+              kr="mesa_control"
+              marcaId={marcaId}
+              estado={resultado?.krs.find((k) => k.kr === 'mesa_control')}
+              requiereCelular={false}
+              onGuardado={handleGuardado}
+            />
+            <EmetrixPonderacionZona
+              kr="materiales"
+              marcaId={marcaId}
+              estado={resultado?.krs.find((k) => k.kr === 'materiales')}
+              requiereCelular={true}
+              onGuardado={handleGuardado}
+            />
+            <EmetrixPonderacionZona
+              kr="marca"
+              marcaId={marcaId}
+              estado={resultado?.krs.find((k) => k.kr === 'marca')}
+              requiereCelular={false}
+              onGuardado={handleGuardado}
+            />
+          </div>
+
+          <div className="roster">
+            <p className="section-title" style={{ margin: '0 0 14px' }}>
+              Resultado por cuenta
+            </p>
+            {resultado && (
+              <table className="roster-table">
+                <thead>
+                  <tr>
+                    <th>KR</th>
+                    <th>Universo</th>
+                    <th>Cumplieron</th>
+                    <th>% Cumplimiento</th>
+                    <th>Peso</th>
+                    <th>Aportación</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resultado.krs.map((k) => (
+                    <tr key={k.kr}>
+                      <td style={{ textAlign: 'left' }}>{KR_LABEL[k.kr]}</td>
+                      <td>{k.universo ?? '—'}</td>
+                      <td>{k.cumplieron ?? '—'}</td>
+                      <td>{k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin carga'}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          defaultValue={k.peso}
+                          onBlur={(e) => handlePesoChange(k.kr, e.target.value)}
+                          style={{ width: 64 }}
+                        />
+                        %
+                      </td>
+                      <td>{k.aportacion}%</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={{ textAlign: 'left', fontWeight: 700 }}>Total</td>
+                    <td colSpan={4} />
+                    <td style={{ fontWeight: 700 }}>{resultado.total}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="roster">
         <div className="roster-head">

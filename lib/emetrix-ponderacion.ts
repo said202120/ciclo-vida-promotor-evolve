@@ -301,6 +301,64 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
   return { marcaId, marcaNombre, krs, total };
 }
 
+/** Resumen "Todas las cuentas": igual que fetchResultadoCuenta pero para cada cuenta que ya tiene al menos una carga. Las que no tienen ninguna quedan fuera. */
+export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuenta[]> {
+  const [{ rows: cargaRows }, { rows: pesoRows }] = await Promise.all([
+    sql.query(
+      `select distinct on (c.marca_id, c.kr) c.marca_id, m.nombre as marca_nombre, c.kr, c.universo, c.cumplieron, c.porcentaje, c.cargado_en
+       from emetrix_ponderacion_cargas c
+       join marcas m on m.id = c.marca_id
+       order by c.marca_id, c.kr, c.cargado_en desc`
+    ),
+    sql.query('select marca_id, kr, peso from emetrix_ponderacion_pesos'),
+  ]);
+
+  const pesoPorClave = new Map<string, number>(pesoRows.map((r) => [`${r.marca_id}:${r.kr}`, Number(r.peso)]));
+
+  type Acumulado = { marcaId: string; marcaNombre: string; krs: Map<EmetrixKr, EmetrixResultadoCuenta['krs'][number]> };
+  const porMarca = new Map<string, Acumulado>();
+  for (const row of cargaRows) {
+    const marcaId = row.marca_id as string;
+    if (!porMarca.has(marcaId)) {
+      porMarca.set(marcaId, { marcaId, marcaNombre: row.marca_nombre as string, krs: new Map() });
+    }
+    const kr = row.kr as EmetrixKr;
+    const porcentaje = Number(row.porcentaje);
+    const peso = pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT;
+    porMarca.get(marcaId)!.krs.set(kr, {
+      kr,
+      universo: Number(row.universo),
+      cumplieron: Number(row.cumplieron),
+      porcentaje,
+      peso,
+      aportacion: Math.round(((porcentaje * peso) / 100) * 100) / 100,
+      cargadoEn: new Date(row.cargado_en as string).toISOString(),
+    });
+  }
+
+  const KRS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
+  const resultado: EmetrixResultadoCuenta[] = [];
+  for (const { marcaId, marcaNombre, krs } of porMarca.values()) {
+    const krsArr = KRS.map(
+      (kr) =>
+        krs.get(kr) ?? {
+          kr,
+          universo: null,
+          cumplieron: null,
+          porcentaje: null,
+          peso: pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT,
+          aportacion: 0,
+          cargadoEn: null,
+        }
+    );
+    const total = Math.round(krsArr.reduce((sum, k) => sum + k.aportacion, 0) * 100) / 100;
+    resultado.push({ marcaId, marcaNombre, krs: krsArr, total });
+  }
+
+  resultado.sort((a, b) => a.marcaNombre.localeCompare(b.marcaNombre));
+  return resultado;
+}
+
 export async function updatePesoKr(marcaId: string, kr: EmetrixKr, peso: number): Promise<void> {
   await sql.query(
     `insert into emetrix_ponderacion_pesos (marca_id, kr, peso)

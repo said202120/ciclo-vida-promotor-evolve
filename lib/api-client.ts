@@ -457,6 +457,10 @@ export function fetchResultadoEmetrixPonderacion(marcaId: string): Promise<Emetr
   return fetch(`/api/emetrix-ponderacion/resultado?marcaId=${marcaId}`).then((r) => json(r));
 }
 
+export function fetchResultadoTodasCuentasEmetrixPonderacion(): Promise<EmetrixResultadoCuenta[]> {
+  return fetch('/api/emetrix-ponderacion/resultado-todas').then((r) => json(r));
+}
+
 export function fetchHistorialEmetrixPonderacion(marcaId?: string): Promise<EmetrixCarga[]> {
   return fetch(`/api/emetrix-ponderacion/cargas${marcaId ? `?marcaId=${marcaId}` : ''}`).then((r) => json(r));
 }
