@@ -10,6 +10,10 @@ import type {
   ComparacionIngreso,
   Dashboard,
   Ejecutivo,
+  EmetrixCarga,
+  EmetrixCargaPreview,
+  EmetrixKr,
+  EmetrixResultadoCuenta,
   EncuestaMaterialesPayload,
   EncuestaMaterialesPublica,
   EncuestaPublica,
@@ -416,5 +420,51 @@ export function enviarCapacitacion(codigo: string, payload: CapacitacionEnvioPay
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  }).then((r) => json(r));
+}
+
+export function parseEmetrixPonderacion(
+  file: File,
+  kr: EmetrixKr,
+  universoManual: number | null,
+  incluyeCelular: boolean | null
+): Promise<EmetrixCargaPreview> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('kr', kr);
+  if (universoManual !== null) form.append('universoManual', String(universoManual));
+  if (incluyeCelular !== null) form.append('incluyeCelular', String(incluyeCelular));
+  return fetch('/api/emetrix-ponderacion/parse', { method: 'POST', body: form }).then((r) => json(r));
+}
+
+export function guardarCargaEmetrixPonderacion(data: {
+  marcaId: string;
+  kr: EmetrixKr;
+  totalFilas: number;
+  universoManual: number | null;
+  cumplieron: number;
+  incluyeCelular: boolean | null;
+  archivoNombre: string;
+}): Promise<EmetrixCarga> {
+  return fetch('/api/emetrix-ponderacion/cargas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).then((r) => json(r));
+}
+
+export function fetchResultadoEmetrixPonderacion(marcaId: string): Promise<EmetrixResultadoCuenta> {
+  return fetch(`/api/emetrix-ponderacion/resultado?marcaId=${marcaId}`).then((r) => json(r));
+}
+
+export function fetchHistorialEmetrixPonderacion(marcaId?: string): Promise<EmetrixCarga[]> {
+  return fetch(`/api/emetrix-ponderacion/cargas${marcaId ? `?marcaId=${marcaId}` : ''}`).then((r) => json(r));
+}
+
+export function updatePesoEmetrixPonderacion(marcaId: string, kr: EmetrixKr, peso: number): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/pesos', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marcaId, kr, peso }),
   }).then((r) => json(r));
 }

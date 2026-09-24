@@ -1731,3 +1731,48 @@ table.roster-table select.mapeo-set {
   color: var(--ink-soft);
   margin: -8px 0 16px;
 }
+
+/* Plan B: calculadora de ponderación de sondeos Emetrix (/emetrix-ponderacion) */
+.emetrix-preview {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+.emetrix-preview p {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.emetrix-warning {
+  color: var(--bad) !important;
+  font-weight: 600;
+  font-size: 12.5px !important;
+}
+.emetrix-guardado {
+  color: var(--good) !important;
+  font-weight: 600;
+}
+.emetrix-select-cuenta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.emetrix-select-cuenta select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+}
+.emetrix-historial-archivo {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -424,3 +424,55 @@ export type CapacitacionEnvioResultado = {
   aprobado: boolean;
   umbralAprobacion: number;
 };
+
+/**
+ * "Plan B": calculadora de ponderación de los sondeos de Emetrix
+ * (/emetrix-ponderacion, solo gerente) — respaldo manual mientras se
+ * resuelve la integración automática con Evolve OS.
+ */
+export type EmetrixKr = 'mesa_control' | 'materiales' | 'marca';
+
+/** Una carga guardada (archivo subido + calculado) para una cuenta y un KR. Se acumulan, nunca se sobreescriben. */
+export type EmetrixCarga = {
+  id: string;
+  marcaId: string;
+  marcaNombre?: string;
+  kr: EmetrixKr;
+  universo: number;
+  /** true si se capturó el headcount real; false si se usó el número de filas del archivo a falta de ese dato. */
+  universoManual: boolean;
+  cumplieron: number;
+  porcentaje: number;
+  /** Solo aplica a kr='materiales'. null en los demás. */
+  incluyeCelular: boolean | null;
+  archivoNombre: string | null;
+  cargadoPorNombre?: string | null;
+  cargadoEn: string;
+};
+
+/** Resultado calculado (sin guardar todavía) de subir un archivo, para que el gerente lo revise antes de "Guardar carga". */
+export type EmetrixCargaPreview = {
+  totalFilas: number;
+  cumplieron: number;
+  universoUsado: number;
+  universoEsManual: boolean;
+  porcentaje: number;
+};
+
+export type EmetrixResultadoKr = {
+  kr: EmetrixKr;
+  universo: number | null;
+  cumplieron: number | null;
+  porcentaje: number | null;
+  peso: number;
+  aportacion: number;
+  cargadoEn: string | null;
+};
+
+/** Tabla de resultado por cuenta: la carga más reciente de cada KR + su peso, con el total ponderado del OKR. */
+export type EmetrixResultadoCuenta = {
+  marcaId: string;
+  marcaNombre: string;
+  krs: EmetrixResultadoKr[];
+  total: number;
+};

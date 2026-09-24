@@ -499,6 +499,41 @@ create table if not exists capacitacion_respuestas_diagnostico (
   primary key (promotor_id, pregunta_id, opcion_id)
 );
 
+-- "Plan B": calculadora de ponderación de los sondeos de Emetrix (/emetrix-
+-- ponderacion, solo gerente) — respaldo manual mientras se resuelve la
+-- integración automática con Evolve OS. Una carga = un archivo subido para
+-- una cuenta (marca) y un KR ('mesa_control' | 'materiales' | 'marca'); se
+-- guardan TODAS las cargas históricas (nunca se sobreescriben) para poder ir
+-- agregando más cuentas con el tiempo sin perder lo anterior. El resultado
+-- que se muestra por cuenta usa la carga más reciente de cada KR.
+create table if not exists emetrix_ponderacion_cargas (
+  id uuid primary key default gen_random_uuid(),
+  marca_id uuid not null references marcas(id) on delete cascade,
+  kr text not null check (kr in ('mesa_control', 'materiales', 'marca')),
+  universo int not null,
+  -- true si el gerente capturó el headcount real de la cuenta; false si se
+  -- usó el número de filas del archivo (respondientes) a falta de ese dato.
+  universo_manual boolean not null default false,
+  cumplieron int not null,
+  porcentaje numeric not null,
+  -- Solo aplica a kr='materiales': si la cuenta incluye celular en el
+  -- acuerdo comercial (afecta qué columnas se exigen). null en los otros KR.
+  incluye_celular boolean,
+  archivo_nombre text,
+  cargado_por uuid references usuarios(id) on delete set null,
+  cargado_en timestamptz not null default now()
+);
+
+-- Peso de cada KR por cuenta para el % total del OKR (33.3% por default,
+-- editable en /emetrix-ponderacion). Una fila por (marca, kr); si no existe,
+-- el default de 33.3 se aplica en la capa de aplicación, no aquí.
+create table if not exists emetrix_ponderacion_pesos (
+  marca_id uuid not null references marcas(id) on delete cascade,
+  kr text not null check (kr in ('mesa_control', 'materiales', 'marca')),
+  peso numeric not null default 33.3,
+  primary key (marca_id, kr)
+);
+
 -- Trigger simple para updated_at en promotores
 create or replace function set_updated_at()
 returns trigger as $$

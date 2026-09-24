@@ -76,6 +76,11 @@ function TopBar({ user, onLogout }: { user: Usuario | null; onLogout: () => void
                 Exámenes
               </a>
             )}
+            {user.rol === 'gerente' && (
+              <a className="topbar-link" href="/emetrix-ponderacion">
+                Plan B
+              </a>
+            )}
             <ChangePasswordButton />
             <button className="topbar-link" onClick={onLogout}>
               Cerrar sesión
