@@ -1754,21 +1754,48 @@ table.roster-table select.mapeo-set {
   color: var(--good) !important;
   font-weight: 600;
 }
-.emetrix-select-cuenta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--ink-soft);
+.emetrix-cuenta-bar {
+  margin-bottom: 20px;
+  width: fit-content;
 }
-.emetrix-select-cuenta select {
+.emetrix-cuenta-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+  padding-left: 2px;
+}
+.emetrix-zonas-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.emetrix-zonas-grid .emetrix-zona {
+  margin-bottom: 0;
+}
+@media (max-width: 900px) {
+  .emetrix-zonas-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.emetrix-estatus-badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.emetrix-estatus-badge.cargado {
+  color: var(--good);
+  background: var(--good-soft);
+}
+.emetrix-estatus-badge.pendiente {
+  color: var(--ink-soft);
+  background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 7px 10px;
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 13px;
-  color: var(--ink);
-  background: var(--panel);
 }
 .emetrix-historial-archivo {
   max-width: 220px;

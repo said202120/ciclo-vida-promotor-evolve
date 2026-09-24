@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { EmetrixCargaPreview, EmetrixKr, Marca } from '@/lib/types';
+import type { EmetrixCargaPreview, EmetrixKr, EmetrixResultadoKr } from '@/lib/types';
 import { guardarCargaEmetrixPonderacion, parseEmetrixPonderacion } from '@/lib/api-client';
 
 const KR_LABEL: Record<EmetrixKr, string> = {
@@ -10,18 +10,23 @@ const KR_LABEL: Record<EmetrixKr, string> = {
   marca: 'Marca',
 };
 
+function formatFecha(iso: string): string {
+  return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 export default function EmetrixPonderacionZona({
   kr,
-  marcas,
+  marcaId,
+  estado,
   requiereCelular,
   onGuardado,
 }: {
   kr: EmetrixKr;
-  marcas: Marca[];
+  marcaId: string;
+  estado: EmetrixResultadoKr | undefined;
   requiereCelular: boolean;
-  onGuardado: (marcaId: string) => void;
+  onGuardado: () => void;
 }) {
-  const [marcaId, setMarcaId] = useState('');
   const [universo, setUniverso] = useState('');
   const [incluyeCelular, setIncluyeCelular] = useState<'si' | 'no' | ''>('');
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -33,6 +38,7 @@ export default function EmetrixPonderacionZona({
 
   const faltaCelular = requiereCelular && incluyeCelular === '';
   const puedeSubir = !!marcaId && !faltaCelular;
+  const cargado = !!estado?.cargadoEn;
 
   async function handleArchivo(file: File) {
     setError(null);
@@ -66,7 +72,7 @@ export default function EmetrixPonderacionZona({
         archivoNombre: archivo.name,
       });
       setGuardado(true);
-      onGuardado(marcaId);
+      onGuardado();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar la carga.');
     } finally {
@@ -75,97 +81,90 @@ export default function EmetrixPonderacionZona({
   }
 
   return (
-    <div className="roster">
-      <p className="section-title" style={{ margin: '0 0 14px' }}>
-        {KR_LABEL[kr]}
-      </p>
-      <form className="users-form" onSubmit={(e) => e.preventDefault()}>
-        <label>
-          Cuenta/Marca
-          <select
-            value={marcaId}
-            onChange={(e) => {
-              setMarcaId(e.target.value);
-              setPreview(null);
-              setGuardado(false);
-            }}
-          >
-            <option value="">Selecciona…</option>
-            {marcas.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.nombre}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Universo total de la cuenta (headcount)
-          <input
-            type="number"
-            min={1}
-            placeholder="Opcional — deja vacío para usar solo respondientes"
-            value={universo}
-            onChange={(e) => {
-              setUniverso(e.target.value);
-              setPreview(null);
-              setGuardado(false);
-            }}
-          />
-        </label>
-        {requiereCelular && (
-          <label>
-            ¿Esta cuenta incluye celular en el acuerdo comercial?
-            <select
-              value={incluyeCelular}
-              onChange={(e) => {
-                setIncluyeCelular(e.target.value as 'si' | 'no' | '');
-                setPreview(null);
-                setGuardado(false);
-              }}
-            >
-              <option value="">Selecciona…</option>
-              <option value="si">Sí</option>
-              <option value="no">No</option>
-            </select>
-          </label>
-        )}
-        <label>
-          Archivo (.xlsx / .csv)
-          <input
-            type="file"
-            accept=".xlsx,.xlsm,.csv"
-            disabled={!puedeSubir}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleArchivo(file);
-            }}
-          />
-        </label>
-      </form>
+    <div className="roster emetrix-zona">
+      <div className="roster-head">
+        <p className="section-title" style={{ margin: 0 }}>
+          {KR_LABEL[kr]}
+        </p>
+        <span className={`emetrix-estatus-badge ${cargado ? 'cargado' : 'pendiente'}`}>
+          {cargado ? `✓ Cargado · ${formatFecha(estado!.cargadoEn!)}` : 'Falta cargar'}
+        </span>
+      </div>
 
-      {!marcaId && <p className="roster-hint">Selecciona una cuenta para habilitar la carga.</p>}
-      {faltaCelular && <p className="roster-hint">Indica si la cuenta incluye celular para poder subir el archivo.</p>}
-      {procesando && <p className="resumen-status">Procesando…</p>}
-      {error && <p className="login-error">{error}</p>}
+      {!marcaId ? (
+        <p className="roster-hint">Selecciona una cuenta arriba para cargar este KR.</p>
+      ) : (
+        <>
+          <form className="users-form" onSubmit={(e) => e.preventDefault()}>
+            <label>
+              Universo total de la cuenta (headcount)
+              <input
+                type="number"
+                min={1}
+                placeholder="Opcional — deja vacío para usar solo respondientes"
+                value={universo}
+                onChange={(e) => {
+                  setUniverso(e.target.value);
+                  setPreview(null);
+                  setGuardado(false);
+                }}
+              />
+            </label>
+            {requiereCelular && (
+              <label>
+                ¿Esta cuenta incluye celular en el acuerdo comercial?
+                <select
+                  value={incluyeCelular}
+                  onChange={(e) => {
+                    setIncluyeCelular(e.target.value as 'si' | 'no' | '');
+                    setPreview(null);
+                    setGuardado(false);
+                  }}
+                >
+                  <option value="">Selecciona…</option>
+                  <option value="si">Sí</option>
+                  <option value="no">No</option>
+                </select>
+              </label>
+            )}
+            <label>
+              Archivo (.xlsx / .csv)
+              <input
+                type="file"
+                accept=".xlsx,.xlsm,.csv"
+                disabled={!puedeSubir}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleArchivo(file);
+                }}
+              />
+            </label>
+          </form>
 
-      {preview && (
-        <div className="emetrix-preview">
-          <p>
-            <strong>{preview.cumplieron}</strong> de <strong>{preview.universoUsado}</strong> cumplieron ·{' '}
-            <strong>{preview.porcentaje}%</strong>
-            {preview.universoEsManual ? '' : ` (${preview.totalFilas} respondieron el sondeo)`}
-          </p>
-          {!preview.universoEsManual && (
-            <p className="emetrix-warning">⚠️ Sin headcount real, usando solo respondientes — el % puede estar inflado.</p>
+          {faltaCelular && <p className="roster-hint">Indica si la cuenta incluye celular para poder subir el archivo.</p>}
+          {procesando && <p className="resumen-status">Procesando…</p>}
+          {error && <p className="login-error">{error}</p>}
+
+          {preview && (
+            <div className="emetrix-preview">
+              <p>
+                <strong>{preview.cumplieron}</strong> de <strong>{preview.universoUsado}</strong> cumplieron ·{' '}
+                <strong>{preview.porcentaje}%</strong>
+                {preview.universoEsManual ? '' : ` (${preview.totalFilas} respondieron el sondeo)`}
+              </p>
+              {!preview.universoEsManual && (
+                <p className="emetrix-warning">⚠️ Sin headcount real, usando solo respondientes — el % puede estar inflado.</p>
+              )}
+              {guardado ? (
+                <p className="emetrix-guardado">✓ Carga guardada.</p>
+              ) : (
+                <button type="button" className="close-month-btn" onClick={handleGuardar} disabled={guardando}>
+                  {guardando ? 'Guardando…' : 'Guardar carga'}
+                </button>
+              )}
+            </div>
           )}
-          {guardado ? (
-            <p className="emetrix-guardado">✓ Carga guardada.</p>
-          ) : (
-            <button type="button" className="close-month-btn" onClick={handleGuardar} disabled={guardando}>
-              {guardando ? 'Guardando…' : 'Guardar carga'}
-            </button>
-          )}
-        </div>
+        </>
       )}
     </div>
   );
