@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react';
 import type { EmetrixCarga, EmetrixEstado, EmetrixKr, EmetrixResultadoCuenta, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
 import {
+  fetchConfigEmetrixPonderacion,
   fetchHistorialEmetrixPonderacion,
   fetchMarcas,
   fetchResultadoEmetrixPonderacion,
   fetchResultadoTodasCuentasEmetrixPonderacion,
   fetchVistaCruzadaEmetrixPonderacion,
+  updateHeadcountManualEmetrixPonderacion,
   updatePesoEmetrixPonderacion,
+  updateUmbralRespuestaEmetrixPonderacion,
 } from '@/lib/api-client';
 import EmetrixPonderacionZona from './EmetrixPonderacionZona';
 
@@ -35,6 +38,7 @@ export default function EmetrixPonderacionAdmin() {
   const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
   const [marcaId, setMarcaId] = useState(TODAS);
   const [resultado, setResultado] = useState<EmetrixResultadoCuenta | null>(null);
+  const [config, setConfig] = useState<{ incluyeCelular: boolean | null; umbralRespuesta: number; headcountManual: number | null } | null>(null);
   const [resumenTodas, setResumenTodas] = useState<EmetrixResultadoCuenta[]>([]);
   const [vistaCruzada, setVistaCruzada] = useState<EmetrixVistaCruzadaFila[]>([]);
   const [historial, setHistorial] = useState<EmetrixCarga[]>([]);
@@ -62,6 +66,9 @@ export default function EmetrixPonderacionAdmin() {
     fetchVistaCruzadaEmetrixPonderacion(id)
       .then(setVistaCruzada)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la vista cruzada.'));
+    fetchConfigEmetrixPonderacion(id)
+      .then(setConfig)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la configuración de la cuenta.'));
   }
 
   function reloadResumenTodas() {
@@ -91,6 +98,24 @@ export default function EmetrixPonderacionAdmin() {
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el peso.'));
   }
 
+  function handleUmbralChange(valorNuevo: string) {
+    if (!marcaId || marcaId === TODAS) return;
+    const umbral = parseFloat(valorNuevo);
+    if (!Number.isFinite(umbral) || umbral < 0 || umbral > 100) return;
+    updateUmbralRespuestaEmetrixPonderacion(marcaId, umbral)
+      .then(() => reloadResultado(marcaId))
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el umbral de respuesta.'));
+  }
+
+  function handleHeadcountChange(valorNuevo: string) {
+    if (!marcaId || marcaId === TODAS) return;
+    const headcount = valorNuevo.trim() === '' ? null : parseInt(valorNuevo, 10);
+    if (headcount !== null && (!Number.isFinite(headcount) || headcount <= 0)) return;
+    updateHeadcountManualEmetrixPonderacion(marcaId, headcount)
+      .then(() => reloadResultado(marcaId))
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el headcount de la cuenta.'));
+  }
+
   function handleHistorialFiltro(id: string) {
     setHistorialMarcaId(id);
     reloadHistorial(id);
@@ -112,9 +137,10 @@ export default function EmetrixPonderacionAdmin() {
         día en tienda, si ya tienen su kit de materiales completo, y si dominan el manejo de marca en anaquel. Es el
         respaldo manual de este cálculo mientras se resuelve la integración automática con Evolve OS — subes el
         Excel de cada sondeo por cuenta y el sistema califica según las reglas de cada KR, usando como universo el
-        padrón interno de promotores de la cuenta (si ya está cargado) o un headcount manual en su defecto. Los tres
-        KR (Mesa de Control, Materiales, Marca) pesan igual por default (33.3%) hasta tener mediciones calibradas; el
-        resultado ponderado es el % del OKR de esa cuenta.
+        padrón interno de promotores de la cuenta (si ya está cargado) o el headcount de la cuenta en su defecto (uno
+        solo, aplica a los 3 KR). Si una cuenta no tiene ni padrón ni headcount, o si el % de respuesta del sondeo
+        queda muy bajo, ese KR se marca en alerta — el resultado no es representativo. Los tres KR pesan igual por
+        default (33.3%) hasta tener mediciones calibradas; el resultado ponderado es el % del OKR de esa cuenta.
       </p>
 
       {error && <p className="login-error">{error}</p>}
@@ -155,9 +181,17 @@ export default function EmetrixPonderacionAdmin() {
                     <td style={{ textAlign: 'left' }}>{r.marcaNombre}</td>
                     {(['mesa_control', 'materiales', 'marca'] as EmetrixKr[]).map((kr) => {
                       const k = r.krs.find((x) => x.kr === kr);
-                      return <td key={kr}>{k && k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>;
+                      return (
+                        <td key={kr}>
+                          {k && k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}
+                          {k?.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠</span>}
+                        </td>
+                      );
                     })}
-                    <td style={{ fontWeight: 700 }}>{r.total !== null ? `${r.total}%` : 'Sin datos'}</td>
+                    <td style={{ fontWeight: 700 }}>
+                      {r.total !== null ? `${r.total}%` : 'Sin datos'}
+                      {r.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠ alerta</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -166,12 +200,33 @@ export default function EmetrixPonderacionAdmin() {
         </div>
       ) : (
         <>
+          <div className="roster emetrix-headcount-cuenta">
+            <label className="roster-hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              Headcount de la cuenta (uno solo, aplica a los 3 sondeos si la cuenta no tiene padrón)
+              <input
+                type="number"
+                min={1}
+                placeholder="Sin headcount"
+                defaultValue={config?.headcountManual ?? ''}
+                key={`${marcaId}-${config?.headcountManual ?? 'vacio'}`}
+                onBlur={(e) => handleHeadcountChange(e.target.value)}
+                style={{ width: 90 }}
+              />
+            </label>
+            <p className="roster-hint" style={{ margin: '6px 0 0' }}>
+              Orden de prioridad: padrón interno → este headcount → override puntual al subir un sondeo. Si no hay
+              padrón ni headcount, ese KR queda "sin universo" y en alerta.
+            </p>
+          </div>
+
           <div className="emetrix-zonas-grid">
             <EmetrixPonderacionZona
               kr="mesa_control"
               marcaId={marcaId}
               estado={resultado?.krs.find((k) => k.kr === 'mesa_control')}
               requiereCelular={false}
+              incluyeCelularGuardado={config?.incluyeCelular ?? null}
+              headcountCuenta={config?.headcountManual ?? null}
               onGuardado={handleGuardado}
             />
             <EmetrixPonderacionZona
@@ -179,6 +234,8 @@ export default function EmetrixPonderacionAdmin() {
               marcaId={marcaId}
               estado={resultado?.krs.find((k) => k.kr === 'materiales')}
               requiereCelular={true}
+              incluyeCelularGuardado={config?.incluyeCelular ?? null}
+              headcountCuenta={config?.headcountManual ?? null}
               onGuardado={handleGuardado}
             />
             <EmetrixPonderacionZona
@@ -186,23 +243,45 @@ export default function EmetrixPonderacionAdmin() {
               marcaId={marcaId}
               estado={resultado?.krs.find((k) => k.kr === 'marca')}
               requiereCelular={false}
+              incluyeCelularGuardado={config?.incluyeCelular ?? null}
+              headcountCuenta={config?.headcountManual ?? null}
               onGuardado={handleGuardado}
             />
           </div>
 
           <div className="roster">
-            <p className="section-title" style={{ margin: '0 0 14px' }}>
-              Resultado por cuenta
-            </p>
+            <div className="roster-head">
+              <p className="section-title" style={{ margin: 0 }}>
+                Resultado por cuenta
+                {resultado?.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 8 }}>⚠ alerta</span>}
+              </p>
+              {resultado && (
+                <label className="roster-hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Umbral de respuesta mínimo
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    defaultValue={resultado.umbralRespuesta}
+                    key={`${resultado.marcaId}-${resultado.umbralRespuesta}`}
+                    onBlur={(e) => handleUmbralChange(e.target.value)}
+                    style={{ width: 56 }}
+                  />
+                  %
+                </label>
+              )}
+            </div>
             {resultado && (
               <table className="roster-table">
                 <thead>
                   <tr>
                     <th>KR</th>
                     <th>Universo</th>
+                    <th>Contestaron</th>
+                    <th>% Respuesta</th>
                     <th>Cumplieron</th>
                     <th>% Cumplimiento</th>
-                    <th>% Respuesta</th>
                     <th>Peso</th>
                     <th>Aportación</th>
                   </tr>
@@ -210,18 +289,18 @@ export default function EmetrixPonderacionAdmin() {
                 <tbody>
                   {resultado.krs.map((k) => (
                     <tr key={k.kr}>
-                      <td style={{ textAlign: 'left' }}>{KR_LABEL[k.kr]}</td>
+                      <td style={{ textAlign: 'left' }}>
+                        {KR_LABEL[k.kr]}
+                        {k.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠</span>}
+                      </td>
                       <td>
-                        {k.universo ?? '—'}
+                        {k.universoFuente === 'sin_universo' ? 'sin definir' : (k.universo ?? '—')}
                         {k.universoFuente !== null && k.universoFuente !== 'padron' && ' *'}
                       </td>
+                      <td>{k.respondieron ?? '—'}</td>
+                      <td>{k.universoFuente === 'sin_universo' ? 'sin universo' : k.porcentajeRespuesta !== null ? `${k.porcentajeRespuesta}%` : '—'}</td>
                       <td>{k.cumplieron ?? '—'}</td>
                       <td>{k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>
-                      <td>
-                        {k.universoFuente === 'padron' && k.respondieron !== null && k.universo
-                          ? `${Math.round((k.respondieron / k.universo) * 10000) / 100}%`
-                          : '—'}
-                      </td>
                       <td>
                         <input
                           type="number"
@@ -239,7 +318,7 @@ export default function EmetrixPonderacionAdmin() {
                   ))}
                   <tr>
                     <td style={{ textAlign: 'left', fontWeight: 700 }}>Total</td>
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                     <td style={{ fontWeight: 700 }}>{resultado.total !== null ? `${resultado.total}%` : 'Sin datos'}</td>
                   </tr>
                 </tbody>
@@ -247,13 +326,26 @@ export default function EmetrixPonderacionAdmin() {
             )}
             {resultado && resultado.krs.some((k) => k.universoFuente !== null && k.universoFuente !== 'padron') && (
               <p className="roster-hint" style={{ marginTop: 8 }}>
-                * esta cuenta no tiene padrón cargado — el universo es headcount manual o respondientes del archivo,
-                no el padrón interno.
+                * esta cuenta no tiene padrón cargado — el universo es el headcount de la cuenta (o un override
+                puntual), no el padrón interno.
+              </p>
+            )}
+            {resultado && resultado.krs.some((k) => k.universoFuente === 'sin_universo') && (
+              <p className="roster-hint" style={{ marginTop: 8 }}>
+                ⚠ Sin universo definido (sin padrón ni headcount) — ese KR queda en alerta, resultado no
+                representativo. Captura el headcount de la cuenta arriba para resolverlo.
+              </p>
+            )}
+            {resultado && resultado.krs.some((k) => k.enAlerta && k.universoFuente !== 'sin_universo') && (
+              <p className="roster-hint" style={{ marginTop: 8 }}>
+                ⚠ Respuesta insuficiente, resultado no representativo — el % de respuesta de ese KR está por debajo
+                del umbral configurado.
               </p>
             )}
             {resultado && resultado.krs.some((k) => k.porcentaje === null) && (
               <p className="roster-hint" style={{ marginTop: 8 }}>
-                El % del OKR se calcula solo con los KR que ya tienen carga — un KR sin datos no cuenta como 0%.
+                El % del OKR se calcula solo con los KR que ya tienen carga (usando el % de cumplimiento entre
+                quienes contestaron) — un KR sin datos no cuenta como 0%.
               </p>
             )}
           </div>
@@ -332,7 +424,7 @@ export default function EmetrixPonderacionAdmin() {
                   <td style={{ textAlign: 'left' }}>{h.marcaNombre}</td>
                   <td>{KR_LABEL[h.kr]}</td>
                   <td>
-                    {h.universo}
+                    {h.universoFuente === 'sin_universo' ? 'sin definir' : h.universo}
                     {h.universoFuente !== 'padron' && ' *'}
                   </td>
                   <td>{h.cumplieron}</td>
@@ -348,8 +440,8 @@ export default function EmetrixPonderacionAdmin() {
           </table>
         )}
         <p className="roster-hint" style={{ marginTop: 8 }}>
-          * esta cuenta no tenía padrón cargado en el momento de la carga — universo = headcount manual o
-          respondientes del archivo.
+          * esta cuenta no tenía padrón cargado en el momento de la carga — universo = headcount de la cuenta (o un
+          override puntual), o sin definir si tampoco había headcount.
         </p>
       </div>
     </div>

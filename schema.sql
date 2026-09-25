@@ -562,6 +562,18 @@ alter table emetrix_ponderacion_cargas add column if not exists filas_leidas int
 alter table emetrix_ponderacion_cargas add column if not exists filas_sin_usuario int;
 alter table emetrix_ponderacion_cargas add column if not exists filas_duplicadas int;
 
+-- El universo ahora puede quedar en null: si la cuenta no tiene padrón ni
+-- headcount capturado (ni el de la cuenta ni un override puntual para este
+-- sondeo), ya NO se usa el número de filas del archivo como universo
+-- silenciosamente — el KR queda "sin universo" (% de respuesta indefinido) y
+-- se marca en alerta. Esto reemplaza al modo 'archivo'.
+alter table emetrix_ponderacion_cargas alter column universo drop not null;
+update emetrix_ponderacion_cargas set universo_fuente = 'sin_universo' where universo_fuente = 'archivo';
+alter table emetrix_ponderacion_cargas alter column universo_fuente set default 'sin_universo';
+alter table emetrix_ponderacion_cargas drop constraint if exists emetrix_ponderacion_cargas_universo_fuente_check;
+alter table emetrix_ponderacion_cargas add constraint emetrix_ponderacion_cargas_universo_fuente_check
+  check (universo_fuente in ('padron', 'manual', 'sin_universo'));
+
 -- Peso de cada KR por cuenta para el % total del OKR (33.3% por default,
 -- editable en /emetrix-ponderacion). Una fila por (marca, kr); si no existe,
 -- el default de 33.3 se aplica en la capa de aplicación, no aquí.
@@ -580,6 +592,18 @@ create table if not exists emetrix_ponderacion_config (
   marca_id uuid primary key references marcas(id) on delete cascade,
   incluye_celular boolean
 );
+
+-- % mínimo de respuesta del sondeo (contestaron/universo) por debajo del cual
+-- un KR se marca "en alerta" (resultado no representativo). Editable por
+-- cuenta; 80% por default.
+alter table emetrix_ponderacion_config add column if not exists umbral_respuesta numeric not null default 80;
+
+-- Headcount capturado UNA VEZ por cuenta, aplicado por default a los 3 KR
+-- (Mesa de Control, Materiales, Marca) para no repetirlo en cada sondeo. Cada
+-- carga puede traer opcionalmente su propio override puntual (no se guarda
+-- aquí, solo aplica a esa carga). null si la cuenta no tiene headcount
+-- capturado (usa el padrón si existe, o queda sin universo).
+alter table emetrix_ponderacion_config add column if not exists headcount_manual int;
 
 -- Detalle por promotor de una carga específica: si cumplió y, si no, qué le
 -- faltó (texto legible, ej. "Faltan: Botas, Faja" o "6/10"). Vive aparte de

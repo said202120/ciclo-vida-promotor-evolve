@@ -2,13 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixResultadoKr, EmetrixUniversoFuente } from '@/lib/types';
-import {
-  emetrixPonderacionDetalleExcelUrl,
-  fetchDetalleEmetrixPonderacion,
-  fetchIncluyeCelularConfigEmetrixPonderacion,
-  guardarCargaEmetrixPonderacion,
-  parseEmetrixPonderacion,
-} from '@/lib/api-client';
+import { emetrixPonderacionDetalleExcelUrl, fetchDetalleEmetrixPonderacion, guardarCargaEmetrixPonderacion, parseEmetrixPonderacion } from '@/lib/api-client';
 
 const KR_LABEL: Record<EmetrixKr, string> = {
   mesa_control: 'Mesa de Control',
@@ -28,8 +22,8 @@ function formatFecha(iso: string): string {
 
 function labelFuente(fuente: EmetrixUniversoFuente): string {
   if (fuente === 'padron') return 'padrón interno';
-  if (fuente === 'manual') return 'headcount manual';
-  return 'promotores únicos del archivo';
+  if (fuente === 'manual') return 'headcount';
+  return 'sin definir';
 }
 
 export default function EmetrixPonderacionZona({
@@ -37,15 +31,21 @@ export default function EmetrixPonderacionZona({
   marcaId,
   estado,
   requiereCelular,
+  incluyeCelularGuardado,
+  headcountCuenta,
   onGuardado,
 }: {
   kr: EmetrixKr;
   marcaId: string;
   estado: EmetrixResultadoKr | undefined;
   requiereCelular: boolean;
+  /** Si la cuenta ya tiene guardado si incluye celular (Materiales). Sigue siendo editable aquí, solo se usa para precargar. */
+  incluyeCelularGuardado: boolean | null;
+  /** Headcount de la cuenta (uno solo, capturado arriba en el panel de la cuenta). Solo para mostrar contexto en el override — el cálculo lo aplica el servidor. */
+  headcountCuenta: number | null;
   onGuardado: () => void;
 }) {
-  const [universo, setUniverso] = useState('');
+  const [universoOverride, setUniversoOverride] = useState('');
   const [incluyeCelular, setIncluyeCelular] = useState<'si' | 'no' | ''>('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [preview, setPreview] = useState<EmetrixCargaPreview | null>(null);
@@ -67,13 +67,8 @@ export default function EmetrixPonderacionZona({
   useEffect(() => {
     setMostrandoDetalle(false);
     setDetalle(null);
-    if (!marcaId || !requiereCelular) {
-      setIncluyeCelular('');
-      return;
-    }
-    fetchIncluyeCelularConfigEmetrixPonderacion(marcaId)
-      .then((res) => setIncluyeCelular(res.incluyeCelular === null ? '' : res.incluyeCelular ? 'si' : 'no'))
-      .catch(() => setIncluyeCelular(''));
+    setUniversoOverride('');
+    setIncluyeCelular(requiereCelular && incluyeCelularGuardado !== null ? (incluyeCelularGuardado ? 'si' : 'no') : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marcaId]);
 
@@ -84,8 +79,8 @@ export default function EmetrixPonderacionZona({
     setArchivo(file);
     setProcesando(true);
     try {
-      const universoManual = universo.trim() ? parseInt(universo, 10) : null;
-      const res = await parseEmetrixPonderacion(file, marcaId, kr, universoManual, requiereCelular ? incluyeCelular === 'si' : null);
+      const override = universoOverride.trim() ? parseInt(universoOverride, 10) : null;
+      const res = await parseEmetrixPonderacion(file, marcaId, kr, override, requiereCelular ? incluyeCelular === 'si' : null);
       setPreview(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo procesar el archivo.');
@@ -147,14 +142,14 @@ export default function EmetrixPonderacionZona({
         <>
           <form className="users-form" onSubmit={(e) => e.preventDefault()}>
             <label>
-              Total de promotores de la cuenta (headcount)
+              Ajustar universo solo para este sondeo (opcional)
               <input
                 type="number"
                 min={1}
-                placeholder="Solo se usa si la cuenta no tiene padrón cargado"
-                value={universo}
+                placeholder={headcountCuenta !== null ? `Usa el headcount de la cuenta (${headcountCuenta})` : 'Sin headcount de cuenta capturado'}
+                value={universoOverride}
                 onChange={(e) => {
-                  setUniverso(e.target.value);
+                  setUniversoOverride(e.target.value);
                   setPreview(null);
                   setGuardado(false);
                 }}
@@ -198,20 +193,24 @@ export default function EmetrixPonderacionZona({
           {preview && (
             <div className="emetrix-preview">
               <p>
-                <strong>{preview.cumplieron}</strong> de <strong>{preview.universoUsado}</strong> cumplen ·{' '}
-                <strong>{preview.porcentaje}%</strong>{' '}
-                <span className="roster-hint" style={{ display: 'inline' }}>
-                  (universo: {labelFuente(preview.universoFuente)})
-                </span>
+                Universo: <strong>{preview.universoFuente === 'sin_universo' ? 'sin definir' : preview.universoUsado}</strong> (
+                {labelFuente(preview.universoFuente)}) · Contestaron: <strong>{preview.respondieron}</strong> (
+                <strong>{preview.universoFuente === 'sin_universo' ? 'sin universo' : `${preview.porcentajeRespuesta}%`}</strong>
+                {preview.universoFuente !== 'sin_universo' && ' de respuesta'})
               </p>
-              {preview.universoFuente === 'padron' && preview.respondieron !== null && (
-                <p className="roster-hint">
-                  % de respuesta del sondeo: {Math.round((preview.respondieron / preview.universoUsado) * 10000) / 100}% (
-                  {preview.respondieron} de {preview.universoUsado} contestaron)
-                </p>
+              <p>
+                Cumplen: <strong>{preview.cumplieron}</strong> de <strong>{preview.respondieron}</strong> que contestaron ·{' '}
+                <strong>{preview.porcentaje}%</strong> de cumplimiento
+              </p>
+              {preview.universoFuente === 'sin_universo' ? (
+                <p className="emetrix-alerta">⚠️ Sin universo definido (sin padrón ni headcount) — resultado no representativo.</p>
+              ) : (
+                preview.enAlerta && (
+                  <p className="emetrix-alerta">⚠️ Respuesta insuficiente, resultado no representativo (umbral: {preview.umbralRespuesta}%).</p>
+                )
               )}
-              {preview.universoFuente !== 'padron' && (
-                <p className="emetrix-warning">⚠️ Esta cuenta no tiene padrón cargado — el resultado usa {labelFuente(preview.universoFuente)}.</p>
+              {preview.universoFuente === 'manual' && (
+                <p className="emetrix-warning">⚠️ Esta cuenta no tiene padrón cargado — el universo usado es el headcount.</p>
               )}
 
               <p className="roster-hint">

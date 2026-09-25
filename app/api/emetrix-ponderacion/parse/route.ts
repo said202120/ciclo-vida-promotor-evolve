@@ -9,9 +9,10 @@ const KRS_VALIDOS = ['mesa_control', 'materiales', 'marca'];
 
 // POST /api/emetrix-ponderacion/parse — sube el archivo de un KR, lo
 // califica según las reglas de ese KR, decide el universo (padrón de la
-// cuenta si existe; si no, headcount manual o promotores únicos del
-// archivo) y devuelve el preview para que el gerente lo revise ANTES de
-// guardarlo (ver /cargas). No escribe nada en la base de datos.
+// cuenta si existe; si no, el headcount de la cuenta o, si se manda
+// `universoOverride`, un headcount puntual solo para esta carga) y devuelve
+// el preview para que el gerente lo revise ANTES de guardarlo (ver /cargas).
+// No escribe nada en la base de datos.
 export async function POST(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -24,11 +25,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Faltan datos: archivo, cuenta y KR son obligatorios.' }, { status: 400 });
   }
 
-  const universoManualRaw = form?.get('universoManual');
-  let universoManual: number | null = null;
-  if (typeof universoManualRaw === 'string' && universoManualRaw.trim() !== '') {
-    universoManual = parseInt(universoManualRaw, 10);
-    if (!Number.isFinite(universoManual) || universoManual <= 0) {
+  const universoOverrideRaw = form?.get('universoOverride');
+  let universoOverride: number | null = null;
+  if (typeof universoOverrideRaw === 'string' && universoOverrideRaw.trim() !== '') {
+    universoOverride = parseInt(universoOverrideRaw, 10);
+    if (!Number.isFinite(universoOverride) || universoOverride <= 0) {
       return NextResponse.json({ error: 'El universo debe ser un número mayor a cero.' }, { status: 400 });
     }
   }
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
       calculo = calcularMarca(headers, rows);
     }
 
-    const preview = await armarPreview(marcaId, calculo, universoManual);
+    const preview = await armarPreview(marcaId, calculo, universoOverride);
     return NextResponse.json(preview);
   } catch (err) {
     if (err instanceof ColumnasFaltantesError) {

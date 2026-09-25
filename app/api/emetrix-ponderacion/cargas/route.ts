@@ -6,7 +6,7 @@ import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr,
 export const dynamic = 'force-dynamic';
 
 const KRS_VALIDOS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
-const FUENTES_VALIDAS: EmetrixUniversoFuente[] = ['padron', 'manual', 'archivo'];
+const FUENTES_VALIDAS: EmetrixUniversoFuente[] = ['padron', 'manual', 'sin_universo'];
 const ESTADOS_VALIDOS: EmetrixEstado[] = ['cumple', 'no_cumple', 'no_contesto'];
 
 // GET /api/emetrix-ponderacion/cargas?marcaId=... — historial de cargas
@@ -22,7 +22,16 @@ export async function GET(request: Request) {
 function validarPreview(body: unknown): EmetrixCargaPreview | null {
   if (!body || typeof body !== 'object') return null;
   const b = body as Record<string, unknown>;
-  if (typeof b.universoUsado !== 'number' || typeof b.cumplieron !== 'number' || typeof b.porcentaje !== 'number') return null;
+  if (
+    (typeof b.universoUsado !== 'number' && b.universoUsado !== null) ||
+    typeof b.cumplieron !== 'number' ||
+    typeof b.respondieron !== 'number' ||
+    typeof b.porcentaje !== 'number' ||
+    (typeof b.porcentajeRespuesta !== 'number' && b.porcentajeRespuesta !== null) ||
+    typeof b.umbralRespuesta !== 'number' ||
+    typeof b.enAlerta !== 'boolean'
+  )
+    return null;
   if (typeof b.universoFuente !== 'string' || !FUENTES_VALIDAS.includes(b.universoFuente as EmetrixUniversoFuente)) return null;
   if (!Array.isArray(b.filas)) return null;
   const filas = b.filas.filter(
@@ -35,11 +44,14 @@ function validarPreview(body: unknown): EmetrixCargaPreview | null {
   );
   const d = b.diagnostico as Record<string, unknown> | undefined;
   return {
-    universoUsado: b.universoUsado,
+    universoUsado: b.universoUsado as number | null,
     universoFuente: b.universoFuente as EmetrixUniversoFuente,
-    cumplieron: b.cumplieron,
-    porcentaje: b.porcentaje,
-    respondieron: typeof b.respondieron === 'number' ? b.respondieron : null,
+    cumplieron: b.cumplieron as number,
+    respondieron: b.respondieron as number,
+    porcentaje: b.porcentaje as number,
+    porcentajeRespuesta: b.porcentajeRespuesta as number | null,
+    umbralRespuesta: b.umbralRespuesta as number,
+    enAlerta: b.enAlerta as boolean,
     usuariosNoEncontrados: Array.isArray(b.usuariosNoEncontrados) ? b.usuariosNoEncontrados.filter((u) => typeof u === 'string') : [],
     diagnostico: {
       filasLeidas: typeof d?.filasLeidas === 'number' ? d.filasLeidas : 0,

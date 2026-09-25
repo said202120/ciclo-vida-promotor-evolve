@@ -430,14 +430,14 @@ export function parseEmetrixPonderacion(
   file: File,
   marcaId: string,
   kr: EmetrixKr,
-  universoManual: number | null,
+  universoOverride: number | null,
   incluyeCelular: boolean | null
 ): Promise<EmetrixCargaPreview> {
   const form = new FormData();
   form.append('file', file);
   form.append('marcaId', marcaId);
   form.append('kr', kr);
-  if (universoManual !== null) form.append('universoManual', String(universoManual));
+  if (universoOverride !== null) form.append('universoOverride', String(universoOverride));
   if (incluyeCelular !== null) form.append('incluyeCelular', String(incluyeCelular));
   return fetch('/api/emetrix-ponderacion/parse', { method: 'POST', body: form }).then((r) => json(r));
 }
@@ -456,8 +456,26 @@ export function guardarCargaEmetrixPonderacion(data: {
   }).then((r) => json(r));
 }
 
-export function fetchIncluyeCelularConfigEmetrixPonderacion(marcaId: string): Promise<{ incluyeCelular: boolean | null }> {
+export function fetchConfigEmetrixPonderacion(
+  marcaId: string
+): Promise<{ incluyeCelular: boolean | null; umbralRespuesta: number; headcountManual: number | null }> {
   return fetch(`/api/emetrix-ponderacion/config?marcaId=${marcaId}`).then((r) => json(r));
+}
+
+export function updateUmbralRespuestaEmetrixPonderacion(marcaId: string, umbralRespuesta: number): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marcaId, umbralRespuesta }),
+  }).then((r) => json(r));
+}
+
+export function updateHeadcountManualEmetrixPonderacion(marcaId: string, headcountManual: number | null): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marcaId, headcountManual }),
+  }).then((r) => json(r));
 }
 
 export function fetchDetalleEmetrixPonderacion(

@@ -344,38 +344,71 @@ function cruzarConPadron(
 }
 
 /**
+ * % de respuesta (respondieron/universo, cobertura del sondeo) y % de
+ * cumplimiento (cumplieron/respondieron, calidad SOLO entre quienes
+ * contestaron) — separados a propósito: un universo con poca respuesta no
+ * debe verse artificialmente mal o bien en el % de cumplimiento, se marca
+ * aparte como "en alerta" (ver armarPreview). Sin universo (null), el % de
+ * respuesta queda indefinido (null) — no hay con qué medir cobertura.
+ */
+function calcularPorcentajes(
+  universo: number | null,
+  respondieron: number,
+  cumplieron: number
+): { porcentaje: number; porcentajeRespuesta: number | null } {
+  const porcentajeRespuesta = universo !== null && universo > 0 ? Math.round((respondieron / universo) * 10000) / 100 : universo === null ? null : 0;
+  const porcentaje = respondieron > 0 ? Math.round((cumplieron / respondieron) * 10000) / 100 : 0;
+  return { porcentaje, porcentajeRespuesta };
+}
+
+/**
  * Decide el universo de una carga: si la cuenta tiene padrón (promotores con
  * supervisor asignado a esa marca), SIEMPRE se usa ese padrón, cruzando por
- * id_emetrix. Si no, cae al headcount manual o, a falta de eso, a los
- * promotores únicos del archivo — como antes de tener padrón.
+ * id_emetrix. Si no, usa el headcount de la cuenta (uno solo, aplica a los 3
+ * KR) salvo que se indique `universoOverride` — un headcount puntual solo
+ * para esta carga. Si la cuenta no tiene padrón NI headcount (de cuenta ni
+ * override), el universo queda sin definir: ya NO se usan las filas del
+ * Excel como universo silenciosamente — el % de respuesta se muestra "sin
+ * universo" y la carga se marca en alerta. En todos los casos, el % de
+ * cumplimiento se calcula solo entre quienes contestaron, y si el % de
+ * respuesta queda debajo del umbral de la cuenta (80% por default, o no hay
+ * universo), la carga se marca en alerta.
  */
-export async function armarPreview(marcaId: string, calculo: Calculo, universoManual: number | null): Promise<EmetrixCargaPreview> {
-  const padron = await fetchPadronPorMarca(marcaId);
+export async function armarPreview(marcaId: string, calculo: Calculo, universoOverride: number | null): Promise<EmetrixCargaPreview> {
+  const [padron, config] = await Promise.all([fetchPadronPorMarca(marcaId), fetchConfig(marcaId)]);
+  const umbralRespuesta = config.umbralRespuesta;
 
   if (padron.length > 0) {
     const cruce = cruzarConPadron(padron, calculo.filas);
     const universo = padron.length;
-    const porcentaje = universo > 0 ? Math.round((cruce.cumplieron / universo) * 10000) / 100 : 0;
+    const { porcentaje, porcentajeRespuesta } = calcularPorcentajes(universo, cruce.respondieron, cruce.cumplieron);
     return {
       universoUsado: universo,
       universoFuente: 'padron',
       cumplieron: cruce.cumplieron,
-      porcentaje,
       respondieron: cruce.respondieron,
+      porcentaje,
+      porcentajeRespuesta,
+      umbralRespuesta,
+      enAlerta: porcentajeRespuesta === null || porcentajeRespuesta < umbralRespuesta,
       usuariosNoEncontrados: cruce.usuariosNoEncontrados,
       diagnostico: calculo.diagnostico,
       filas: cruce.filas,
     };
   }
 
-  const universo = universoManual ?? calculo.filas.length;
-  const porcentaje = universo > 0 ? Math.round((calculo.cumplieron / universo) * 10000) / 100 : 0;
+  const universo = universoOverride ?? config.headcountManual;
+  const respondieron = calculo.filas.length;
+  const { porcentaje, porcentajeRespuesta } = calcularPorcentajes(universo, respondieron, calculo.cumplieron);
   return {
     universoUsado: universo,
-    universoFuente: universoManual !== null ? 'manual' : 'archivo',
+    universoFuente: universo !== null ? 'manual' : 'sin_universo',
     cumplieron: calculo.cumplieron,
+    respondieron,
     porcentaje,
-    respondieron: null,
+    porcentajeRespuesta,
+    umbralRespuesta,
+    enAlerta: porcentajeRespuesta === null || porcentajeRespuesta < umbralRespuesta,
     usuariosNoEncontrados: [],
     diagnostico: calculo.diagnostico,
     filas: calculo.filas,
@@ -417,6 +450,7 @@ export async function fetchVistaCruzada(marcaId: string): Promise<EmetrixVistaCr
 // ---- Persistencia ----
 
 const PESO_DEFAULT = 33.3;
+const UMBRAL_RESPUESTA_DEFAULT = 80;
 
 export async function guardarCarga(data: {
   marcaId: string;
@@ -482,10 +516,22 @@ export async function guardarCarga(data: {
   };
 }
 
-/** Si la cuenta ya tiene guardado si incluye celular, para no volver a preguntarlo cada vez. null si nunca se ha guardado. */
-export async function fetchIncluyeCelularConfig(marcaId: string): Promise<boolean | null> {
-  const { rows } = await sql.query('select incluye_celular from emetrix_ponderacion_config where marca_id = $1', [marcaId]);
-  return rows[0] ? (rows[0].incluye_celular as boolean | null) : null;
+/**
+ * Config de la cuenta: si ya se sabe que incluye celular (Materiales), su
+ * umbral de % de respuesta (80% si nunca se ha tocado), y su headcount
+ * (uno solo, aplica por default a los 3 KR — null si la cuenta no tiene
+ * headcount capturado).
+ */
+export async function fetchConfig(marcaId: string): Promise<{ incluyeCelular: boolean | null; umbralRespuesta: number; headcountManual: number | null }> {
+  const { rows } = await sql.query('select incluye_celular, umbral_respuesta, headcount_manual from emetrix_ponderacion_config where marca_id = $1', [
+    marcaId,
+  ]);
+  if (!rows[0]) return { incluyeCelular: null, umbralRespuesta: UMBRAL_RESPUESTA_DEFAULT, headcountManual: null };
+  return {
+    incluyeCelular: rows[0].incluye_celular as boolean | null,
+    umbralRespuesta: rows[0].umbral_respuesta !== null ? Number(rows[0].umbral_respuesta) : UMBRAL_RESPUESTA_DEFAULT,
+    headcountManual: rows[0].headcount_manual !== null ? Number(rows[0].headcount_manual) : null,
+  };
 }
 
 export async function updateIncluyeCelularConfig(marcaId: string, incluyeCelular: boolean): Promise<void> {
@@ -494,6 +540,26 @@ export async function updateIncluyeCelularConfig(marcaId: string, incluyeCelular
      values ($1, $2)
      on conflict (marca_id) do update set incluye_celular = excluded.incluye_celular`,
     [marcaId, incluyeCelular]
+  );
+}
+
+/** Cambia el umbral mínimo de % de respuesta (0-100) por debajo del cual un KR se marca en alerta. 80% por default. */
+export async function updateUmbralRespuesta(marcaId: string, umbralRespuesta: number): Promise<void> {
+  await sql.query(
+    `insert into emetrix_ponderacion_config (marca_id, umbral_respuesta)
+     values ($1, $2)
+     on conflict (marca_id) do update set umbral_respuesta = excluded.umbral_respuesta`,
+    [marcaId, umbralRespuesta]
+  );
+}
+
+/** Cambia el headcount de la cuenta (uno solo, aplica por default a los 3 KR). null para borrarlo (vuelve a "sin headcount de cuenta"). */
+export async function updateHeadcountManual(marcaId: string, headcountManual: number | null): Promise<void> {
+  await sql.query(
+    `insert into emetrix_ponderacion_config (marca_id, headcount_manual)
+     values ($1, $2)
+     on conflict (marca_id) do update set headcount_manual = excluded.headcount_manual`,
+    [marcaId, headcountManual]
   );
 }
 
@@ -549,9 +615,15 @@ function calcularTotalPonderado(krs: EmetrixResultadoCuenta['krs']): number | nu
   return Math.round((sumaPonderada / sumaPesos) * 100) / 100;
 }
 
+/** null si no hay carga (sin datos todavía). Si hay carga pero nadie contestó, 0%. */
+function calcularPorcentajeRespuesta(universo: number | null, respondieron: number | null): number | null {
+  if (universo === null || respondieron === null) return null;
+  return universo > 0 ? Math.round((respondieron / universo) * 10000) / 100 : 0;
+}
+
 /** Resultado por cuenta: la carga más reciente de cada KR + su peso (33.3% default), con el total ponderado. */
 export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResultadoCuenta> {
-  const [{ rows: marcaRows }, { rows: cargaRows }, { rows: pesoRows }] = await Promise.all([
+  const [{ rows: marcaRows }, { rows: cargaRows }, { rows: pesoRows }, config] = await Promise.all([
     sql.query('select nombre from marcas where id = $1', [marcaId]),
     sql.query(
       `select distinct on (kr) kr, universo, universo_fuente, cumplieron, porcentaje, respondieron, cargado_en
@@ -561,6 +633,7 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
       [marcaId]
     ),
     sql.query('select kr, peso from emetrix_ponderacion_pesos where marca_id = $1', [marcaId]),
+    fetchConfig(marcaId),
   ]);
 
   const marcaNombre = (marcaRows[0]?.nombre as string | undefined) ?? '';
@@ -572,28 +645,45 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
     const carga = cargaPorKr.get(kr);
     const peso = pesoPorKr.get(kr) ?? PESO_DEFAULT;
     if (!carga) {
-      return { kr, universo: null, cumplieron: null, porcentaje: null, universoFuente: null, respondieron: null, peso, aportacion: 0, cargadoEn: null };
+      return {
+        kr,
+        universo: null,
+        cumplieron: null,
+        porcentaje: null,
+        universoFuente: null,
+        respondieron: null,
+        porcentajeRespuesta: null,
+        enAlerta: false,
+        peso,
+        aportacion: 0,
+        cargadoEn: null,
+      };
     }
+    const universo = carga.universo !== null ? Number(carga.universo) : null;
+    const respondieron = carga.respondieron !== null ? Number(carga.respondieron) : null;
     const porcentaje = Number(carga.porcentaje);
+    const porcentajeRespuesta = calcularPorcentajeRespuesta(universo, respondieron);
     return {
       kr,
-      universo: Number(carga.universo),
+      universo,
       cumplieron: Number(carga.cumplieron),
       porcentaje,
       universoFuente: carga.universo_fuente as EmetrixUniversoFuente,
-      respondieron: carga.respondieron !== null ? Number(carga.respondieron) : null,
+      respondieron,
+      porcentajeRespuesta,
+      enAlerta: porcentajeRespuesta === null || porcentajeRespuesta < config.umbralRespuesta,
       peso,
       aportacion: Math.round(((porcentaje * peso) / 100) * 100) / 100,
       cargadoEn: new Date(carga.cargado_en as string).toISOString(),
     };
   });
 
-  return { marcaId, marcaNombre, krs, total: calcularTotalPonderado(krs) };
+  return { marcaId, marcaNombre, krs, total: calcularTotalPonderado(krs), umbralRespuesta: config.umbralRespuesta, enAlerta: krs.some((k) => k.enAlerta) };
 }
 
 /** Resumen "Todas las cuentas": igual que fetchResultadoCuenta pero para cada cuenta que ya tiene al menos una carga. Las que no tienen ninguna quedan fuera. */
 export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuenta[]> {
-  const [{ rows: cargaRows }, { rows: pesoRows }] = await Promise.all([
+  const [{ rows: cargaRows }, { rows: pesoRows }, { rows: configRows }] = await Promise.all([
     sql.query(
       `select distinct on (c.marca_id, c.kr) c.marca_id, m.nombre as marca_nombre, c.kr, c.universo, c.universo_fuente,
               c.cumplieron, c.porcentaje, c.respondieron, c.cargado_en
@@ -602,9 +692,13 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
        order by c.marca_id, c.kr, c.cargado_en desc`
     ),
     sql.query('select marca_id, kr, peso from emetrix_ponderacion_pesos'),
+    sql.query('select marca_id, umbral_respuesta from emetrix_ponderacion_config'),
   ]);
 
   const pesoPorClave = new Map<string, number>(pesoRows.map((r) => [`${r.marca_id}:${r.kr}`, Number(r.peso)]));
+  const umbralPorMarca = new Map<string, number>(
+    configRows.map((r) => [r.marca_id as string, r.umbral_respuesta !== null ? Number(r.umbral_respuesta) : UMBRAL_RESPUESTA_DEFAULT])
+  );
 
   type Acumulado = { marcaId: string; marcaNombre: string; krs: Map<EmetrixKr, EmetrixResultadoCuenta['krs'][number]> };
   const porMarca = new Map<string, Acumulado>();
@@ -614,15 +708,21 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
       porMarca.set(marcaId, { marcaId, marcaNombre: row.marca_nombre as string, krs: new Map() });
     }
     const kr = row.kr as EmetrixKr;
+    const universo = row.universo !== null ? Number(row.universo) : null;
+    const respondieron = row.respondieron !== null ? Number(row.respondieron) : null;
     const porcentaje = Number(row.porcentaje);
+    const porcentajeRespuesta = calcularPorcentajeRespuesta(universo, respondieron);
+    const umbralRespuesta = umbralPorMarca.get(marcaId) ?? UMBRAL_RESPUESTA_DEFAULT;
     const peso = pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT;
     porMarca.get(marcaId)!.krs.set(kr, {
       kr,
-      universo: Number(row.universo),
+      universo,
       cumplieron: Number(row.cumplieron),
       porcentaje,
       universoFuente: row.universo_fuente as EmetrixUniversoFuente,
-      respondieron: row.respondieron !== null ? Number(row.respondieron) : null,
+      respondieron,
+      porcentajeRespuesta,
+      enAlerta: porcentajeRespuesta === null || porcentajeRespuesta < umbralRespuesta,
       peso,
       aportacion: Math.round(((porcentaje * peso) / 100) * 100) / 100,
       cargadoEn: new Date(row.cargado_en as string).toISOString(),
@@ -632,6 +732,7 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
   const KRS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
   const resultado: EmetrixResultadoCuenta[] = [];
   for (const { marcaId, marcaNombre, krs } of porMarca.values()) {
+    const umbralRespuesta = umbralPorMarca.get(marcaId) ?? UMBRAL_RESPUESTA_DEFAULT;
     const krsArr = KRS.map(
       (kr) =>
         krs.get(kr) ?? {
@@ -641,12 +742,14 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
           porcentaje: null,
           universoFuente: null,
           respondieron: null,
+          porcentajeRespuesta: null,
+          enAlerta: false,
           peso: pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT,
           aportacion: 0,
           cargadoEn: null,
         }
     );
-    resultado.push({ marcaId, marcaNombre, krs: krsArr, total: calcularTotalPonderado(krsArr) });
+    resultado.push({ marcaId, marcaNombre, krs: krsArr, total: calcularTotalPonderado(krsArr), umbralRespuesta, enAlerta: krsArr.some((k) => k.enAlerta) });
   }
 
   resultado.sort((a, b) => a.marcaNombre.localeCompare(b.marcaNombre));
@@ -681,7 +784,7 @@ export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> 
     marcaId: r.marca_id as string,
     marcaNombre: r.marca_nombre as string,
     kr: r.kr as EmetrixKr,
-    universo: Number(r.universo),
+    universo: r.universo !== null ? Number(r.universo) : null,
     universoFuente: r.universo_fuente as EmetrixUniversoFuente,
     cumplieron: Number(r.cumplieron),
     porcentaje: Number(r.porcentaje),

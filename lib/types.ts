@@ -434,13 +434,17 @@ export type EmetrixKr = 'mesa_control' | 'materiales' | 'marca';
 
 /**
  * De dónde sale el universo de una carga:
- *   'padron'  -> promotores del padrón interno con supervisor asignado a
- *                esta cuenta, cruzados por id_emetrix (preferido cuando el
- *                padrón de la cuenta no está vacío).
- *   'manual'  -> headcount capturado a mano.
- *   'archivo' -> promotores únicos del Excel, a falta de las otras dos.
+ *   'padron'       -> promotores del padrón interno con supervisor asignado
+ *                      a esta cuenta, cruzados por id_emetrix (preferido
+ *                      cuando el padrón de la cuenta no está vacío).
+ *   'manual'       -> headcount capturado a mano — el de la cuenta (uno,
+ *                      aplica a los 3 KR) o, si se indicó, un override
+ *                      puntual solo para esta carga.
+ *   'sin_universo' -> la cuenta no tiene padrón NI headcount (ni de cuenta ni
+ *                      override): ya no se usan las filas del Excel como
+ *                      universo silenciosamente — queda sin definir.
  */
-export type EmetrixUniversoFuente = 'padron' | 'manual' | 'archivo';
+export type EmetrixUniversoFuente = 'padron' | 'manual' | 'sin_universo';
 
 /** Estado de un promotor frente a un KR. 'no_contesto' solo existe en modo 'padron' (está en el padrón pero no en el Excel). */
 export type EmetrixEstado = 'cumple' | 'no_cumple' | 'no_contesto';
@@ -458,11 +462,13 @@ export type EmetrixCarga = {
   marcaId: string;
   marcaNombre?: string;
   kr: EmetrixKr;
-  universo: number;
+  /** null si universoFuente='sin_universo' (no hay padrón ni headcount). */
+  universo: number | null;
   universoFuente: EmetrixUniversoFuente;
   cumplieron: number;
+  /** % de cumplimiento ENTRE QUIENES CONTESTARON (cumplieron/respondieron), no sobre el universo completo. */
   porcentaje: number;
-  /** Solo con universoFuente='padron': cuántos del padrón sí contestaron el sondeo (cumplan o no). null en los otros modos. */
+  /** Cuántos del universo (padrón o headcount) sí contestaron el sondeo. */
   respondieron: number | null;
   /** Solo con universoFuente='padron': USUARIO del Excel que no se encontró en el padrón (para corregirlo), nunca entran al cálculo. */
   usuariosNoEncontrados: string[];
@@ -485,14 +491,25 @@ export type EmetrixFilaDetalle = {
   detalleFalla: string | null;
 };
 
-/** Resultado calculado (sin guardar todavía) de subir un archivo, para que el gerente lo revise antes de "Guardar carga". */
+/**
+ * Resultado calculado (sin guardar todavía) de subir un archivo, para que el
+ * gerente lo revise antes de "Guardar carga". El universo (padrón o
+ * headcount) y quiénes contestaron se miden por separado: `porcentaje` es el
+ * cumplimiento SOLO entre quienes contestaron; `porcentajeRespuesta` es la
+ * cobertura del sondeo (respondieron/universo) — null si universoFuente es
+ * 'sin_universo' (no hay con qué medir cobertura). Si `porcentajeRespuesta`
+ * es null o queda por debajo de `umbralRespuesta`, `enAlerta` es true — el
+ * resultado no es representativo.
+ */
 export type EmetrixCargaPreview = {
-  universoUsado: number;
+  universoUsado: number | null;
   universoFuente: EmetrixUniversoFuente;
   cumplieron: number;
+  respondieron: number;
   porcentaje: number;
-  /** Solo con universoFuente='padron'. null en los otros modos. */
-  respondieron: number | null;
+  porcentajeRespuesta: number | null;
+  umbralRespuesta: number;
+  enAlerta: boolean;
   usuariosNoEncontrados: string[];
   diagnostico: EmetrixDiagnosticoArchivo;
   filas: EmetrixFilaDetalle[];
@@ -502,10 +519,14 @@ export type EmetrixResultadoKr = {
   kr: EmetrixKr;
   universo: number | null;
   cumplieron: number | null;
+  /** % de cumplimiento ENTRE QUIENES CONTESTARON. null si no hay carga. */
   porcentaje: number | null;
   universoFuente: EmetrixUniversoFuente | null;
-  /** Solo con universoFuente='padron'. % de respuesta = respondieron/universo. null si no aplica o sin carga. */
   respondieron: number | null;
+  /** % de respuesta del sondeo = respondieron/universo. null si no hay carga, o si la carga quedó 'sin_universo'. */
+  porcentajeRespuesta: number | null;
+  /** true si no hay universo, o si porcentajeRespuesta < umbralRespuesta de la cuenta — resultado no representativo. false si no hay carga todavía. */
+  enAlerta: boolean;
   peso: number;
   aportacion: number;
   cargadoEn: string | null;
@@ -513,15 +534,19 @@ export type EmetrixResultadoKr = {
 
 /**
  * Tabla de resultado por cuenta: la carga más reciente de cada KR + su peso,
- * con el total ponderado del OKR. `total` es el promedio ponderado SOLO de
- * los KR que sí tienen carga (un KR sin datos no cuenta como 0% — queda
- * fuera de la cuenta, no la castiga); null si ningún KR tiene carga todavía.
+ * con el total ponderado del OKR. `total` es el promedio ponderado (usando el
+ * % de cumplimiento entre respondientes de cada KR) SOLO de los KR que sí
+ * tienen carga (un KR sin datos no cuenta como 0% — queda fuera de la
+ * cuenta, no la castiga); null si ningún KR tiene carga todavía.
+ * `enAlerta` es true si algún KR está en alerta por respuesta insuficiente.
  */
 export type EmetrixResultadoCuenta = {
   marcaId: string;
   marcaNombre: string;
   krs: EmetrixResultadoKr[];
   total: number | null;
+  umbralRespuesta: number;
+  enAlerta: boolean;
 };
 
 /** Una fila de la vista cruzada por promotor: su estado en cada uno de los 3 KR (de la carga más reciente en modo 'padron' de cada uno). null = ese KR no tiene una carga en modo padrón todavía. */
