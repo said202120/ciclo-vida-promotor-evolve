@@ -534,6 +534,29 @@ create table if not exists emetrix_ponderacion_pesos (
   primary key (marca_id, kr)
 );
 
+-- Si la cuenta incluye celular en su acuerdo comercial (KR Materiales), para
+-- no tener que volver a preguntarlo en cada carga. Sigue siendo editable
+-- desde la pantalla; se actualiza cada vez que se guarda una carga de
+-- Materiales con un valor distinto al guardado.
+create table if not exists emetrix_ponderacion_config (
+  marca_id uuid primary key references marcas(id) on delete cascade,
+  incluye_celular boolean
+);
+
+-- Detalle por promotor de una carga específica: si cumplió y, si no, qué le
+-- faltó (texto legible, ej. "Faltan: Botas, Faja" o "6/10"). Vive aparte de
+-- emetrix_ponderacion_cargas para no inflar esa tabla con una fila por
+-- promotor; se borra en cascada junto con su carga.
+create table if not exists emetrix_ponderacion_detalle (
+  id uuid primary key default gen_random_uuid(),
+  carga_id uuid not null references emetrix_ponderacion_cargas(id) on delete cascade,
+  usuario text not null,
+  posicion text,
+  cumple boolean not null,
+  detalle_falla text
+);
+create index if not exists emetrix_ponderacion_detalle_carga_idx on emetrix_ponderacion_detalle (carga_id);
+
 -- Trigger simple para updated_at en promotores
 create or replace function set_updated_at()
 returns trigger as $$

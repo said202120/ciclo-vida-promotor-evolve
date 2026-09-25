@@ -1,8 +1,14 @@
 'use client';
 
-import { useState } from 'react';
-import type { EmetrixCargaPreview, EmetrixKr, EmetrixResultadoKr } from '@/lib/types';
-import { guardarCargaEmetrixPonderacion, parseEmetrixPonderacion } from '@/lib/api-client';
+import { useEffect, useState } from 'react';
+import type { EmetrixCargaPreview, EmetrixFilaDetalle, EmetrixKr, EmetrixResultadoKr } from '@/lib/types';
+import {
+  emetrixPonderacionDetalleExcelUrl,
+  fetchDetalleEmetrixPonderacion,
+  fetchIncluyeCelularConfigEmetrixPonderacion,
+  guardarCargaEmetrixPonderacion,
+  parseEmetrixPonderacion,
+} from '@/lib/api-client';
 
 const KR_LABEL: Record<EmetrixKr, string> = {
   mesa_control: 'Mesa de Control',
@@ -35,10 +41,27 @@ export default function EmetrixPonderacionZona({
   const [procesando, setProcesando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
+  const [detalle, setDetalle] = useState<EmetrixFilaDetalle[] | null>(null);
+  const [mostrandoDetalle, setMostrandoDetalle] = useState(false);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
   const faltaCelular = requiereCelular && incluyeCelular === '';
   const puedeSubir = !!marcaId && !faltaCelular;
   const cargado = !!estado?.cargadoEn;
+
+  // Al cambiar de cuenta: si es Materiales, precarga si ya se sabe que incluye celular (sigue siendo editable).
+  useEffect(() => {
+    setMostrandoDetalle(false);
+    setDetalle(null);
+    if (!marcaId || !requiereCelular) {
+      setIncluyeCelular('');
+      return;
+    }
+    fetchIncluyeCelularConfigEmetrixPonderacion(marcaId)
+      .then((res) => setIncluyeCelular(res.incluyeCelular === null ? '' : res.incluyeCelular ? 'si' : 'no'))
+      .catch(() => setIncluyeCelular(''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marcaId]);
 
   async function handleArchivo(file: File) {
     setError(null);
@@ -70,14 +93,30 @@ export default function EmetrixPonderacionZona({
         cumplieron: preview.cumplieron,
         incluyeCelular: requiereCelular ? incluyeCelular === 'si' : null,
         archivoNombre: archivo.name,
+        filas: preview.filas,
       });
       setGuardado(true);
+      if (mostrandoDetalle) cargarDetalle();
       onGuardado();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar la carga.');
     } finally {
       setGuardando(false);
     }
+  }
+
+  function cargarDetalle() {
+    setCargandoDetalle(true);
+    fetchDetalleEmetrixPonderacion(marcaId, kr)
+      .then((res) => setDetalle(res?.filas ?? []))
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el detalle.'))
+      .finally(() => setCargandoDetalle(false));
+  }
+
+  function handleToggleDetalle() {
+    const next = !mostrandoDetalle;
+    setMostrandoDetalle(next);
+    if (next && detalle === null) cargarDetalle();
   }
 
   return (
@@ -97,7 +136,7 @@ export default function EmetrixPonderacionZona({
         <>
           <form className="users-form" onSubmit={(e) => e.preventDefault()}>
             <label>
-              Universo total de la cuenta (headcount)
+              Total de promotores de la cuenta (headcount)
               <input
                 type="number"
                 min={1}
@@ -150,10 +189,10 @@ export default function EmetrixPonderacionZona({
               <p>
                 <strong>{preview.cumplieron}</strong> de <strong>{preview.universoUsado}</strong> cumplieron ·{' '}
                 <strong>{preview.porcentaje}%</strong>
-                {preview.universoEsManual ? '' : ` (${preview.totalFilas} respondieron el sondeo)`}
+                {preview.universoEsManual ? '' : ` (${preview.totalFilas} promotores únicos contestaron)`}
               </p>
               {!preview.universoEsManual && (
-                <p className="emetrix-warning">⚠️ Sin headcount real, usando solo respondientes — el % puede estar inflado.</p>
+                <p className="emetrix-warning">⚠️ Resultado solo entre quienes contestaron, sin headcount total.</p>
               )}
               {guardado ? (
                 <p className="emetrix-guardado">✓ Carga guardada.</p>
@@ -161,6 +200,49 @@ export default function EmetrixPonderacionZona({
                 <button type="button" className="close-month-btn" onClick={handleGuardar} disabled={guardando}>
                   {guardando ? 'Guardando…' : 'Guardar carga'}
                 </button>
+              )}
+            </div>
+          )}
+
+          {cargado && (
+            <div className="emetrix-detalle">
+              <button type="button" className="add-row" onClick={handleToggleDetalle}>
+                {mostrandoDetalle ? 'Ocultar detalle por promotor' : 'Ver detalle por promotor'}
+              </button>
+              {mostrandoDetalle && (
+                <>
+                  {cargandoDetalle ? (
+                    <p className="resumen-status">Cargando…</p>
+                  ) : (
+                    <>
+                      <div className="emetrix-detalle-tabla-wrap">
+                        <table className="roster-table">
+                          <thead>
+                            <tr>
+                              <th>Usuario</th>
+                              <th>Posición</th>
+                              <th>Cumple</th>
+                              <th>Detalle</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(detalle ?? []).map((f) => (
+                              <tr key={f.usuario}>
+                                <td style={{ textAlign: 'left' }}>{f.usuario}</td>
+                                <td>{f.posicion}</td>
+                                <td>{f.cumple ? '✓' : '✕'}</td>
+                                <td style={{ textAlign: 'left' }}>{f.detalleFalla ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <a className="add-row" href={emetrixPonderacionDetalleExcelUrl(marcaId, kr)}>
+                        ⇩ Descargar en Excel
+                      </a>
+                    </>
+                  )}
+                </>
               )}
             </div>
           )}

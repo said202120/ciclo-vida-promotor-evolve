@@ -450,6 +450,15 @@ export type EmetrixCarga = {
   cargadoEn: string;
 };
 
+/** Un promotor dentro de una carga: si cumplió y, si no, qué le faltó en texto legible. */
+export type EmetrixFilaDetalle = {
+  usuario: string;
+  posicion: string;
+  cumple: boolean;
+  /** null si cumple. Ej. "Faltan: Botas, Faja" o "6/10". */
+  detalleFalla: string | null;
+};
+
 /** Resultado calculado (sin guardar todavía) de subir un archivo, para que el gerente lo revise antes de "Guardar carga". */
 export type EmetrixCargaPreview = {
   totalFilas: number;
@@ -457,6 +466,7 @@ export type EmetrixCargaPreview = {
   universoUsado: number;
   universoEsManual: boolean;
   porcentaje: number;
+  filas: EmetrixFilaDetalle[];
 };
 
 export type EmetrixResultadoKr = {
@@ -464,15 +474,22 @@ export type EmetrixResultadoKr = {
   universo: number | null;
   cumplieron: number | null;
   porcentaje: number | null;
+  /** true = headcount real capturado; false = solo respondientes (universo puede estar inflando el %); null = sin carga todavía. */
+  universoManual: boolean | null;
   peso: number;
   aportacion: number;
   cargadoEn: string | null;
 };
 
-/** Tabla de resultado por cuenta: la carga más reciente de cada KR + su peso, con el total ponderado del OKR. */
+/**
+ * Tabla de resultado por cuenta: la carga más reciente de cada KR + su peso,
+ * con el total ponderado del OKR. `total` es el promedio ponderado SOLO de
+ * los KR que sí tienen carga (un KR sin datos no cuenta como 0% — queda
+ * fuera de la cuenta, no la castiga); null si ningún KR tiene carga todavía.
+ */
 export type EmetrixResultadoCuenta = {
   marcaId: string;
   marcaNombre: string;
   krs: EmetrixResultadoKr[];
-  total: number;
+  total: number | null;
 };

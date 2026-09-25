@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
 import { fetchHistorial, guardarCarga } from '@/lib/emetrix-ponderacion';
-import type { EmetrixKr } from '@/lib/types';
+import type { EmetrixFilaDetalle, EmetrixKr } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +32,15 @@ export async function POST(request: Request) {
   const universoManual = typeof body.universoManual === 'number' ? body.universoManual : null;
   const incluyeCelular = typeof body.incluyeCelular === 'boolean' ? body.incluyeCelular : null;
   const archivoNombre = typeof body.archivoNombre === 'string' ? body.archivoNombre : '';
+  const filas: EmetrixFilaDetalle[] = Array.isArray(body.filas)
+    ? body.filas.filter(
+        (f: unknown): f is EmetrixFilaDetalle =>
+          !!f &&
+          typeof f === 'object' &&
+          typeof (f as EmetrixFilaDetalle).usuario === 'string' &&
+          typeof (f as EmetrixFilaDetalle).cumple === 'boolean'
+      )
+    : [];
 
   if (!marcaId || !KRS_VALIDOS.includes(kr as EmetrixKr) || totalFilas === null || cumplieron === null) {
     return NextResponse.json({ error: 'Faltan datos para guardar la carga.' }, { status: 400 });
@@ -46,6 +55,7 @@ export async function POST(request: Request) {
     incluyeCelular,
     archivoNombre,
     cargadoPor: auth.session.userId,
+    filas,
   });
 
   return NextResponse.json(carga, { status: 201 });

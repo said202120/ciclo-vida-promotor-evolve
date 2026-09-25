@@ -90,15 +90,19 @@ export default function EmetrixPonderacionAdmin() {
       <header>
         <div>
           <p className="eyebrow">OKR · Operaciones · Evolve</p>
-          <h1>Plan B — Ponderación de sondeos Emetrix</h1>
+          <h1>Ciclo de vida del promotor — Ponderación de cumplimiento</h1>
         </div>
         <a className="topbar-link" href="/">
           ← Volver al tablero
         </a>
       </header>
-      <p className="roster-hint" style={{ marginTop: -8, marginBottom: 20 }}>
-        Respaldo manual mientras se resuelve la integración automática con Evolve OS. Elige la cuenta y sube el Excel
-        de cada sondeo para calcular el % de cumplimiento de cada KR.
+      <p className="roster-hint" style={{ marginTop: -8, marginBottom: 20, maxWidth: 720 }}>
+        Mide si los promotores nuevos completan su ciclo de incorporación: si Mesa de Control confirmó un buen primer
+        día en tienda, si ya tienen su kit de materiales completo, y si dominan el manejo de marca en anaquel. Es el
+        respaldo manual de este cálculo mientras se resuelve la integración automática con Evolve OS — subes el
+        Excel de cada sondeo por cuenta y el sistema califica según las reglas de cada KR. Los tres KR (Mesa de
+        Control, Materiales, Marca) pesan igual por default (33.3%) hasta tener mediciones calibradas; el resultado
+        ponderado es el % del OKR de esa cuenta.
       </p>
 
       {error && <p className="login-error">{error}</p>}
@@ -141,7 +145,7 @@ export default function EmetrixPonderacionAdmin() {
                       const k = r.krs.find((x) => x.kr === kr);
                       return <td key={kr}>{k && k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>;
                     })}
-                    <td style={{ fontWeight: 700 }}>{r.total}%</td>
+                    <td style={{ fontWeight: 700 }}>{r.total !== null ? `${r.total}%` : 'Sin datos'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -194,9 +198,12 @@ export default function EmetrixPonderacionAdmin() {
                   {resultado.krs.map((k) => (
                     <tr key={k.kr}>
                       <td style={{ textAlign: 'left' }}>{KR_LABEL[k.kr]}</td>
-                      <td>{k.universo ?? '—'}</td>
+                      <td>
+                        {k.universo ?? '—'}
+                        {k.universoManual === false && ' *'}
+                      </td>
                       <td>{k.cumplieron ?? '—'}</td>
-                      <td>{k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin carga'}</td>
+                      <td>{k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>
                       <td>
                         <input
                           type="number"
@@ -215,10 +222,21 @@ export default function EmetrixPonderacionAdmin() {
                   <tr>
                     <td style={{ textAlign: 'left', fontWeight: 700 }}>Total</td>
                     <td colSpan={4} />
-                    <td style={{ fontWeight: 700 }}>{resultado.total}%</td>
+                    <td style={{ fontWeight: 700 }}>{resultado.total !== null ? `${resultado.total}%` : 'Sin datos'}</td>
                   </tr>
                 </tbody>
               </table>
+            )}
+            {resultado && resultado.krs.some((k) => k.universoManual === false) && (
+              <p className="roster-hint" style={{ marginTop: 8 }}>
+                * universo = solo respondientes del archivo, sin headcount real capturado — el % puede estar
+                calculado sobre menos gente de la que en realidad tiene la cuenta.
+              </p>
+            )}
+            {resultado && resultado.krs.some((k) => k.porcentaje === null) && (
+              <p className="roster-hint" style={{ marginTop: 8 }}>
+                El % del OKR se calcula solo con los KR que ya tienen carga — un KR sin datos no cuenta como 0%.
+              </p>
             )}
           </div>
         </>

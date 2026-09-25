@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
 import { parseSpreadsheet } from '@/lib/importaciones';
 import { ColumnasFaltantesError, calcularMarca, calcularMateriales, calcularMesaControl } from '@/lib/emetrix-ponderacion';
+import type { EmetrixFilaDetalle } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,29 +36,31 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const { headers, rows } = await parseSpreadsheet(buffer, file.name);
 
-    let cumplieron: number;
+    let resultado: { filas: EmetrixFilaDetalle[]; cumplieron: number };
     if (kr === 'mesa_control') {
-      cumplieron = calcularMesaControl(headers, rows).cumplieron;
+      resultado = calcularMesaControl(headers, rows);
     } else if (kr === 'materiales') {
       const incluyeCelularRaw = form?.get('incluyeCelular');
       if (incluyeCelularRaw !== 'true' && incluyeCelularRaw !== 'false') {
         return NextResponse.json({ error: 'Falta indicar si la cuenta incluye celular en el acuerdo comercial.' }, { status: 400 });
       }
-      cumplieron = calcularMateriales(headers, rows, incluyeCelularRaw === 'true').cumplieron;
+      resultado = calcularMateriales(headers, rows, incluyeCelularRaw === 'true');
     } else {
-      cumplieron = calcularMarca(headers, rows).cumplieron;
+      resultado = calcularMarca(headers, rows);
     }
 
-    const totalFilas = rows.length;
+    // totalFilas = promotores ÚNICOS (ya deduplicados por USUARIO dentro del cálculo), no filas crudas del archivo.
+    const totalFilas = resultado.filas.length;
     const universoUsado = universoManual ?? totalFilas;
-    const porcentaje = universoUsado > 0 ? Math.round((cumplieron / universoUsado) * 10000) / 100 : 0;
+    const porcentaje = universoUsado > 0 ? Math.round((resultado.cumplieron / universoUsado) * 10000) / 100 : 0;
 
     return NextResponse.json({
       totalFilas,
-      cumplieron,
+      cumplieron: resultado.cumplieron,
       universoUsado,
       universoEsManual: universoManual !== null,
       porcentaje,
+      filas: resultado.filas,
     });
   } catch (err) {
     if (err instanceof ColumnasFaltantesError) {

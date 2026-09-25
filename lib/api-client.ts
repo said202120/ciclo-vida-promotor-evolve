@@ -12,6 +12,7 @@ import type {
   Ejecutivo,
   EmetrixCarga,
   EmetrixCargaPreview,
+  EmetrixFilaDetalle,
   EmetrixKr,
   EmetrixResultadoCuenta,
   EncuestaMaterialesPayload,
@@ -445,12 +446,28 @@ export function guardarCargaEmetrixPonderacion(data: {
   cumplieron: number;
   incluyeCelular: boolean | null;
   archivoNombre: string;
+  filas: EmetrixFilaDetalle[];
 }): Promise<EmetrixCarga> {
   return fetch('/api/emetrix-ponderacion/cargas', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   }).then((r) => json(r));
+}
+
+export function fetchIncluyeCelularConfigEmetrixPonderacion(marcaId: string): Promise<{ incluyeCelular: boolean | null }> {
+  return fetch(`/api/emetrix-ponderacion/config?marcaId=${marcaId}`).then((r) => json(r));
+}
+
+export function fetchDetalleEmetrixPonderacion(
+  marcaId: string,
+  kr: EmetrixKr
+): Promise<{ cargaId: string; cargadoEn: string; filas: EmetrixFilaDetalle[] } | null> {
+  return fetch(`/api/emetrix-ponderacion/detalle?marcaId=${marcaId}&kr=${kr}`).then((r) => json(r));
+}
+
+export function emetrixPonderacionDetalleExcelUrl(marcaId: string, kr: EmetrixKr): string {
+  return `/api/emetrix-ponderacion/detalle/excel?marcaId=${marcaId}&kr=${kr}`;
 }
 
 export function fetchResultadoEmetrixPonderacion(marcaId: string): Promise<EmetrixResultadoCuenta> {

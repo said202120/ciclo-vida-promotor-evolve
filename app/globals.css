@@ -1803,3 +1803,14 @@ table.roster-table select.mapeo-set {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.emetrix-detalle {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.emetrix-detalle-tabla-wrap {
+  overflow-x: auto;
+  margin: 10px 0;
+  max-height: 360px;
+  overflow-y: auto;
+}
