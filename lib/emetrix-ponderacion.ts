@@ -344,6 +344,16 @@ function cruzarConPadron(
 }
 
 /**
+ * En modo headcount (con padrón existente pero sin usarlo como universo):
+ * solo para informar qué USUARIO del Excel no están en el padrón, sin
+ * excluir a nadie del cálculo.
+ */
+function usuariosSinPadron(padron: PromotorPadron[], filasExcel: EmetrixFilaDetalle[]): string[] {
+  const idsPadron = new Set(padron.filter((p) => p.idEmetrix).map((p) => normalizar(p.idEmetrix!)));
+  return filasExcel.filter((f) => !idsPadron.has(normalizar(f.usuario))).map((f) => f.usuario);
+}
+
+/**
  * % de respuesta (respondieron/universo, cobertura del sondeo) y % de
  * cumplimiento (cumplieron/respondieron, calidad SOLO entre quienes
  * contestaron) — separados a propósito: un universo con poca respuesta no
@@ -362,13 +372,15 @@ function calcularPorcentajes(
 }
 
 /**
- * Decide el universo de una carga: si la cuenta tiene padrón (promotores con
- * supervisor asignado a esa marca), SIEMPRE se usa ese padrón, cruzando por
- * id_emetrix. Si no, usa el headcount de la cuenta (uno solo, aplica a los 3
- * KR) salvo que se indique `universoOverride` — un headcount puntual solo
- * para esta carga. Si la cuenta no tiene padrón NI headcount (de cuenta ni
- * override), el universo queda sin definir: ya NO se usan las filas del
- * Excel como universo silenciosamente — el % de respuesta se muestra "sin
+ * Decide el universo de una carga. Prioridad: si hay headcount (el de la
+ * cuenta, o un `universoOverride` puntual para esta carga), SIEMPRE se usa
+ * ese número — aunque exista padrón — y "contestaron"/"cumplen" salen
+ * directo del Excel (promotores únicos por USUARIO), SIN exigir que estén en
+ * el padrón; si además hay padrón, se informa aparte qué USUARIO del Excel
+ * no están en él, pero no se excluye a nadie del cálculo. El padrón solo se
+ * usa como universo (cruzando por id_emetrix, con "no contestó" para quien
+ * no aparece en el Excel) cuando NO hay headcount. Si no hay headcount NI
+ * padrón, el universo queda sin definir — el % de respuesta se muestra "sin
  * universo" y la carga se marca en alerta. En todos los casos, el % de
  * cumplimiento se calcula solo entre quienes contestaron, y si el % de
  * respuesta queda debajo del umbral de la cuenta (80% por default, o no hay
@@ -377,6 +389,25 @@ function calcularPorcentajes(
 export async function armarPreview(marcaId: string, calculo: Calculo, universoOverride: number | null): Promise<EmetrixCargaPreview> {
   const [padron, config] = await Promise.all([fetchPadronPorMarca(marcaId), fetchConfig(marcaId)]);
   const umbralRespuesta = config.umbralRespuesta;
+  const universoManual = universoOverride ?? config.headcountManual;
+
+  if (universoManual !== null) {
+    const respondieron = calculo.filas.length;
+    const { porcentaje, porcentajeRespuesta } = calcularPorcentajes(universoManual, respondieron, calculo.cumplieron);
+    return {
+      universoUsado: universoManual,
+      universoFuente: 'manual',
+      cumplieron: calculo.cumplieron,
+      respondieron,
+      porcentaje,
+      porcentajeRespuesta,
+      umbralRespuesta,
+      enAlerta: porcentajeRespuesta === null || porcentajeRespuesta < umbralRespuesta,
+      usuariosNoEncontrados: padron.length > 0 ? usuariosSinPadron(padron, calculo.filas) : [],
+      diagnostico: calculo.diagnostico,
+      filas: calculo.filas,
+    };
+  }
 
   if (padron.length > 0) {
     const cruce = cruzarConPadron(padron, calculo.filas);
@@ -397,18 +428,17 @@ export async function armarPreview(marcaId: string, calculo: Calculo, universoOv
     };
   }
 
-  const universo = universoOverride ?? config.headcountManual;
   const respondieron = calculo.filas.length;
-  const { porcentaje, porcentajeRespuesta } = calcularPorcentajes(universo, respondieron, calculo.cumplieron);
+  const { porcentaje, porcentajeRespuesta } = calcularPorcentajes(null, respondieron, calculo.cumplieron);
   return {
-    universoUsado: universo,
-    universoFuente: universo !== null ? 'manual' : 'sin_universo',
+    universoUsado: null,
+    universoFuente: 'sin_universo',
     cumplieron: calculo.cumplieron,
     respondieron,
     porcentaje,
     porcentajeRespuesta,
     umbralRespuesta,
-    enAlerta: porcentajeRespuesta === null || porcentajeRespuesta < umbralRespuesta,
+    enAlerta: true,
     usuariosNoEncontrados: [],
     diagnostico: calculo.diagnostico,
     filas: calculo.filas,
