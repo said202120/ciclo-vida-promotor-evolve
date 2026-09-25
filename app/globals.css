@@ -1759,6 +1759,25 @@ table.roster-table select.mapeo-set {
   border-radius: 6px;
   display: inline-block;
 }
+.emetrix-nota {
+  color: #92620a !important;
+  font-size: 12.5px !important;
+  margin: 4px 0 8px;
+}
+.emetrix-cumplimiento-principal {
+  font-size: 30px;
+  font-weight: 700;
+  margin: 4px 0 2px;
+  color: var(--ink);
+}
+.emetrix-detalle-tecnico {
+  margin: 8px 0;
+}
+.emetrix-detalle-tecnico summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
 .emetrix-alerta-badge {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 10.5px;

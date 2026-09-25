@@ -20,12 +20,6 @@ function formatFecha(iso: string): string {
   return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function labelFuente(fuente: EmetrixUniversoFuente): string {
-  if (fuente === 'padron') return 'padrón interno';
-  if (fuente === 'manual') return 'headcount';
-  return 'sin definir';
-}
-
 export default function EmetrixPonderacionZona({
   kr,
   marcaId,
@@ -192,44 +186,27 @@ export default function EmetrixPonderacionZona({
 
           {preview && (
             <div className="emetrix-preview">
+              <p className="emetrix-cumplimiento-principal">Cumplimiento: {preview.porcentaje}%</p>
               <p>
-                Universo: <strong>{preview.universoFuente === 'sin_universo' ? 'sin definir' : preview.universoUsado}</strong> (
-                {labelFuente(preview.universoFuente)}) · Contestaron: <strong>{preview.respondieron}</strong> (
-                <strong>{preview.universoFuente === 'sin_universo' ? 'sin universo' : `${preview.porcentajeRespuesta}%`}</strong>
-                {preview.universoFuente !== 'sin_universo' && ' de respuesta'})
-              </p>
-              <p>
-                Cumplen: <strong>{preview.cumplieron}</strong> de <strong>{preview.respondieron}</strong> que contestaron ·{' '}
-                <strong>{preview.porcentaje}%</strong> de cumplimiento
+                {preview.universoFuente === 'sin_universo'
+                  ? `Contestaron ${preview.respondieron} promotores (no se definió el total del equipo)`
+                  : `Contestaron ${preview.respondieron} de ${preview.universoUsado} promotores (${preview.porcentajeRespuesta}%)`}
               </p>
               {preview.universoFuente === 'sin_universo' ? (
-                <p className="emetrix-alerta">⚠️ Sin universo definido (sin padrón ni headcount) — resultado no representativo.</p>
+                <p className="emetrix-nota">No se definió el total de promotores de esta cuenta.</p>
               ) : (
-                preview.enAlerta && (
-                  <p className="emetrix-alerta">⚠️ Respuesta insuficiente, resultado no representativo (umbral: {preview.umbralRespuesta}%).</p>
-                )
-              )}
-              {preview.universoFuente === 'manual' && (
-                <p className="emetrix-warning">⚠️ Esta cuenta no tiene padrón cargado — el universo usado es el headcount.</p>
+                preview.enAlerta && <p className="emetrix-nota">Contestó menos del {preview.umbralRespuesta}% del equipo.</p>
               )}
 
-              <p className="roster-hint">
-                Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}
-                {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas} (sin USUARIO: {preview.diagnostico.filasSinUsuario}, duplicadas:{' '}
-                {preview.diagnostico.filasDuplicadas}) · promotores únicos del archivo:{' '}
-                {preview.diagnostico.filasLeidas - preview.diagnostico.filasSinUsuario - preview.diagnostico.filasDuplicadas}
-              </p>
-
-              {preview.usuariosNoEncontrados.length > 0 && (
-                <details className="emetrix-no-encontrados">
-                  <summary>{preview.usuariosNoEncontrados.length} USUARIO(s) del archivo no están en el padrón (no se contaron)</summary>
-                  <ul>
-                    {preview.usuariosNoEncontrados.map((u) => (
-                      <li key={u}>{u}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
+              <details className="emetrix-detalle-tecnico">
+                <summary>Ver detalle técnico</summary>
+                <p className="roster-hint">
+                  Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}
+                  {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas} (sin USUARIO: {preview.diagnostico.filasSinUsuario},
+                  duplicadas: {preview.diagnostico.filasDuplicadas}) · promotores únicos del archivo:{' '}
+                  {preview.diagnostico.filasLeidas - preview.diagnostico.filasSinUsuario - preview.diagnostico.filasDuplicadas}
+                </p>
+              </details>
 
               {guardado ? (
                 <p className="emetrix-guardado">✓ Carga guardada.</p>
@@ -252,16 +229,6 @@ export default function EmetrixPonderacionZona({
                     <p className="resumen-status">Cargando…</p>
                   ) : (
                     <>
-                      {detalle && detalle.usuariosNoEncontrados.length > 0 && (
-                        <details className="emetrix-no-encontrados">
-                          <summary>{detalle.usuariosNoEncontrados.length} USUARIO(s) del archivo no están en el padrón</summary>
-                          <ul>
-                            {detalle.usuariosNoEncontrados.map((u) => (
-                              <li key={u}>{u}</li>
-                            ))}
-                          </ul>
-                        </details>
-                      )}
                       <div className="emetrix-detalle-tabla-wrap">
                         <table className="roster-table">
                           <thead>

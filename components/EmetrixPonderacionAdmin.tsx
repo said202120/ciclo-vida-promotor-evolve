@@ -293,10 +293,7 @@ export default function EmetrixPonderacionAdmin() {
                         {KR_LABEL[k.kr]}
                         {k.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠</span>}
                       </td>
-                      <td>
-                        {k.universoFuente === 'sin_universo' ? 'sin definir' : (k.universo ?? '—')}
-                        {k.universoFuente !== null && k.universoFuente !== 'padron' && ' *'}
-                      </td>
+                      <td>{k.universoFuente === 'sin_universo' ? 'sin definir' : (k.universo ?? '—')}</td>
                       <td>{k.respondieron ?? '—'}</td>
                       <td>{k.universoFuente === 'sin_universo' ? 'sin universo' : k.porcentajeRespuesta !== null ? `${k.porcentajeRespuesta}%` : '—'}</td>
                       <td>{k.cumplieron ?? '—'}</td>
@@ -324,16 +321,9 @@ export default function EmetrixPonderacionAdmin() {
                 </tbody>
               </table>
             )}
-            {resultado && resultado.krs.some((k) => k.universoFuente !== null && k.universoFuente !== 'padron') && (
-              <p className="roster-hint" style={{ marginTop: 8 }}>
-                * esta cuenta no tiene padrón cargado — el universo es el headcount de la cuenta (o un override
-                puntual), no el padrón interno.
-              </p>
-            )}
             {resultado && resultado.krs.some((k) => k.universoFuente === 'sin_universo') && (
               <p className="roster-hint" style={{ marginTop: 8 }}>
-                ⚠ Sin universo definido (sin padrón ni headcount) — ese KR queda en alerta, resultado no
-                representativo. Captura el headcount de la cuenta arriba para resolverlo.
+                ⚠ Falta capturar el headcount de esta cuenta — ese KR queda en alerta, resultado no representativo.
               </p>
             )}
             {resultado && resultado.krs.some((k) => k.enAlerta && k.universoFuente !== 'sin_universo') && (
@@ -423,10 +413,7 @@ export default function EmetrixPonderacionAdmin() {
                   <td>{formatFecha(h.cargadoEn)}</td>
                   <td style={{ textAlign: 'left' }}>{h.marcaNombre}</td>
                   <td>{KR_LABEL[h.kr]}</td>
-                  <td>
-                    {h.universoFuente === 'sin_universo' ? 'sin definir' : h.universo}
-                    {h.universoFuente !== 'padron' && ' *'}
-                  </td>
+                  <td>{h.universoFuente === 'sin_universo' ? 'sin definir' : h.universo}</td>
                   <td>{h.cumplieron}</td>
                   <td>{h.porcentaje}%</td>
                   <td>
@@ -439,10 +426,6 @@ export default function EmetrixPonderacionAdmin() {
             </tbody>
           </table>
         )}
-        <p className="roster-hint" style={{ marginTop: 8 }}>
-          * esta cuenta no tenía padrón cargado en el momento de la carga — universo = headcount de la cuenta (o un
-          override puntual), o sin definir si tampoco había headcount.
-        </p>
       </div>
     </div>
   );
