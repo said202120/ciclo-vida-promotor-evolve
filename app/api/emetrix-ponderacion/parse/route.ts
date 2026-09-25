@@ -1,17 +1,17 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
 import { parseSpreadsheet } from '@/lib/importaciones';
-import { ColumnasFaltantesError, calcularMarca, calcularMateriales, calcularMesaControl } from '@/lib/emetrix-ponderacion';
-import type { EmetrixFilaDetalle } from '@/lib/types';
+import { ColumnasFaltantesError, armarPreview, calcularMarca, calcularMateriales, calcularMesaControl } from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
 
 const KRS_VALIDOS = ['mesa_control', 'materiales', 'marca'];
 
 // POST /api/emetrix-ponderacion/parse — sube el archivo de un KR, lo
-// califica según las reglas de ese KR, y devuelve el cálculo para que el
-// gerente lo revise ANTES de guardarlo (ver /cargas). No escribe nada en la
-// base de datos.
+// califica según las reglas de ese KR, decide el universo (padrón de la
+// cuenta si existe; si no, headcount manual o promotores únicos del
+// archivo) y devuelve el preview para que el gerente lo revise ANTES de
+// guardarlo (ver /cargas). No escribe nada en la base de datos.
 export async function POST(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -19,8 +19,9 @@ export async function POST(request: Request) {
   const form = await request.formData().catch(() => null);
   const file = form?.get('file');
   const kr = form?.get('kr');
-  if (!(file instanceof File) || typeof kr !== 'string' || !KRS_VALIDOS.includes(kr)) {
-    return NextResponse.json({ error: 'Faltan datos: archivo y KR son obligatorios.' }, { status: 400 });
+  const marcaId = form?.get('marcaId');
+  if (!(file instanceof File) || typeof kr !== 'string' || !KRS_VALIDOS.includes(kr) || typeof marcaId !== 'string' || !marcaId) {
+    return NextResponse.json({ error: 'Faltan datos: archivo, cuenta y KR son obligatorios.' }, { status: 400 });
   }
 
   const universoManualRaw = form?.get('universoManual');
@@ -36,32 +37,21 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const { headers, rows } = await parseSpreadsheet(buffer, file.name);
 
-    let resultado: { filas: EmetrixFilaDetalle[]; cumplieron: number };
+    let calculo;
     if (kr === 'mesa_control') {
-      resultado = calcularMesaControl(headers, rows);
+      calculo = calcularMesaControl(headers, rows);
     } else if (kr === 'materiales') {
       const incluyeCelularRaw = form?.get('incluyeCelular');
       if (incluyeCelularRaw !== 'true' && incluyeCelularRaw !== 'false') {
         return NextResponse.json({ error: 'Falta indicar si la cuenta incluye celular en el acuerdo comercial.' }, { status: 400 });
       }
-      resultado = calcularMateriales(headers, rows, incluyeCelularRaw === 'true');
+      calculo = calcularMateriales(headers, rows, incluyeCelularRaw === 'true');
     } else {
-      resultado = calcularMarca(headers, rows);
+      calculo = calcularMarca(headers, rows);
     }
 
-    // totalFilas = promotores ÚNICOS (ya deduplicados por USUARIO dentro del cálculo), no filas crudas del archivo.
-    const totalFilas = resultado.filas.length;
-    const universoUsado = universoManual ?? totalFilas;
-    const porcentaje = universoUsado > 0 ? Math.round((resultado.cumplieron / universoUsado) * 10000) / 100 : 0;
-
-    return NextResponse.json({
-      totalFilas,
-      cumplieron: resultado.cumplieron,
-      universoUsado,
-      universoEsManual: universoManual !== null,
-      porcentaje,
-      filas: resultado.filas,
-    });
+    const preview = await armarPreview(marcaId, calculo, universoManual);
+    return NextResponse.json(preview);
   } catch (err) {
     if (err instanceof ColumnasFaltantesError) {
       return NextResponse.json({ error: err.message }, { status: 400 });

@@ -1,11 +1,28 @@
 // "Plan B": calculadora de ponderación de los sondeos de Emetrix
 // (/emetrix-ponderacion, solo gerente) — respaldo manual mientras se
 // resuelve la integración automática con Evolve OS. Parseo tolerante a
-// espacios/mayúsculas en los nombres de columna (los archivos reales de
-// Emetrix traen inconsistencias: "POSICION" vs "POSICION ", etc.).
+// espacios/mayúsculas/acentos en columnas y respuestas (los archivos reales
+// de Emetrix traen inconsistencias: "POSICION" vs "POSICION ", "Sí"/"SI", etc.).
+//
+// Universo: si la cuenta ya tiene padrón interno (promotores con supervisor
+// asignado a esa marca), SIEMPRE se usa ese padrón como universo, cruzando
+// cada Excel por id_emetrix contra el USUARIO del sondeo — un promotor del
+// padrón que no aparece en el Excel cuenta como "no contestó" (no cumple).
+// Si la cuenta no tiene padrón todavía, se cae al headcount manual o, a
+// falta de eso, a los promotores únicos del archivo (comportamiento previo).
 
 import { sql } from '@vercel/postgres';
-import type { EmetrixCarga, EmetrixFilaDetalle, EmetrixKr, EmetrixResultadoCuenta } from './types';
+import type {
+  EmetrixCarga,
+  EmetrixCargaPreview,
+  EmetrixDiagnosticoArchivo,
+  EmetrixEstado,
+  EmetrixFilaDetalle,
+  EmetrixKr,
+  EmetrixResultadoCuenta,
+  EmetrixUniversoFuente,
+  EmetrixVistaCruzadaFila,
+} from './types';
 
 /** Trim + minúsculas + sin acentos/diacríticos, para comparar "SI"/"Sí"/"si" o "código"/"codigo" como iguales. */
 function normalizar(s: string): string {
@@ -48,6 +65,13 @@ function esExacto(valorCrudo: string, esperado: string): boolean {
   return normalizar(valorCrudo) === normalizar(esperado);
 }
 
+type FilasDeduplicadas = {
+  filas: string[][];
+  filasLeidas: number;
+  filasSinUsuario: number;
+  filasDuplicadas: number;
+};
+
 /**
  * Si un promotor (USUARIO) aparece más de una vez, se usa su respuesta más
  * reciente — se asume que el archivo viene en orden cronológico, así que la
@@ -55,16 +79,25 @@ function esExacto(valorCrudo: string, esperado: string): boolean {
  * universo). Si el archivo no trae columna USUARIO, no se puede deduplicar
  * y se devuelve tal cual (validarColumnas ya habría fallado antes de esto).
  */
-function deduplicarPorUsuario(headers: string[], rows: string[][]): string[][] {
+function deduplicarPorUsuario(headers: string[], rows: string[][]): FilasDeduplicadas {
+  const filasLeidas = rows.length;
   const idxUsuario = indiceColumna(headers, 'USUARIO');
-  if (idxUsuario === -1) return rows;
+  if (idxUsuario === -1) {
+    return { filas: rows, filasLeidas, filasSinUsuario: 0, filasDuplicadas: 0 };
+  }
   const porUsuario = new Map<string, string[]>();
+  let filasSinUsuario = 0;
+  let filasDuplicadas = 0;
   for (const row of rows) {
     const usuario = normalizar(row[idxUsuario] ?? '');
-    if (!usuario) continue;
+    if (!usuario) {
+      filasSinUsuario++;
+      continue;
+    }
+    if (porUsuario.has(usuario)) filasDuplicadas++;
     porUsuario.set(usuario, row);
   }
-  return [...porUsuario.values()];
+  return { filas: [...porUsuario.values()], filasLeidas, filasSinUsuario, filasDuplicadas };
 }
 
 export class ColumnasFaltantesError extends Error {}
@@ -77,6 +110,8 @@ function validarColumnas(headers: string[], requeridas: string[], nombreArchivo:
     );
   }
 }
+
+type Calculo = { filas: EmetrixFilaDetalle[]; cumplieron: number; diagnostico: EmetrixDiagnosticoArchivo };
 
 // ---- Mesa de Control ----
 
@@ -91,12 +126,12 @@ const MESA_CONTROL_COLUMNAS = [
 ];
 
 /** Cumple = SI en las 4 preguntas de fondo. "Quién te acompañó" es solo informativo, no califica. */
-export function calcularMesaControl(headers: string[], rows: string[][]): { filas: EmetrixFilaDetalle[]; cumplieron: number } {
+export function calcularMesaControl(headers: string[], rows: string[][]): Calculo {
   validarColumnas(headers, MESA_CONTROL_COLUMNAS, 'Mesa de Control');
   const valor = crearLector(headers);
-  const filasUnicas = deduplicarPorUsuario(headers, rows);
+  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas } = deduplicarPorUsuario(headers, rows);
 
-  const filas = filasUnicas.map((row) => {
+  const filas: EmetrixFilaDetalle[] = filasUnicas.map((row) => {
     const checks = [
       { label: 'Entrada a tienda', ok: esSi(valor(row, '¿Pudiste entrar a tu tienda el primer día?')) },
       { label: 'Emetrix funcionó', ok: esSi(valor(row, '¿Tu usuario Emetrix funciono cuando lo necesitaste?')) },
@@ -105,14 +140,19 @@ export function calcularMesaControl(headers: string[], rows: string[][]): { fila
     ];
     const cumple = checks.every((c) => c.ok);
     return {
+      promotorId: null,
       usuario: valor(row, 'USUARIO'),
       posicion: valor(row, 'POSICION'),
-      cumple,
+      estado: cumple ? 'cumple' : 'no_cumple',
       detalleFalla: cumple ? null : `Faltan: ${checks.filter((c) => !c.ok).map((c) => c.label).join(', ')}`,
     };
   });
 
-  return { filas, cumplieron: filas.filter((f) => f.cumple).length };
+  return {
+    filas,
+    cumplieron: filas.filter((f) => f.estado === 'cumple').length,
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+  };
 }
 
 // ---- Materiales ----
@@ -141,16 +181,12 @@ const PRENDAS_OBLIGATORIAS = ['Uniforme', 'Botas', 'Faja', 'Cintas', 'Cortador y
  * (Casco no se exige). Si `incluyeCelular`, además exige celular +
  * Emetrix instalado; si no, esas dos preguntas se ignoran por completo.
  */
-export function calcularMateriales(
-  headers: string[],
-  rows: string[][],
-  incluyeCelular: boolean
-): { filas: EmetrixFilaDetalle[]; cumplieron: number } {
+export function calcularMateriales(headers: string[], rows: string[][], incluyeCelular: boolean): Calculo {
   validarColumnas(headers, MATERIALES_COLUMNAS_BASE, 'Materiales');
   const valor = crearLector(headers);
-  const filasUnicas = deduplicarPorUsuario(headers, rows);
+  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas } = deduplicarPorUsuario(headers, rows);
 
-  const filas = filasUnicas.map((row) => {
+  const filas: EmetrixFilaDetalle[] = filasUnicas.map((row) => {
     const checks = PRENDAS_OBLIGATORIAS.map((col) => ({ label: col, ok: esSi(valor(row, col)) }));
     if (incluyeCelular) {
       checks.push({ label: 'Celular de trabajo', ok: esSi(valor(row, '¿Ya recibiste tu celular de trabajo?')) });
@@ -158,14 +194,19 @@ export function calcularMateriales(
     }
     const cumple = checks.every((c) => c.ok);
     return {
+      promotorId: null,
       usuario: valor(row, 'USUARIO'),
       posicion: valor(row, 'POSICION'),
-      cumple,
+      estado: cumple ? 'cumple' : 'no_cumple',
       detalleFalla: cumple ? null : `Faltan: ${checks.filter((c) => !c.ok).map((c) => c.label).join(', ')}`,
     };
   });
 
-  return { filas, cumplieron: filas.filter((f) => f.cumple).length };
+  return {
+    filas,
+    cumplieron: filas.filter((f) => f.estado === 'cumple').length,
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+  };
 }
 
 // ---- Marca ----
@@ -214,12 +255,12 @@ const MARCA_PREGUNTAS: Array<{ columna: string; modo: 'contiene' | 'exacto'; esp
 const MARCA_COLUMNAS = ['USUARIO', 'POSICION', ...MARCA_PREGUNTAS.map((p) => p.columna)];
 
 /** Cumple = acierta 8 de 10 o más. */
-export function calcularMarca(headers: string[], rows: string[][]): { filas: EmetrixFilaDetalle[]; cumplieron: number } {
+export function calcularMarca(headers: string[], rows: string[][]): Calculo {
   validarColumnas(headers, MARCA_COLUMNAS, 'Marca');
   const valor = crearLector(headers);
-  const filasUnicas = deduplicarPorUsuario(headers, rows);
+  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas } = deduplicarPorUsuario(headers, rows);
 
-  const filas = filasUnicas.map((row) => {
+  const filas: EmetrixFilaDetalle[] = filasUnicas.map((row) => {
     const aciertos = MARCA_PREGUNTAS.reduce((total, p) => {
       const respuesta = valor(row, p.columna);
       const acierto = p.modo === 'contiene' ? contieneOpcion(respuesta, p.esperado) : esExacto(respuesta, p.esperado);
@@ -227,14 +268,150 @@ export function calcularMarca(headers: string[], rows: string[][]): { filas: Eme
     }, 0);
     const cumple = aciertos >= 8;
     return {
+      promotorId: null,
       usuario: valor(row, 'USUARIO'),
       posicion: valor(row, 'POSICION'),
-      cumple,
+      estado: cumple ? 'cumple' : 'no_cumple',
       detalleFalla: cumple ? null : `Tu Marca: ${aciertos}/10`,
     };
   });
 
-  return { filas, cumplieron: filas.filter((f) => f.cumple).length };
+  return {
+    filas,
+    cumplieron: filas.filter((f) => f.estado === 'cumple').length,
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+  };
+}
+
+// ---- Padrón interno como universo ----
+
+type PromotorPadron = { promotorId: string; nombre: string; idEmetrix: string | null };
+
+/**
+ * Padrón de una cuenta: promotores cuyo supervisor asignado pertenece a esa
+ * marca (mismo criterio que ya usa el Módulo 1 de capacitaciones para saber
+ * "de qué marca es" un promotor). No hay un campo "activo/baja" en
+ * promotores — un promotor en el padrón se considera activo mientras siga
+ * ahí.
+ */
+async function fetchPadronPorMarca(marcaId: string): Promise<PromotorPadron[]> {
+  const { rows } = await sql.query(
+    `select p.id, p.nombre, p.id_emetrix
+     from promotores p
+     join supervisores s on s.id = p.supervisor_id
+     where s.marca_id = $1`,
+    [marcaId]
+  );
+  return rows.map((r) => ({ promotorId: r.id as string, nombre: r.nombre as string, idEmetrix: (r.id_emetrix as string | null) ?? null }));
+}
+
+/**
+ * Cruza el padrón contra lo que trajo el Excel (por id_emetrix vs USUARIO).
+ * Un promotor del padrón sin match = "no_contesto". Lo que sobra del Excel
+ * sin dueño en el padrón se regresa aparte, para corregirlo, sin entrar al
+ * cálculo.
+ */
+function cruzarConPadron(
+  padron: PromotorPadron[],
+  filasExcel: EmetrixFilaDetalle[]
+): { filas: EmetrixFilaDetalle[]; cumplieron: number; respondieron: number; usuariosNoEncontrados: string[] } {
+  const porUsuarioExcel = new Map<string, EmetrixFilaDetalle>();
+  for (const f of filasExcel) {
+    porUsuarioExcel.set(normalizar(f.usuario), f);
+  }
+  const reclamados = new Set<string>();
+
+  const filas: EmetrixFilaDetalle[] = padron.map((p) => {
+    const clave = p.idEmetrix ? normalizar(p.idEmetrix) : null;
+    const match = clave ? porUsuarioExcel.get(clave) : undefined;
+    if (match && clave) {
+      reclamados.add(clave);
+      return { promotorId: p.promotorId, usuario: match.usuario, posicion: match.posicion, estado: match.estado, detalleFalla: match.detalleFalla };
+    }
+    return { promotorId: p.promotorId, usuario: p.nombre, posicion: '', estado: 'no_contesto' as EmetrixEstado, detalleFalla: 'No contestó el sondeo' };
+  });
+
+  const usuariosNoEncontrados = [...porUsuarioExcel.entries()]
+    .filter(([clave]) => !reclamados.has(clave))
+    .map(([, f]) => f.usuario);
+
+  return {
+    filas,
+    cumplieron: filas.filter((f) => f.estado === 'cumple').length,
+    respondieron: filas.filter((f) => f.estado !== 'no_contesto').length,
+    usuariosNoEncontrados,
+  };
+}
+
+/**
+ * Decide el universo de una carga: si la cuenta tiene padrón (promotores con
+ * supervisor asignado a esa marca), SIEMPRE se usa ese padrón, cruzando por
+ * id_emetrix. Si no, cae al headcount manual o, a falta de eso, a los
+ * promotores únicos del archivo — como antes de tener padrón.
+ */
+export async function armarPreview(marcaId: string, calculo: Calculo, universoManual: number | null): Promise<EmetrixCargaPreview> {
+  const padron = await fetchPadronPorMarca(marcaId);
+
+  if (padron.length > 0) {
+    const cruce = cruzarConPadron(padron, calculo.filas);
+    const universo = padron.length;
+    const porcentaje = universo > 0 ? Math.round((cruce.cumplieron / universo) * 10000) / 100 : 0;
+    return {
+      universoUsado: universo,
+      universoFuente: 'padron',
+      cumplieron: cruce.cumplieron,
+      porcentaje,
+      respondieron: cruce.respondieron,
+      usuariosNoEncontrados: cruce.usuariosNoEncontrados,
+      diagnostico: calculo.diagnostico,
+      filas: cruce.filas,
+    };
+  }
+
+  const universo = universoManual ?? calculo.filas.length;
+  const porcentaje = universo > 0 ? Math.round((calculo.cumplieron / universo) * 10000) / 100 : 0;
+  return {
+    universoUsado: universo,
+    universoFuente: universoManual !== null ? 'manual' : 'archivo',
+    cumplieron: calculo.cumplieron,
+    porcentaje,
+    respondieron: null,
+    usuariosNoEncontrados: [],
+    diagnostico: calculo.diagnostico,
+    filas: calculo.filas,
+  };
+}
+
+/** Vista cruzada por promotor: su estado en cada uno de los 3 KR (solo tiene sentido si la cuenta tiene padrón). */
+export async function fetchVistaCruzada(marcaId: string): Promise<EmetrixVistaCruzadaFila[]> {
+  const padron = await fetchPadronPorMarca(marcaId);
+  if (padron.length === 0) return [];
+
+  const KRS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
+  const estadosPorKr = new Map<EmetrixKr, Map<string, EmetrixEstado>>();
+
+  for (const kr of KRS) {
+    const { rows: cargaRows } = await sql.query(
+      `select id from emetrix_ponderacion_cargas
+       where marca_id = $1 and kr = $2 and universo_fuente = 'padron'
+       order by cargado_en desc limit 1`,
+      [marcaId, kr]
+    );
+    if (!cargaRows[0]) continue;
+    const { rows: detalleRows } = await sql.query(
+      `select promotor_id, estado from emetrix_ponderacion_detalle where carga_id = $1 and promotor_id is not null`,
+      [cargaRows[0].id]
+    );
+    estadosPorKr.set(kr, new Map(detalleRows.map((r) => [r.promotor_id as string, r.estado as EmetrixEstado])));
+  }
+
+  return padron.map((p) => ({
+    promotorId: p.promotorId,
+    nombre: p.nombre,
+    mesaControl: estadosPorKr.get('mesa_control')?.get(p.promotorId) ?? null,
+    materiales: estadosPorKr.get('materiales')?.get(p.promotorId) ?? null,
+    marca: estadosPorKr.get('marca')?.get(p.promotorId) ?? null,
+  }));
 }
 
 // ---- Persistencia ----
@@ -244,31 +421,42 @@ const PESO_DEFAULT = 33.3;
 export async function guardarCarga(data: {
   marcaId: string;
   kr: EmetrixKr;
-  totalFilas: number;
-  universoManual: number | null;
-  cumplieron: number;
+  preview: EmetrixCargaPreview;
   incluyeCelular: boolean | null;
   archivoNombre: string;
   cargadoPor: string;
-  filas: EmetrixFilaDetalle[];
 }): Promise<EmetrixCarga> {
-  const universo = data.universoManual ?? data.totalFilas;
-  const universoEsManual = data.universoManual !== null;
-  const porcentaje = universo > 0 ? Math.round((data.cumplieron / universo) * 10000) / 100 : 0;
+  const { preview } = data;
 
   const { rows } = await sql.query(
     `insert into emetrix_ponderacion_cargas
-       (marca_id, kr, universo, universo_manual, cumplieron, porcentaje, incluye_celular, archivo_nombre, cargado_por)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (marca_id, kr, universo, universo_fuente, cumplieron, porcentaje, respondieron, usuarios_no_encontrados,
+        filas_leidas, filas_sin_usuario, filas_duplicadas, incluye_celular, archivo_nombre, cargado_por)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      returning id, cargado_en`,
-    [data.marcaId, data.kr, universo, universoEsManual, data.cumplieron, porcentaje, data.incluyeCelular, data.archivoNombre, data.cargadoPor]
+    [
+      data.marcaId,
+      data.kr,
+      preview.universoUsado,
+      preview.universoFuente,
+      preview.cumplieron,
+      preview.porcentaje,
+      preview.respondieron,
+      preview.usuariosNoEncontrados,
+      preview.diagnostico.filasLeidas,
+      preview.diagnostico.filasSinUsuario,
+      preview.diagnostico.filasDuplicadas,
+      data.incluyeCelular,
+      data.archivoNombre,
+      data.cargadoPor,
+    ]
   );
   const cargaId = rows[0].id as string;
 
-  for (const f of data.filas) {
+  for (const f of preview.filas) {
     await sql.query(
-      `insert into emetrix_ponderacion_detalle (carga_id, usuario, posicion, cumple, detalle_falla) values ($1, $2, $3, $4, $5)`,
-      [cargaId, f.usuario, f.posicion, f.cumple, f.detalleFalla]
+      `insert into emetrix_ponderacion_detalle (carga_id, promotor_id, usuario, posicion, estado, detalle_falla) values ($1, $2, $3, $4, $5, $6)`,
+      [cargaId, f.promotorId, f.usuario, f.posicion, f.estado, f.detalleFalla]
     );
   }
 
@@ -281,10 +469,13 @@ export async function guardarCarga(data: {
     id: cargaId,
     marcaId: data.marcaId,
     kr: data.kr,
-    universo,
-    universoManual: universoEsManual,
-    cumplieron: data.cumplieron,
-    porcentaje,
+    universo: preview.universoUsado,
+    universoFuente: preview.universoFuente,
+    cumplieron: preview.cumplieron,
+    porcentaje: preview.porcentaje,
+    respondieron: preview.respondieron,
+    usuariosNoEncontrados: preview.usuariosNoEncontrados,
+    diagnostico: preview.diagnostico,
     incluyeCelular: data.incluyeCelular,
     archivoNombre: data.archivoNombre,
     cargadoEn: new Date(rows[0].cargado_en as string).toISOString(),
@@ -310,26 +501,36 @@ export async function updateIncluyeCelularConfig(marcaId: string, incluyeCelular
 export async function fetchDetalleCarga(
   marcaId: string,
   kr: EmetrixKr
-): Promise<{ cargaId: string; cargadoEn: string; filas: EmetrixFilaDetalle[] } | null> {
+): Promise<{
+  cargaId: string;
+  cargadoEn: string;
+  universoFuente: EmetrixUniversoFuente;
+  usuariosNoEncontrados: string[];
+  filas: EmetrixFilaDetalle[];
+} | null> {
   const { rows: cargaRows } = await sql.query(
-    `select id, cargado_en from emetrix_ponderacion_cargas where marca_id = $1 and kr = $2 order by cargado_en desc limit 1`,
+    `select id, cargado_en, universo_fuente, usuarios_no_encontrados from emetrix_ponderacion_cargas
+     where marca_id = $1 and kr = $2 order by cargado_en desc limit 1`,
     [marcaId, kr]
   );
   const carga = cargaRows[0];
   if (!carga) return null;
 
   const { rows: detalleRows } = await sql.query(
-    `select usuario, posicion, cumple, detalle_falla from emetrix_ponderacion_detalle where carga_id = $1 order by usuario`,
+    `select usuario, posicion, estado, detalle_falla from emetrix_ponderacion_detalle where carga_id = $1 order by usuario`,
     [carga.id]
   );
 
   return {
     cargaId: carga.id as string,
     cargadoEn: new Date(carga.cargado_en as string).toISOString(),
+    universoFuente: carga.universo_fuente as EmetrixUniversoFuente,
+    usuariosNoEncontrados: (carga.usuarios_no_encontrados as string[] | null) ?? [],
     filas: detalleRows.map((r) => ({
+      promotorId: null,
       usuario: r.usuario as string,
       posicion: (r.posicion as string | null) ?? '',
-      cumple: r.cumple as boolean,
+      estado: r.estado as EmetrixEstado,
       detalleFalla: (r.detalle_falla as string | null) ?? null,
     })),
   };
@@ -353,7 +554,7 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
   const [{ rows: marcaRows }, { rows: cargaRows }, { rows: pesoRows }] = await Promise.all([
     sql.query('select nombre from marcas where id = $1', [marcaId]),
     sql.query(
-      `select distinct on (kr) kr, universo, universo_manual, cumplieron, porcentaje, cargado_en
+      `select distinct on (kr) kr, universo, universo_fuente, cumplieron, porcentaje, respondieron, cargado_en
        from emetrix_ponderacion_cargas
        where marca_id = $1
        order by kr, cargado_en desc`,
@@ -371,7 +572,7 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
     const carga = cargaPorKr.get(kr);
     const peso = pesoPorKr.get(kr) ?? PESO_DEFAULT;
     if (!carga) {
-      return { kr, universo: null, cumplieron: null, porcentaje: null, universoManual: null, peso, aportacion: 0, cargadoEn: null };
+      return { kr, universo: null, cumplieron: null, porcentaje: null, universoFuente: null, respondieron: null, peso, aportacion: 0, cargadoEn: null };
     }
     const porcentaje = Number(carga.porcentaje);
     return {
@@ -379,7 +580,8 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
       universo: Number(carga.universo),
       cumplieron: Number(carga.cumplieron),
       porcentaje,
-      universoManual: carga.universo_manual as boolean,
+      universoFuente: carga.universo_fuente as EmetrixUniversoFuente,
+      respondieron: carga.respondieron !== null ? Number(carga.respondieron) : null,
       peso,
       aportacion: Math.round(((porcentaje * peso) / 100) * 100) / 100,
       cargadoEn: new Date(carga.cargado_en as string).toISOString(),
@@ -393,7 +595,8 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
 export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuenta[]> {
   const [{ rows: cargaRows }, { rows: pesoRows }] = await Promise.all([
     sql.query(
-      `select distinct on (c.marca_id, c.kr) c.marca_id, m.nombre as marca_nombre, c.kr, c.universo, c.universo_manual, c.cumplieron, c.porcentaje, c.cargado_en
+      `select distinct on (c.marca_id, c.kr) c.marca_id, m.nombre as marca_nombre, c.kr, c.universo, c.universo_fuente,
+              c.cumplieron, c.porcentaje, c.respondieron, c.cargado_en
        from emetrix_ponderacion_cargas c
        join marcas m on m.id = c.marca_id
        order by c.marca_id, c.kr, c.cargado_en desc`
@@ -418,7 +621,8 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
       universo: Number(row.universo),
       cumplieron: Number(row.cumplieron),
       porcentaje,
-      universoManual: row.universo_manual as boolean,
+      universoFuente: row.universo_fuente as EmetrixUniversoFuente,
+      respondieron: row.respondieron !== null ? Number(row.respondieron) : null,
       peso,
       aportacion: Math.round(((porcentaje * peso) / 100) * 100) / 100,
       cargadoEn: new Date(row.cargado_en as string).toISOString(),
@@ -435,7 +639,8 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
           universo: null,
           cumplieron: null,
           porcentaje: null,
-          universoManual: null,
+          universoFuente: null,
+          respondieron: null,
           peso: pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT,
           aportacion: 0,
           cargadoEn: null,
@@ -460,8 +665,9 @@ export async function updatePesoKr(marcaId: string, kr: EmetrixKr, peso: number)
 /** Historial de cargas, más reciente primero. Filtrable por cuenta. */
 export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> {
   const { rows } = await sql.query(
-    `select c.id, c.marca_id, m.nombre as marca_nombre, c.kr, c.universo, c.universo_manual, c.cumplieron,
-            c.porcentaje, c.incluye_celular, c.archivo_nombre, c.cargado_en, u.nombre as cargado_por_nombre
+    `select c.id, c.marca_id, m.nombre as marca_nombre, c.kr, c.universo, c.universo_fuente, c.cumplieron,
+            c.porcentaje, c.respondieron, c.usuarios_no_encontrados, c.filas_leidas, c.filas_sin_usuario,
+            c.filas_duplicadas, c.incluye_celular, c.archivo_nombre, c.cargado_en, u.nombre as cargado_por_nombre
      from emetrix_ponderacion_cargas c
      join marcas m on m.id = c.marca_id
      left join usuarios u on u.id = c.cargado_por
@@ -476,9 +682,16 @@ export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> 
     marcaNombre: r.marca_nombre as string,
     kr: r.kr as EmetrixKr,
     universo: Number(r.universo),
-    universoManual: r.universo_manual as boolean,
+    universoFuente: r.universo_fuente as EmetrixUniversoFuente,
     cumplieron: Number(r.cumplieron),
     porcentaje: Number(r.porcentaje),
+    respondieron: r.respondieron !== null ? Number(r.respondieron) : null,
+    usuariosNoEncontrados: (r.usuarios_no_encontrados as string[] | null) ?? [],
+    diagnostico: {
+      filasLeidas: Number(r.filas_leidas ?? 0),
+      filasSinUsuario: Number(r.filas_sin_usuario ?? 0),
+      filasDuplicadas: Number(r.filas_duplicadas ?? 0),
+    },
     incluyeCelular: r.incluye_celular as boolean | null,
     archivoNombre: r.archivo_nombre as string | null,
     cargadoPorNombre: (r.cargado_por_nombre as string | null) ?? null,

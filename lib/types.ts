@@ -432,6 +432,26 @@ export type CapacitacionEnvioResultado = {
  */
 export type EmetrixKr = 'mesa_control' | 'materiales' | 'marca';
 
+/**
+ * De dónde sale el universo de una carga:
+ *   'padron'  -> promotores del padrón interno con supervisor asignado a
+ *                esta cuenta, cruzados por id_emetrix (preferido cuando el
+ *                padrón de la cuenta no está vacío).
+ *   'manual'  -> headcount capturado a mano.
+ *   'archivo' -> promotores únicos del Excel, a falta de las otras dos.
+ */
+export type EmetrixUniversoFuente = 'padron' | 'manual' | 'archivo';
+
+/** Estado de un promotor frente a un KR. 'no_contesto' solo existe en modo 'padron' (está en el padrón pero no en el Excel). */
+export type EmetrixEstado = 'cumple' | 'no_cumple' | 'no_contesto';
+
+/** Diagnóstico de cuántas filas traía el Excel y qué se descartó al calcular, para que el número de promotores contados no sea una caja negra. */
+export type EmetrixDiagnosticoArchivo = {
+  filasLeidas: number;
+  filasSinUsuario: number;
+  filasDuplicadas: number;
+};
+
 /** Una carga guardada (archivo subido + calculado) para una cuenta y un KR. Se acumulan, nunca se sobreescriben. */
 export type EmetrixCarga = {
   id: string;
@@ -439,10 +459,14 @@ export type EmetrixCarga = {
   marcaNombre?: string;
   kr: EmetrixKr;
   universo: number;
-  /** true si se capturó el headcount real; false si se usó el número de filas del archivo a falta de ese dato. */
-  universoManual: boolean;
+  universoFuente: EmetrixUniversoFuente;
   cumplieron: number;
   porcentaje: number;
+  /** Solo con universoFuente='padron': cuántos del padrón sí contestaron el sondeo (cumplan o no). null en los otros modos. */
+  respondieron: number | null;
+  /** Solo con universoFuente='padron': USUARIO del Excel que no se encontró en el padrón (para corregirlo), nunca entran al cálculo. */
+  usuariosNoEncontrados: string[];
+  diagnostico: EmetrixDiagnosticoArchivo;
   /** Solo aplica a kr='materiales'. null en los demás. */
   incluyeCelular: boolean | null;
   archivoNombre: string | null;
@@ -450,22 +474,27 @@ export type EmetrixCarga = {
   cargadoEn: string;
 };
 
-/** Un promotor dentro de una carga: si cumplió y, si no, qué le faltó en texto legible. */
+/** Un promotor dentro de una carga: su estado frente al KR y, si no cumple, qué le faltó en texto legible. */
 export type EmetrixFilaDetalle = {
+  /** Solo se llena en modo 'padron' (une esta fila con el promotor real del padrón). null en modo 'manual'/'archivo'. */
+  promotorId: string | null;
   usuario: string;
   posicion: string;
-  cumple: boolean;
-  /** null si cumple. Ej. "Faltan: Botas, Faja" o "6/10". */
+  estado: EmetrixEstado;
+  /** null si cumple. Ej. "Faltan: Botas, Faja", "6/10" o "No contestó el sondeo". */
   detalleFalla: string | null;
 };
 
 /** Resultado calculado (sin guardar todavía) de subir un archivo, para que el gerente lo revise antes de "Guardar carga". */
 export type EmetrixCargaPreview = {
-  totalFilas: number;
-  cumplieron: number;
   universoUsado: number;
-  universoEsManual: boolean;
+  universoFuente: EmetrixUniversoFuente;
+  cumplieron: number;
   porcentaje: number;
+  /** Solo con universoFuente='padron'. null en los otros modos. */
+  respondieron: number | null;
+  usuariosNoEncontrados: string[];
+  diagnostico: EmetrixDiagnosticoArchivo;
   filas: EmetrixFilaDetalle[];
 };
 
@@ -474,8 +503,9 @@ export type EmetrixResultadoKr = {
   universo: number | null;
   cumplieron: number | null;
   porcentaje: number | null;
-  /** true = headcount real capturado; false = solo respondientes (universo puede estar inflando el %); null = sin carga todavía. */
-  universoManual: boolean | null;
+  universoFuente: EmetrixUniversoFuente | null;
+  /** Solo con universoFuente='padron'. % de respuesta = respondieron/universo. null si no aplica o sin carga. */
+  respondieron: number | null;
   peso: number;
   aportacion: number;
   cargadoEn: string | null;
@@ -492,4 +522,13 @@ export type EmetrixResultadoCuenta = {
   marcaNombre: string;
   krs: EmetrixResultadoKr[];
   total: number | null;
+};
+
+/** Una fila de la vista cruzada por promotor: su estado en cada uno de los 3 KR (de la carga más reciente en modo 'padron' de cada uno). null = ese KR no tiene una carga en modo padrón todavía. */
+export type EmetrixVistaCruzadaFila = {
+  promotorId: string;
+  nombre: string;
+  mesaControl: EmetrixEstado | null;
+  materiales: EmetrixEstado | null;
+  marca: EmetrixEstado | null;
 };

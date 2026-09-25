@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
 import { fetchDetalleCarga } from '@/lib/emetrix-ponderacion';
 import { sql } from '@vercel/postgres';
-import type { EmetrixKr } from '@/lib/types';
+import type { EmetrixEstado, EmetrixKr } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,9 +13,16 @@ const KR_LABEL: Record<EmetrixKr, string> = {
   materiales: 'Materiales',
   marca: 'Marca',
 };
+const ESTADO_LABEL: Record<EmetrixEstado, string> = {
+  cumple: 'Cumple',
+  no_cumple: 'No cumple',
+  no_contesto: 'No contestó',
+};
 
 // GET /api/emetrix-ponderacion/detalle/excel?marcaId=...&kr=... — descarga
-// en .xlsx el detalle por promotor de la carga más reciente de ese KR.
+// en .xlsx el detalle por promotor de la carga más reciente de ese KR. Si la
+// carga usó el padrón como universo, agrega una segunda hoja con los
+// USUARIO del Excel que no se pudieron cruzar (para corregir el padrón).
 export async function GET(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -40,12 +47,21 @@ export async function GET(request: Request) {
   sheet.columns = [
     { header: 'Usuario', key: 'usuario', width: 45 },
     { header: 'Posición', key: 'posicion', width: 18 },
-    { header: 'Cumple', key: 'cumple', width: 10 },
+    { header: 'Estado', key: 'estado', width: 14 },
     { header: 'Detalle', key: 'detalle', width: 45 },
   ];
   sheet.getRow(1).font = { bold: true };
   for (const f of detalle.filas) {
-    sheet.addRow({ usuario: f.usuario, posicion: f.posicion, cumple: f.cumple ? 'Sí' : 'No', detalle: f.detalleFalla ?? '' });
+    sheet.addRow({ usuario: f.usuario, posicion: f.posicion, estado: ESTADO_LABEL[f.estado], detalle: f.detalleFalla ?? '' });
+  }
+
+  if (detalle.universoFuente === 'padron' && detalle.usuariosNoEncontrados.length > 0) {
+    const sheetNoEnc = workbook.addWorksheet('No encontrados en padrón');
+    sheetNoEnc.columns = [{ header: 'USUARIO en el Excel (sin match en el padrón)', key: 'usuario', width: 55 }];
+    sheetNoEnc.getRow(1).font = { bold: true };
+    for (const usuario of detalle.usuariosNoEncontrados) {
+      sheetNoEnc.addRow({ usuario });
+    }
   }
 
   const buffer = await workbook.xlsx.writeBuffer();

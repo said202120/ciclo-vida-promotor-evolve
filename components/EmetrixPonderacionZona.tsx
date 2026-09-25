@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { EmetrixCargaPreview, EmetrixFilaDetalle, EmetrixKr, EmetrixResultadoKr } from '@/lib/types';
+import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixResultadoKr, EmetrixUniversoFuente } from '@/lib/types';
 import {
   emetrixPonderacionDetalleExcelUrl,
   fetchDetalleEmetrixPonderacion,
@@ -16,8 +16,20 @@ const KR_LABEL: Record<EmetrixKr, string> = {
   marca: 'Marca',
 };
 
+const ESTADO_LABEL: Record<EmetrixEstado, string> = {
+  cumple: '✓ Cumple',
+  no_cumple: '✕ No cumple',
+  no_contesto: '— No contestó',
+};
+
 function formatFecha(iso: string): string {
   return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function labelFuente(fuente: EmetrixUniversoFuente): string {
+  if (fuente === 'padron') return 'padrón interno';
+  if (fuente === 'manual') return 'headcount manual';
+  return 'promotores únicos del archivo';
 }
 
 export default function EmetrixPonderacionZona({
@@ -41,7 +53,9 @@ export default function EmetrixPonderacionZona({
   const [procesando, setProcesando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
-  const [detalle, setDetalle] = useState<EmetrixFilaDetalle[] | null>(null);
+  const [detalle, setDetalle] = useState<{ universoFuente: EmetrixUniversoFuente; usuariosNoEncontrados: string[]; filas: EmetrixFilaDetalle[] } | null>(
+    null
+  );
   const [mostrandoDetalle, setMostrandoDetalle] = useState(false);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
@@ -71,7 +85,7 @@ export default function EmetrixPonderacionZona({
     setProcesando(true);
     try {
       const universoManual = universo.trim() ? parseInt(universo, 10) : null;
-      const res = await parseEmetrixPonderacion(file, kr, universoManual, requiereCelular ? incluyeCelular === 'si' : null);
+      const res = await parseEmetrixPonderacion(file, marcaId, kr, universoManual, requiereCelular ? incluyeCelular === 'si' : null);
       setPreview(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo procesar el archivo.');
@@ -88,12 +102,9 @@ export default function EmetrixPonderacionZona({
       await guardarCargaEmetrixPonderacion({
         marcaId,
         kr,
-        totalFilas: preview.totalFilas,
-        universoManual: preview.universoEsManual ? preview.universoUsado : null,
-        cumplieron: preview.cumplieron,
+        preview,
         incluyeCelular: requiereCelular ? incluyeCelular === 'si' : null,
         archivoNombre: archivo.name,
-        filas: preview.filas,
       });
       setGuardado(true);
       if (mostrandoDetalle) cargarDetalle();
@@ -108,7 +119,7 @@ export default function EmetrixPonderacionZona({
   function cargarDetalle() {
     setCargandoDetalle(true);
     fetchDetalleEmetrixPonderacion(marcaId, kr)
-      .then((res) => setDetalle(res?.filas ?? []))
+      .then((res) => setDetalle(res ? { universoFuente: res.universoFuente, usuariosNoEncontrados: res.usuariosNoEncontrados, filas: res.filas } : null))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el detalle.'))
       .finally(() => setCargandoDetalle(false));
   }
@@ -140,7 +151,7 @@ export default function EmetrixPonderacionZona({
               <input
                 type="number"
                 min={1}
-                placeholder="Opcional — deja vacío para usar solo respondientes"
+                placeholder="Solo se usa si la cuenta no tiene padrón cargado"
                 value={universo}
                 onChange={(e) => {
                   setUniverso(e.target.value);
@@ -187,13 +198,40 @@ export default function EmetrixPonderacionZona({
           {preview && (
             <div className="emetrix-preview">
               <p>
-                <strong>{preview.cumplieron}</strong> de <strong>{preview.universoUsado}</strong> cumplieron ·{' '}
-                <strong>{preview.porcentaje}%</strong>
-                {preview.universoEsManual ? '' : ` (${preview.totalFilas} promotores únicos contestaron)`}
+                <strong>{preview.cumplieron}</strong> de <strong>{preview.universoUsado}</strong> cumplen ·{' '}
+                <strong>{preview.porcentaje}%</strong>{' '}
+                <span className="roster-hint" style={{ display: 'inline' }}>
+                  (universo: {labelFuente(preview.universoFuente)})
+                </span>
               </p>
-              {!preview.universoEsManual && (
-                <p className="emetrix-warning">⚠️ Resultado solo entre quienes contestaron, sin headcount total.</p>
+              {preview.universoFuente === 'padron' && preview.respondieron !== null && (
+                <p className="roster-hint">
+                  % de respuesta del sondeo: {Math.round((preview.respondieron / preview.universoUsado) * 10000) / 100}% (
+                  {preview.respondieron} de {preview.universoUsado} contestaron)
+                </p>
               )}
+              {preview.universoFuente !== 'padron' && (
+                <p className="emetrix-warning">⚠️ Esta cuenta no tiene padrón cargado — el resultado usa {labelFuente(preview.universoFuente)}.</p>
+              )}
+
+              <p className="roster-hint">
+                Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}
+                {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas} (sin USUARIO: {preview.diagnostico.filasSinUsuario}, duplicadas:{' '}
+                {preview.diagnostico.filasDuplicadas}) · promotores únicos del archivo:{' '}
+                {preview.diagnostico.filasLeidas - preview.diagnostico.filasSinUsuario - preview.diagnostico.filasDuplicadas}
+              </p>
+
+              {preview.usuariosNoEncontrados.length > 0 && (
+                <details className="emetrix-no-encontrados">
+                  <summary>{preview.usuariosNoEncontrados.length} USUARIO(s) del archivo no están en el padrón (no se contaron)</summary>
+                  <ul>
+                    {preview.usuariosNoEncontrados.map((u) => (
+                      <li key={u}>{u}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
               {guardado ? (
                 <p className="emetrix-guardado">✓ Carga guardada.</p>
               ) : (
@@ -215,22 +253,32 @@ export default function EmetrixPonderacionZona({
                     <p className="resumen-status">Cargando…</p>
                   ) : (
                     <>
+                      {detalle && detalle.usuariosNoEncontrados.length > 0 && (
+                        <details className="emetrix-no-encontrados">
+                          <summary>{detalle.usuariosNoEncontrados.length} USUARIO(s) del archivo no están en el padrón</summary>
+                          <ul>
+                            {detalle.usuariosNoEncontrados.map((u) => (
+                              <li key={u}>{u}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                       <div className="emetrix-detalle-tabla-wrap">
                         <table className="roster-table">
                           <thead>
                             <tr>
                               <th>Usuario</th>
                               <th>Posición</th>
-                              <th>Cumple</th>
+                              <th>Estado</th>
                               <th>Detalle</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {(detalle ?? []).map((f) => (
-                              <tr key={f.usuario}>
+                            {(detalle?.filas ?? []).map((f) => (
+                              <tr key={f.promotorId ?? f.usuario}>
                                 <td style={{ textAlign: 'left' }}>{f.usuario}</td>
                                 <td>{f.posicion}</td>
-                                <td>{f.cumple ? '✓' : '✕'}</td>
+                                <td>{ESTADO_LABEL[f.estado]}</td>
                                 <td style={{ textAlign: 'left' }}>{f.detalleFalla ?? '—'}</td>
                               </tr>
                             ))}

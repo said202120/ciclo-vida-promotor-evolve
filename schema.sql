@@ -524,6 +524,44 @@ create table if not exists emetrix_ponderacion_cargas (
   cargado_en timestamptz not null default now()
 );
 
+-- De dónde salió el universo: 'padron' = promotores del padrón interno con
+-- supervisor asignado a esta cuenta, cruzados por id_emetrix (preferido
+-- cuando el padrón de la cuenta no está vacío); 'manual' = headcount
+-- capturado a mano; 'archivo' = promotores únicos del Excel, a falta de las
+-- otras dos. Reemplaza a universo_manual (boolean, ya no distinguía 'padron').
+alter table emetrix_ponderacion_cargas add column if not exists universo_fuente text;
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'emetrix_ponderacion_cargas' and column_name = 'universo_manual'
+  ) then
+    update emetrix_ponderacion_cargas set universo_fuente = case when universo_manual then 'manual' else 'archivo' end
+      where universo_fuente is null;
+  end if;
+end $$;
+update emetrix_ponderacion_cargas set universo_fuente = 'archivo' where universo_fuente is null;
+alter table emetrix_ponderacion_cargas alter column universo_fuente set not null;
+alter table emetrix_ponderacion_cargas alter column universo_fuente set default 'archivo';
+alter table emetrix_ponderacion_cargas drop constraint if exists emetrix_ponderacion_cargas_universo_fuente_check;
+alter table emetrix_ponderacion_cargas add constraint emetrix_ponderacion_cargas_universo_fuente_check
+  check (universo_fuente in ('padron', 'manual', 'archivo'));
+alter table emetrix_ponderacion_cargas drop column if exists universo_manual;
+
+-- Solo tiene sentido cuando universo_fuente='padron': cuántos del padrón sí
+-- contestaron el sondeo (hayan cumplido o no). null en los otros modos.
+alter table emetrix_ponderacion_cargas add column if not exists respondieron int;
+-- Solo cuando universo_fuente='padron': USUARIO del Excel que no se pudo
+-- cruzar contra ningún id_emetrix del padrón — para ir corrigiendo el
+-- padrón, nunca entran al cálculo.
+alter table emetrix_ponderacion_cargas add column if not exists usuarios_no_encontrados text[];
+-- Diagnóstico del parseo del archivo: filas de datos que traía, cuántas se
+-- descartaron (sin USUARIO o duplicadas) y cuántos promotores únicos
+-- quedaron. Informativo, no afecta el cálculo.
+alter table emetrix_ponderacion_cargas add column if not exists filas_leidas int;
+alter table emetrix_ponderacion_cargas add column if not exists filas_sin_usuario int;
+alter table emetrix_ponderacion_cargas add column if not exists filas_duplicadas int;
+
 -- Peso de cada KR por cuenta para el % total del OKR (33.3% por default,
 -- editable en /emetrix-ponderacion). Una fila por (marca, kr); si no existe,
 -- el default de 33.3 se aplica en la capa de aplicación, no aquí.
@@ -556,6 +594,31 @@ create table if not exists emetrix_ponderacion_detalle (
   detalle_falla text
 );
 create index if not exists emetrix_ponderacion_detalle_carga_idx on emetrix_ponderacion_detalle (carga_id);
+
+-- estado ('cumple' | 'no_cumple' | 'no_contesto') reemplaza a cumple
+-- (boolean): 'no_contesto' solo ocurre en cargas con universo_fuente='padron'
+-- — un promotor del padrón que no aparece en el Excel. promotor_id solo se
+-- llena en ese mismo modo (una fila por promotor del padrón); en modo
+-- 'manual'/'archivo' queda null (una fila por respondiente del Excel, igual
+-- que antes).
+alter table emetrix_ponderacion_detalle add column if not exists promotor_id uuid references promotores(id) on delete set null;
+alter table emetrix_ponderacion_detalle add column if not exists estado text;
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'emetrix_ponderacion_detalle' and column_name = 'cumple'
+  ) then
+    update emetrix_ponderacion_detalle set estado = case when cumple then 'cumple' else 'no_cumple' end where estado is null;
+  end if;
+end $$;
+update emetrix_ponderacion_detalle set estado = 'no_cumple' where estado is null;
+alter table emetrix_ponderacion_detalle alter column estado set not null;
+alter table emetrix_ponderacion_detalle alter column estado set default 'no_cumple';
+alter table emetrix_ponderacion_detalle drop constraint if exists emetrix_ponderacion_detalle_estado_check;
+alter table emetrix_ponderacion_detalle add constraint emetrix_ponderacion_detalle_estado_check
+  check (estado in ('cumple', 'no_cumple', 'no_contesto'));
+alter table emetrix_ponderacion_detalle drop column if exists cumple;
 
 -- Trigger simple para updated_at en promotores
 create or replace function set_updated_at()

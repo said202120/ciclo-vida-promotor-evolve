@@ -15,6 +15,8 @@ import type {
   EmetrixFilaDetalle,
   EmetrixKr,
   EmetrixResultadoCuenta,
+  EmetrixUniversoFuente,
+  EmetrixVistaCruzadaFila,
   EncuestaMaterialesPayload,
   EncuestaMaterialesPublica,
   EncuestaPublica,
@@ -426,12 +428,14 @@ export function enviarCapacitacion(codigo: string, payload: CapacitacionEnvioPay
 
 export function parseEmetrixPonderacion(
   file: File,
+  marcaId: string,
   kr: EmetrixKr,
   universoManual: number | null,
   incluyeCelular: boolean | null
 ): Promise<EmetrixCargaPreview> {
   const form = new FormData();
   form.append('file', file);
+  form.append('marcaId', marcaId);
   form.append('kr', kr);
   if (universoManual !== null) form.append('universoManual', String(universoManual));
   if (incluyeCelular !== null) form.append('incluyeCelular', String(incluyeCelular));
@@ -441,12 +445,9 @@ export function parseEmetrixPonderacion(
 export function guardarCargaEmetrixPonderacion(data: {
   marcaId: string;
   kr: EmetrixKr;
-  totalFilas: number;
-  universoManual: number | null;
-  cumplieron: number;
+  preview: EmetrixCargaPreview;
   incluyeCelular: boolean | null;
   archivoNombre: string;
-  filas: EmetrixFilaDetalle[];
 }): Promise<EmetrixCarga> {
   return fetch('/api/emetrix-ponderacion/cargas', {
     method: 'POST',
@@ -462,8 +463,12 @@ export function fetchIncluyeCelularConfigEmetrixPonderacion(marcaId: string): Pr
 export function fetchDetalleEmetrixPonderacion(
   marcaId: string,
   kr: EmetrixKr
-): Promise<{ cargaId: string; cargadoEn: string; filas: EmetrixFilaDetalle[] } | null> {
+): Promise<{ cargaId: string; cargadoEn: string; universoFuente: EmetrixUniversoFuente; usuariosNoEncontrados: string[]; filas: EmetrixFilaDetalle[] } | null> {
   return fetch(`/api/emetrix-ponderacion/detalle?marcaId=${marcaId}&kr=${kr}`).then((r) => json(r));
+}
+
+export function fetchVistaCruzadaEmetrixPonderacion(marcaId: string): Promise<EmetrixVistaCruzadaFila[]> {
+  return fetch(`/api/emetrix-ponderacion/vista-cruzada?marcaId=${marcaId}`).then((r) => json(r));
 }
 
 export function emetrixPonderacionDetalleExcelUrl(marcaId: string, kr: EmetrixKr): string {
