@@ -137,10 +137,10 @@ export default function EmetrixPonderacionAdmin() {
         día en tienda, si ya tienen su kit de materiales completo, y si dominan el manejo de marca en anaquel. Es el
         respaldo manual de este cálculo mientras se resuelve la integración automática con Evolve OS — subes el
         Excel de cada sondeo por cuenta y el sistema califica según las reglas de cada KR, usando como universo el
-        padrón interno de promotores de la cuenta (si ya está cargado) o el headcount de la cuenta en su defecto (uno
-        solo, aplica a los 3 KR). Si una cuenta no tiene ni padrón ni headcount, o si el % de respuesta del sondeo
-        queda muy bajo, ese KR se marca en alerta — el resultado no es representativo. Los tres KR pesan igual por
-        default (33.3%) hasta tener mediciones calibradas; el resultado ponderado es el % del OKR de esa cuenta.
+        headcount de la cuenta (uno solo, aplica a los 3 KR). Si a la cuenta le falta capturar el headcount, o si el
+        % de respuesta del sondeo queda muy bajo, ese KR se marca en alerta — el resultado no es representativo. Por
+        default (propuesta "Habilitación"), Mesa de Control pesa 30%, Materiales 40% y Tu Marca 30%; el resultado
+        ponderado es el % del OKR de esa cuenta.
       </p>
 
       {error && <p className="login-error">{error}</p>}
@@ -202,7 +202,7 @@ export default function EmetrixPonderacionAdmin() {
         <>
           <div className="roster emetrix-headcount-cuenta">
             <label className="roster-hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              Headcount de la cuenta (uno solo, aplica a los 3 sondeos si la cuenta no tiene padrón)
+              Headcount de la cuenta (uno solo, aplica a los 3 sondeos)
               <input
                 type="number"
                 min={1}
@@ -214,8 +214,8 @@ export default function EmetrixPonderacionAdmin() {
               />
             </label>
             <p className="roster-hint" style={{ margin: '6px 0 0' }}>
-              Orden de prioridad: padrón interno → este headcount → override puntual al subir un sondeo. Si no hay
-              padrón ni headcount, ese KR queda "sin universo" y en alerta.
+              Puedes ajustar el universo solo para un sondeo puntual al subirlo. Si esta cuenta no tiene headcount
+              capturado, ese KR queda "sin universo" y en alerta.
             </p>
           </div>
 
@@ -321,6 +321,11 @@ export default function EmetrixPonderacionAdmin() {
                 </tbody>
               </table>
             )}
+            {resultado && (
+              <p className="roster-hint" style={{ marginTop: 8 }}>
+                Ponderación: {resultado.krs.map((k) => `${KR_LABEL[k.kr]} ${k.peso}%`).join(' · ')}
+              </p>
+            )}
             {resultado && resultado.krs.some((k) => k.universoFuente === 'sin_universo') && (
               <p className="roster-hint" style={{ marginTop: 8 }}>
                 ⚠ Falta capturar el headcount de esta cuenta — ese KR queda en alerta, resultado no representativo.
@@ -334,8 +339,9 @@ export default function EmetrixPonderacionAdmin() {
             )}
             {resultado && resultado.krs.some((k) => k.porcentaje === null) && (
               <p className="roster-hint" style={{ marginTop: 8 }}>
-                El % del OKR se calcula solo con los KR que ya tienen carga (usando el % de cumplimiento entre
-                quienes contestaron) — un KR sin datos no cuenta como 0%.
+                Falta cargar: {resultado.krs.filter((k) => k.porcentaje === null).map((k) => KR_LABEL[k.kr]).join(', ')} — el % del OKR se calcula solo
+                con los KR que ya tienen carga (usando el % de cumplimiento entre quienes contestaron), repartiendo el
+                peso entre los que sí tienen datos.
               </p>
             )}
           </div>

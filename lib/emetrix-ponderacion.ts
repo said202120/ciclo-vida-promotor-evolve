@@ -479,7 +479,16 @@ export async function fetchVistaCruzada(marcaId: string): Promise<EmetrixVistaCr
 
 // ---- Persistencia ----
 
-const PESO_DEFAULT = 33.3;
+// Pesos default del OKR (propuesta "Habilitación", aprobada por Carlos) —
+// aplican a toda cuenta que no tenga un peso explícito guardado en
+// emetrix_ponderacion_pesos (todas, hoy). Al cambiar estos números, el nuevo
+// valor se refleja de inmediato en las cargas ya guardadas, sin volver a
+// subir ningún Excel — el peso no se guarda por carga, se resuelve al leer.
+const PESO_DEFAULT: Record<EmetrixKr, number> = {
+  mesa_control: 30,
+  materiales: 40,
+  marca: 30,
+};
 const UMBRAL_RESPUESTA_DEFAULT = 80;
 
 export async function guardarCarga(data: {
@@ -673,7 +682,7 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
   const KRS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
   const krs = KRS.map((kr) => {
     const carga = cargaPorKr.get(kr);
-    const peso = pesoPorKr.get(kr) ?? PESO_DEFAULT;
+    const peso = pesoPorKr.get(kr) ?? PESO_DEFAULT[kr];
     if (!carga) {
       return {
         kr,
@@ -743,7 +752,7 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
     const porcentaje = Number(row.porcentaje);
     const porcentajeRespuesta = calcularPorcentajeRespuesta(universo, respondieron);
     const umbralRespuesta = umbralPorMarca.get(marcaId) ?? UMBRAL_RESPUESTA_DEFAULT;
-    const peso = pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT;
+    const peso = pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT[kr];
     porMarca.get(marcaId)!.krs.set(kr, {
       kr,
       universo,
@@ -774,7 +783,7 @@ export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuen
           respondieron: null,
           porcentajeRespuesta: null,
           enAlerta: false,
-          peso: pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT,
+          peso: pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT[kr],
           aportacion: 0,
           cargadoEn: null,
         }

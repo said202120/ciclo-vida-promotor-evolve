@@ -124,6 +124,7 @@ export default function EmetrixPonderacionZona({
       <div className="roster-head">
         <p className="section-title" style={{ margin: 0 }}>
           {KR_LABEL[kr]}
+          {estado && <span className="roster-hint"> · peso {estado.peso}%</span>}
         </p>
         <span className={`emetrix-estatus-badge ${cargado ? 'cargado' : 'pendiente'}`}>
           {cargado ? `✓ Cargado · ${formatFecha(estado!.cargadoEn!)}` : 'Falta cargar'}
