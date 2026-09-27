@@ -632,13 +632,24 @@ export type EmetrixKpiManualBase = {
  * como 0%, y en un nodo OKR/KR el motivo dice "Calculado con X de N KPI/KR"
  * cuando no todos sus hijos tienen dato (el peso se redistribuye entre los
  * que sí tienen). `fuente` describe qué sondeo/pregunta/captura alimenta el
- * nodo — misma columna que en el Excel "Descargar para OKR".
+ * nodo — misma columna que en el Excel "Descargar para OKR". `nombreOficial`
+ * es el texto LITERAL del OKR oficial de Dirección (`lib/okr-oficial.ts`,
+ * archivo de datos sin lógica) — `nombre` sigue siendo la etiqueta corta que
+ * ya se mostraba en pantalla; la pantalla, la descarga y la lectura para
+ * EvolveOS (`GET /api/okr-resultados`) usan `nombreOficial` para el texto
+ * exacto que espera Dirección, nunca una copia propia. `meta` es la meta
+ * oficial del KPI (100 o ≥90 según el KPI, sección 4) — `null` en los nodos
+ * KR/OKR agregados, que no tienen una meta individual propia. `kpiCode` es el
+ * código de EvolveOS para este KPI — `null` hasta que Dirección lo defina.
  */
 export type EmetrixOkrNodo = {
   nivel: EmetrixOkrNivel;
   codigo: string;
   area: string;
   nombre: string;
+  nombreOficial: string;
+  meta: number | null;
+  kpiCode: string | null;
   descripcion: string;
   capa: string;
   owner: string;
@@ -676,4 +687,29 @@ export type EmetrixOkrResultadoCuenta = {
     modulosPublicados: EmetrixKpiManualBase;
   };
   raiz: EmetrixOkrNodo;
+};
+
+/**
+ * Un indicador para `GET /api/okr-resultados` (lectura para EvolveOS, formato
+ * de la guía de indicadores de Operaciones) — una cuenta × un KPI hoja × un
+ * periodo. `kpi_code` es el código de EvolveOS (`lib/okr-oficial.ts`), `null`
+ * hasta que Dirección lo defina. `indicador` es "<Cuenta> — <nombre literal
+ * del KPI>". `medible` distingue "ya se midió" (aunque `valor` sea 0, ej.
+ * Materiales en Hanes) de "sin-medir" (`valor: null`, motivo en `motivo`) —
+ * un KPI pendiente nunca se manda como 0.
+ */
+export type OkrLecturaIndicador = {
+  kpi_code: string | null;
+  indicador: string;
+  medible: boolean;
+  valor: number | null;
+  base: string | null;
+  motivo: string;
+};
+
+/** Respuesta completa de `GET /api/okr-resultados?periodo=YYYY-MM`. */
+export type OkrLecturaRespuesta = {
+  okr: string;
+  periodo: { tipo: 'MES'; inicio: string };
+  indicadores: OkrLecturaIndicador[];
 };

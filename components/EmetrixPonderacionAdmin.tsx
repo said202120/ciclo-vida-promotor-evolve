@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { EmetrixCarga, EmetrixEstado, EmetrixKpiManualBase, EmetrixKr, EmetrixOkrNodo, EmetrixOkrResultadoCuenta, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
-import { formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
+import { formatIndicadorConMeta, formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
 import {
   emetrixOkrExcelUrl,
   fetchConfigEmetrixPonderacion,
@@ -106,20 +106,22 @@ function ArbolOkrTabla({
               <tr key={nodo.codigo} style={nodo.nivel !== 'kpi' ? { fontWeight: 700 } : undefined}>
                 <td style={{ textAlign: 'left', paddingLeft: 12 + profundidad * 20 }}>
                   <span className="roster-hint">{nodo.codigo}</span> {nodo.nombre}
+                  {nodo.nivel === 'kpi' && <div className="roster-hint emetrix-nombre-oficial">{nodo.nombreOficial}</div>}
                 </td>
                 <td>{nodo.peso}%</td>
                 <td>
                   {config ? (
-                    <EmetrixKpiBaseInputs
-                      entrada={config.entrada(kpiManualBase)}
-                      labelNumerador={config.labelNumerador}
-                      labelDenominador={config.labelDenominador}
-                      onGuardar={(numerador, denominador) => onManualKpiChange(nodo.codigo, numerador, denominador)}
-                    />
-                  ) : indicador.estado === 'medido' ? (
-                    `${indicador.valor}%`
+                    <>
+                      <EmetrixKpiBaseInputs
+                        entrada={config.entrada(kpiManualBase)}
+                        labelNumerador={config.labelNumerador}
+                        labelDenominador={config.labelDenominador}
+                        onGuardar={(numerador, denominador) => onManualKpiChange(nodo.codigo, numerador, denominador)}
+                      />
+                      {nodo.meta !== null && <div className="roster-hint">Meta: {nodo.meta}%</div>}
+                    </>
                   ) : (
-                    'Sin medir'
+                    formatIndicadorConMeta(indicador, nodo.meta)
                   )}
                   <div className="roster-hint">{indicador.motivo}</div>
                 </td>

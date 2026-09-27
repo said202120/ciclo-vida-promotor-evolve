@@ -19,7 +19,18 @@
 // de "sin-medir".
 
 import { parseFlexibleDate } from './import-shared.ts';
-import type { EmetrixDiagnosticoArchivo, EmetrixFilaDetalle, EmetrixIndicador, EmetrixKpiManualBase, EmetrixKr, EmetrixOkrNodo, EmetrixPreguntaResumen } from './types';
+import { OKR_OFICIAL } from './okr-oficial.ts';
+import type {
+  EmetrixDiagnosticoArchivo,
+  EmetrixFilaDetalle,
+  EmetrixIndicador,
+  EmetrixKpiManualBase,
+  EmetrixKr,
+  EmetrixOkrNodo,
+  EmetrixPreguntaResumen,
+  OkrLecturaIndicador,
+  OkrLecturaRespuesta,
+} from './types';
 
 // ---- Periodo ----
 
@@ -55,6 +66,11 @@ export function formatPeriodoLabel(periodo: string): string {
   const [anio, mes] = periodo.split('-');
   const nombreMes = NOMBRES_MES[parseInt(mes, 10) - 1] ?? mes;
   return `${nombreMes} ${anio}`;
+}
+
+/** "2026-09" -> "2026-09-01" (primer día del mes, ISO) — para `periodo.inicio` de `GET /api/okr-resultados` (sección 4-quater). */
+export function periodoInicioISO(periodo: string): string {
+  return `${periodo}-01`;
 }
 
 // ---- Normalización de texto/columnas ----
@@ -653,6 +669,31 @@ function redondear2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ---- Nombres oficiales (lib/okr-oficial.ts) por código de nodo ----
+
+type OficialInfo = { nombreOficial: string; meta: number | null; kpiCode: string | null };
+
+/** Mapa código → {nombreOficial, meta, kpiCode} de TODO el OKR oficial (OKR, sus 3 KR, sus 7 KPI), armado una sola vez a partir de `lib/okr-oficial.ts` (archivo de datos, sin lógica) — así ningún nodo del árbol duplica el texto oficial a mano. */
+const OKR_OFICIAL_POR_CODIGO: Record<string, OficialInfo> = (() => {
+  const mapa: Record<string, OficialInfo> = {
+    OKR: { nombreOficial: OKR_OFICIAL.nombreOficial, meta: null, kpiCode: OKR_OFICIAL.kpiCode },
+  };
+  for (const kr of OKR_OFICIAL.krs) {
+    mapa[kr.codigo] = { nombreOficial: kr.nombreOficial, meta: null, kpiCode: kr.kpiCode };
+    for (const kpi of kr.kpis) {
+      mapa[kpi.codigo] = { nombreOficial: kpi.nombreOficial, meta: kpi.meta, kpiCode: kpi.kpiCode };
+    }
+  }
+  return mapa;
+})();
+
+/** {nombreOficial, meta, kpiCode} de un código de nodo del árbol OKR — lanza si el código no está en `lib/okr-oficial.ts` (los 11 códigos del árbol están todos ahí; si esto truena es que un código del árbol y el de los nombres oficiales se desalinearon). */
+function oficialDe(codigo: string): OficialInfo {
+  const info = OKR_OFICIAL_POR_CODIGO[codigo];
+  if (!info) throw new Error(`Código sin nombre oficial en lib/okr-oficial.ts: "${codigo}".`);
+  return info;
+}
+
 function indicadorMedido(valor: number, base: string | null, motivo: string): EmetrixIndicador {
   return { estado: 'medido', valor: redondear2(valor), base, motivo };
 }
@@ -691,6 +732,7 @@ function nodoAgregado(
 ): EmetrixOkrNodo {
   return {
     ...base,
+    ...oficialDe(base.codigo),
     area: OKR_AREA,
     indicador: agregarIndicador(hijos, unidadHijos, fuente),
     fuente,
@@ -730,6 +772,7 @@ function kpiDeMesaControl(
     codigo,
     area: OKR_AREA,
     nombre,
+    ...oficialDe(codigo),
     descripcion: `% de "Sí" en "${columnaPregunta}" (Mesa de Control)`,
     capa: 'Actividad',
     owner: 'Mesa de Control',
@@ -795,6 +838,7 @@ function kpiManualBase(
     codigo,
     area: OKR_AREA,
     nombre,
+    ...oficialDe(codigo),
     descripcion,
     capa: 'Actividad',
     owner,
@@ -824,7 +868,7 @@ function kpiDeSondeo(
     ? indicadorSinMedir(`Falta cargar ${krLabel} en este periodo.`)
     : indicadorMedido(entrada.porcentaje, `${entrada.cumplieron} de ${entrada.respondieron}`, motivoTexto(entrada));
   const fuente = entrada ? `Sondeo ${krLabel} — % de cumplimiento` : `Sondeo ${krLabel}`;
-  return { nivel: 'kpi', codigo, area: OKR_AREA, nombre, descripcion, capa: 'Actividad', owner, peso, indicador, fuente, hijos: [] };
+  return { nivel: 'kpi', codigo, area: OKR_AREA, nombre, ...oficialDe(codigo), descripcion, capa: 'Actividad', owner, peso, indicador, fuente, hijos: [] };
 }
 
 /** Insumos (ya obtenidos de la base, o sintéticos en pruebas) para construir el árbol OKR de una cuenta en un periodo. */
@@ -1003,6 +1047,21 @@ export function pillEstado(indicador: EmetrixIndicador): 'good' | 'warn' | 'bad'
   return 'bad';
 }
 
+/**
+ * Texto para mostrar un indicador junto con su base y su meta oficial (sección
+ * 2 de la guía de indicadores), ej. "97.73% · 43 de 44 · meta 100%". `meta` es
+ * `null` en los nodos KR/OKR agregados (no tienen meta individual propia) —
+ * en ese caso el texto no trae "· meta". "Sin medir" se muestra tal cual, sin
+ * base ni meta (no hay número que acompañar).
+ */
+export function formatIndicadorConMeta(indicador: EmetrixIndicador, meta: number | null): string {
+  if (indicador.estado !== 'medido' || indicador.valor === null) return 'Sin medir';
+  const partes = [`${indicador.valor}%`];
+  if (indicador.base !== null) partes.push(indicador.base);
+  if (meta !== null) partes.push(`meta ${meta}%`);
+  return partes.join(' · ');
+}
+
 /** Un dato (KPI) con al menos una cuenta sin medir en el periodo, agrupado con su responsable — ej. "Falta Contrato firmado: 3 cuentas · Legal". */
 export type PendienteDato = { codigo: string; nombre: string; owner: string; cuentas: string[] };
 
@@ -1089,4 +1148,37 @@ export function calcularPendientes(
   }
 
   return { porDato: [...porDatoMapa.values()], porCuenta, headcountFaltante };
+}
+
+// ---- Lectura para EvolveOS: GET /api/okr-resultados (sección 4-quater) ----
+
+/**
+ * Arma la respuesta de `GET /api/okr-resultados?periodo=YYYY-MM` en el
+ * formato de la guía de indicadores de Operaciones: un indicador por cuenta ×
+ * KPI hoja, con el nombre LITERAL del OKR oficial (`lib/okr-oficial.ts`).
+ * Pura: recibe el árbol OKR de cada cuenta ya calculado (mismo
+ * `fetchResultadoOkrTodasCuentas` que usa la pantalla, ver
+ * lib/emetrix-ponderacion.ts) — no hay una segunda copia del cálculo. Un KPI
+ * `'sin-medir'` se manda con `medible: false`, `valor: null` y su `motivo`,
+ * nunca como 0; un 0% medido (ej. Materiales en Hanes) se manda con
+ * `medible: true`, `valor: 0`.
+ */
+export function construirRespuestaOkrLectura(periodo: string, cuentas: Array<{ marcaNombre: string; raiz: EmetrixOkrNodo }>): OkrLecturaRespuesta {
+  const indicadores: OkrLecturaIndicador[] = [];
+  for (const cuenta of cuentas) {
+    const planos = indicadoresPlanos(cuenta.raiz);
+    for (const codigo of KPI_CODIGOS_HOJA) {
+      const nodo = planos[codigo];
+      if (!nodo) continue;
+      indicadores.push({
+        kpi_code: nodo.kpiCode,
+        indicador: `${cuenta.marcaNombre} — ${nodo.nombreOficial}`,
+        medible: nodo.indicador.estado === 'medido',
+        valor: nodo.indicador.estado === 'medido' ? nodo.indicador.valor : null,
+        base: nodo.indicador.base,
+        motivo: nodo.indicador.motivo,
+      });
+    }
+  }
+  return { okr: OKR_OFICIAL.nombreOficial, periodo: { tipo: 'MES', inicio: periodoInicioISO(periodo) }, indicadores };
 }

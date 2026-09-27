@@ -1,10 +1,30 @@
 # Ficha técnica — OKR de Ponderación de Cumplimiento (Plan B)
 
-Pantalla `/emetrix-ponderacion` (solo rol gerente). Respaldo manual del OKR
-"Ciclo de vida del promotor" mientras se resuelve la integración automática
-con Evolve OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de
-datos) + `lib/emetrix-ponderacion-calc.ts` (toda la matemática, funciones
-puras — ver sección 9).
+Pantalla `/emetrix-ponderacion` (solo rol gerente), más `GET
+/api/okr-resultados` (lectura para EvolveOS, sección 11). Respaldo manual del
+OKR "Ciclo de vida del promotor" mientras se resuelve la integración
+automática completa con Evolve OS. Implementación: `lib/emetrix-ponderacion.ts`
+(acceso a base de datos) + `lib/emetrix-ponderacion-calc.ts` (toda la
+matemática, funciones puras — ver sección 9) + `lib/okr-oficial.ts` (nombres,
+metas y códigos LITERALES del OKR oficial de Dirección, archivo de datos sin
+lógica — ver sección 4-ter).
+
+**2026-09-27 (nombres oficiales, metas y lectura para EvolveOS)** — los
+nombres LITERALES del OKR oficial "Ciclo de vida del promotor" (copiados
+exactamente de Dirección, con su meta y un `kpiCode` vacío pendiente de
+Dirección) viven ahora en un solo archivo de datos sin lógica,
+`lib/okr-oficial.ts` — toda la app los toma de ahí, nunca hay una segunda
+copia del texto (sección 4-ter). Cada número en pantalla ahora muestra su
+base y su meta oficial, ej. "97.73% · 43 de 44 · meta 100%"
+(`formatIndicadorConMeta`). Se agregó `GET /api/okr-resultados` (sección 11),
+protegido con `Authorization: Bearer <OKR_LECTURA_TOKEN>`, para que EvolveOS
+lea los resultados en el formato de la guía — reutiliza exactamente
+`fetchResultadoOkrTodasCuentas`/`construirArbolOkr`, sin una segunda copia del
+cálculo; el token todavía no se generó (queda pendiente de que Dirección lo
+pida). Se confirmó que `.env.local` está en `.gitignore` y que ningún secreto
+está en el código ni en el historial de git. Ninguna regla de cumple/no
+cumple ni ningún peso cambió — confirmado con `npm test`, que sigue dando
+Spin Master 65.27%, ADM 61.49% y Hanes 43.58% para 2026-09.
 
 **2026-09-27 (captura con base)** — los 3 KPI de captura manual (Contrato
 firmado, Alta ante el IMSS, Módulos publicados) dejaron de capturarse como un
@@ -310,6 +330,83 @@ Los campos viejos `porcentaje`/`pendienteTexto`/`calculadoNota` de
 `EmetrixOkrNodo` se eliminaron — todo lo que antes leían pasó a
 `indicador.valor`/`indicador.estado`/`indicador.motivo`.
 
+### 4-ter. Nombres oficiales y metas (`lib/okr-oficial.ts`)
+
+Los nombres LITERALES del OKR oficial "Ciclo de vida del promotor" —
+copiados exactamente como los entregó Dirección, con su meta oficial y un
+`kpiCode` (código de EvolveOS, pendiente de que Dirección lo defina) — viven
+en **`lib/okr-oficial.ts`**: un archivo de **datos, sin lógica** (ninguna
+función, ningún cálculo, ningún import de otro módulo de la app). Es la
+única fuente de este texto en todo el proyecto — la pantalla, la descarga en
+Excel y la lectura para EvolveOS (sección 11) lo toman de ahí, nunca hay una
+copia propia escrita a mano en otro archivo.
+
+```ts
+export const OKR_OFICIAL = {
+  nombreOficial: 'Ciclo de vida del promotor',
+  kpiCode: null,
+  krs: [
+    {
+      codigo: 'KR1',
+      nombreOficial: 'Kit administrativo entregado a tiempo',
+      kpiCode: null,
+      kpis: [
+        { codigo: 'KR1.1', nombreOficial: '% de nuevos ingresos con carta de acceso y credencial entregadas antes del primer día', meta: 100, kpiCode: null },
+        // ... KR1.2, KR1.3, KR1.4
+      ],
+    },
+    // ... KR2, KR3
+  ],
+};
+```
+
+`codigo` es el mismo código interno que ya usa el árbol OKR (`KR1`, `KR1.1`,
+etc.) — así se cruza este archivo de datos contra el árbol sin repetir texto.
+`construirArbolOkr` (`lib/emetrix-ponderacion-calc.ts`) arma, a partir de
+`OKR_OFICIAL`, un mapa código → `{nombreOficial, meta, kpiCode}`
+(`OKR_OFICIAL_POR_CODIGO`/`oficialDe`) y lo mezcla en CADA nodo del árbol al
+construirlo — `nodoAgregado` para OKR/KR y las 4 funciones que arman un KPI
+(`kpiDeMesaControl`/`kpiManualBase`/`kpiDeSondeo`). Por eso `EmetrixOkrNodo`
+trae 3 campos nuevos junto a los que ya tenía:
+
+- **`nombreOficial: string`** — el texto literal. En OKR y KR ya coincide
+  exactamente con el `nombre` corto que se mostraba antes (son el mismo
+  texto, ej. KR2 = "Materiales de campo entregados en calendario" en ambos
+  campos) — el cambio real está en los 7 KPI hoja, donde `nombre` sigue
+  siendo la etiqueta corta ("Contrato firmado") y `nombreOficial` es la
+  oración completa de Dirección ("% de nuevos ingresos con contrato firmado
+  antes del primer día"). **En pantalla se sigue usando el nombre corto**,
+  con el oficial en chico debajo (`ArbolOkrTabla`,
+  `.emetrix-nombre-oficial` en `app/globals.css`) — nunca se reemplaza la
+  etiqueta corta por la oración completa en la columna Nombre.
+- **`meta: number | null`** — la meta oficial del KPI (100% en 6 de los 7
+  KPI, 90% en "Módulo completado"). `null` en los nodos OKR/KR agregados, que
+  no tienen una meta individual propia (la meta es del indicador puntual, no
+  de su promedio ponderado).
+- **`kpiCode: string | null`** — el código que use EvolveOS para ese
+  indicador. `null` en los 3 niveles hasta que Dirección lo entregue — no se
+  inventó ningún código propio para no chocar con el que EvolveOS vaya a
+  usar.
+
+**Metas en pantalla:** cada número medido se muestra junto a su base y su
+meta con `formatIndicadorConMeta` (`lib/emetrix-ponderacion-calc.ts`, pura),
+ej. `"97.73% · 43 de 44 · meta 100%"` — sin base ni meta (nodo agregado o sin
+meta propia) queda solo `"97.73%"`; `"Sin medir"` nunca trae base ni meta. Se
+usa en la columna "% Obtenido" de `ArbolOkrTabla`
+(`components/EmetrixPonderacionAdmin.tsx`); en los 3 KPI de captura manual
+(que muestran los 2 inputs de numerador/denominador en vez de texto) la meta
+se agrega aparte, en una línea "Meta: 100%" debajo de los inputs. La vista
+"Cómo va cada cuenta" (sección 10) no se tocó — sus pastillas siguen
+mostrando solo `%` + motivo, sin meta, para no saturar una tabla de 8
+columnas × todas las cuentas.
+
+**Descarga en Excel** (sección 7): la columna "Descripción" de un KPI ahora
+es el `nombreOficial` literal (antes era una paráfrasis propia); en OKR/KR
+sigue siendo el resumen propio, porque su `nombreOficial` ya es idéntico a la
+columna "Nombre" (mostrarlo dos veces sería redundante). La columna "Fuente"
+ahora agrega `· meta X%` al final cuando el nodo tiene meta propia
+(`app/api/emetrix-ponderacion/okr/excel/route.ts`).
+
 ## 5. Dónde ver esto en pantalla
 
 - Cada tarjeta de sondeo (`components/EmetrixPonderacionZona.tsx`) muestra
@@ -477,14 +574,15 @@ Toda la matemática (parseo de columnas, reglas de cumple/no cumple de los 3
 sondeos, desglose por pregunta, formato largo↔ancho, y el árbol OKR con sus
 indicadores) vive en **`lib/emetrix-ponderacion-calc.ts`** — funciones puras:
 ningún import de `@vercel/postgres`, ninguna llamada a `fetch`, nada de
-pantalla. `lib/emetrix-ponderacion.ts` solo hace las consultas a la base
-(la carga más reciente de un KR en un periodo, el padrón, la config de la
-cuenta) y le pasa esos datos ya obtenidos a las funciones puras — la
+pantalla (sí importa `lib/okr-oficial.ts`, que a su vez es puro archivo de
+datos — sección 4-ter). `lib/emetrix-ponderacion.ts` solo hace las consultas
+a la base (la carga más reciente de un KR en un periodo, el padrón, la config
+de la cuenta) y le pasa esos datos ya obtenidos a las funciones puras — la
 pantalla (`components/EmetrixPonderacionZona.tsx`,
 `components/EmetrixPonderacionAdmin.tsx`), la descarga en Excel
-(`app/api/emetrix-ponderacion/*/excel/route.ts`) y cualquier envío futuro
-(a EvolveOS, por ejemplo) usan exactamente esas mismas funciones — no hay
-una segunda copia de ninguna regla.
+(`app/api/emetrix-ponderacion/*/excel/route.ts`) y la lectura para EvolveOS
+(`GET /api/okr-resultados`, sección 11) usan exactamente esas mismas
+funciones — no hay una segunda copia de ninguna regla.
 
 Piezas puras clave (todas exportadas desde `lib/emetrix-ponderacion-calc.ts`,
 y re-exportadas también desde `lib/emetrix-ponderacion.ts` para que las rutas
@@ -510,6 +608,14 @@ existentes no cambien su import):
   de indicadores (sección 10): aplanar el árbol por código, decidir el color
   de la pastilla (verde/amarillo/rojo/sin-medir) y calcular qué falta por
   dato/cuenta/headcount.
+- `oficialDe` — mezcla `{nombreOficial, meta, kpiCode}` de `lib/okr-oficial.ts`
+  en cada nodo del árbol al construirlo (sección 4-ter); `formatIndicadorConMeta`
+  — texto "97.73% · 43 de 44 · meta 100%" para mostrar un indicador junto a su
+  meta.
+- `construirRespuestaOkrLectura` / `periodoInicioISO` — arman la respuesta de
+  `GET /api/okr-resultados` (sección 11) a partir del árbol OKR ya calculado
+  de cada cuenta — ninguna regla ni cálculo nuevo, solo el formato de salida
+  que espera EvolveOS.
 
 ### Pruebas
 
@@ -556,6 +662,17 @@ Una prueba por regla, entre otras:
   ninguna cuenta que ya lo hubiera capturado así.
 - **Aproximación**: el motivo de "Módulo completado" siempre empieza con
   "Aproximación: ".
+- **Nombres oficiales**: cada nodo del árbol trae el `nombreOficial` LITERAL
+  de `lib/okr-oficial.ts` (no el `nombre` corto); solo los 7 KPI hoja traen
+  `meta` (los nodos OKR/KR agregados quedan en `null`); `kpiCode` siempre
+  `null` (pendiente de Dirección).
+- **Metas**: `formatIndicadorConMeta` arma "97.73% · 43 de 44 · meta 100%";
+  sin base ni meta queda solo el %; `'sin-medir'` nunca muestra base ni meta.
+- **Lectura para EvolveOS**: `construirRespuestaOkrLectura` arma el formato
+  exacto de la guía (`okr`, `periodo.tipo`/`periodo.inicio`, un indicador por
+  cuenta × KPI hoja); lo "sin medir" siempre va con `medible: false`,
+  `valor: null` y su `motivo` (nunca `0`); un 0% medido (ej. Materiales en
+  Hanes) va con `medible: true` y `valor: 0`.
 
 Esta misma suite es el punto de referencia para futuros cambios: antes de
 tocar `lib/emetrix-ponderacion-calc.ts`, correr `npm test` y no romper
@@ -641,3 +758,94 @@ cual está en pantalla), porque el % solo se puede calcular/validar con ambos a
 la vez — mismas funciones `updateContratoFirmadoManual`/`updateImssManual`/
 `updateModulosPublicadosManual`/`updateHeadcountManual` que usa la tabla del
 árbol OKR, sin una segunda copia de la lógica de guardado.
+
+## 11. Lectura para EvolveOS (`GET /api/okr-resultados`)
+
+Endpoint de solo lectura, pensado para que EvolveOS (u otro sistema
+autorizado) consulte los resultados del OKR sin pasar por la pantalla de
+gerente — **no** usa la sesión de gerente (`requireGerente`), es
+autenticación de máquina a máquina aparte.
+
+### Autenticación
+
+Cada solicitud debe traer:
+
+```
+Authorization: Bearer <OKR_LECTURA_TOKEN>
+```
+
+`OKR_LECTURA_TOKEN` es una variable de entorno — **nunca vive en el código ni
+se sube a git** (mismo patrón que `CRON_SECRET`, que ya protege
+`/api/cron/check-alertas` contra el scheduler de Vercel). Si la variable no
+está configurada en el proyecto, el endpoint queda completamente cerrado:
+regresa `401` a cualquier solicitud, incluso con el header bien formado,
+porque nunca hay nada contra qué comparar (`autorizado` en
+`app/api/okr-resultados/route.ts`). El token **todavía no se generó** — la
+ficha solo documenta el mecanismo; en cuanto Dirección lo pida, se genera con
+`openssl rand -base64 32`, se configura como `OKR_LECTURA_TOKEN` en Vercel
+(Production/el ambiente que corresponda) y se le entrega a EvolveOS por un
+canal seguro, nunca por código ni por commit — ver `.env.local.example` para
+el mismo patrón ya documentado con `CRON_SECRET`.
+
+### Petición y respuesta
+
+```
+GET /api/okr-resultados?periodo=2026-09
+Authorization: Bearer <OKR_LECTURA_TOKEN>
+```
+
+`periodo` es opcional (default: el mes actual, `periodoActual()`); debe tener
+formato `YYYY-MM` o regresa `400`.
+
+```json
+{
+  "okr": "Ciclo de vida del promotor",
+  "periodo": { "tipo": "MES", "inicio": "2026-09-01" },
+  "indicadores": [
+    {
+      "kpi_code": null,
+      "indicador": "Spin Master — % de nuevos ingresos con contrato firmado antes del primer día",
+      "medible": true,
+      "valor": 90,
+      "base": "18 de 20",
+      "motivo": "18 de 20 nuevos ingresos firmaron contrato antes de su primer día."
+    }
+  ]
+}
+```
+
+- **`okr`** y el texto de `indicador` (después del "— ") son los nombres
+  LITERALES de `lib/okr-oficial.ts` (sección 4-ter) — `indicador` es
+  `"<Cuenta> — <nombre oficial del KPI>"`.
+- **`indicadores`** trae un elemento por cada cuenta REAL registrada × cada
+  uno de los 7 KPI hoja del árbol (nunca cuentas ni cargas de prueba — sale
+  de `fetchResultadoOkrTodasCuentas`, la misma consulta que usa "Todas las
+  cuentas" en pantalla).
+- **`medible: false`** cuando el indicador está `'sin-medir'` — `valor` va en
+  `null` y `motivo` trae la explicación (igual que en pantalla), **nunca**
+  se manda como `0`.
+- **`medible: true`** con `valor: 0` para un 0% REAL medido (ej. Materiales
+  en Hanes) — la diferencia entre "no hay dato" y "el dato es cero" (sección
+  4-bis) se preserva también aquí.
+- **`kpi_code`** sale de `lib/okr-oficial.ts` — `null` en los 3 niveles hasta
+  que Dirección lo defina (no se inventó ningún código propio).
+
+Implementado en `app/api/okr-resultados/route.ts`, que solo hace
+`fetchResultadoOkrTodasCuentas(periodo)` (obtiene los datos) y le pasa el
+resultado a **`construirRespuestaOkrLectura`**
+(`lib/emetrix-ponderacion-calc.ts`, pura, con sus propias pruebas en
+`lib/emetrix-ponderacion-calc.test.ts`) — la misma función de cálculo del
+árbol OKR que usa la pantalla (`construirArbolOkr`), sin una segunda copia de
+ninguna regla.
+
+### Seguridad (confirmado 2026-09-27)
+
+- `.env.local` está en `.gitignore` (`.env*`, con excepción explícita solo de
+  `.env.local.example`) y nunca se subió a git — verificado con
+  `git log --all` sobre ese archivo.
+- Ninguna llave, contraseña ni token está escrita a mano en el código
+  (`git grep` sobre los nombres de las variables de entorno) ni aparece en el
+  historial completo de git (`git log --all -p` contra los patrones típicos
+  de credenciales) — lo único que aparece es el placeholder genérico de
+  `.env.local.example` (`postgres://usuario:password@host:5432/postgres`),
+  que nunca fue una credencial real.

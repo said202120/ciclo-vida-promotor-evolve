@@ -15,13 +15,17 @@ import {
   calcularPendientes,
   calcularTotalPonderado,
   construirArbolOkr,
+  construirRespuestaOkrLectura,
   detectarYConvertirFormatoLargo,
   esPeriodoValido,
+  formatIndicadorConMeta,
   formatPeriodoLabel,
   periodoActual,
+  periodoInicioISO,
   pillEstado,
   validarBaseManual,
 } from './emetrix-ponderacion-calc.ts';
+import { OKR_OFICIAL } from './okr-oficial.ts';
 import type { EmetrixKpiManualBase, EmetrixOkrNodo } from './types';
 
 // KPI manual "sin capturar" (ni base ni el % del formato viejo) — el default
@@ -457,6 +461,9 @@ function nodoIndicador(codigo: string, nombre: string, owner: string, estado: 'm
     codigo,
     area: 'Operaciones',
     nombre,
+    nombreOficial: nombre,
+    meta: 100,
+    kpiCode: null,
     descripcion: '',
     capa: 'Actividad',
     owner,
@@ -473,6 +480,9 @@ function raizConHojas(hojas: EmetrixOkrNodo[]): EmetrixOkrNodo {
     codigo: 'OKR',
     area: 'Operaciones',
     nombre: 'Ciclo de vida del promotor',
+    nombreOficial: 'Ciclo de vida del promotor',
+    meta: null,
+    kpiCode: null,
     descripcion: '',
     capa: 'Resultado',
     owner: 'Operaciones',
@@ -576,4 +586,104 @@ test('compatibilidad: preguntas_resumen histórico sin "numerador" no rompe el m
   const kr1_1 = raiz.hijos.find((h) => h.codigo === 'KR1')!.hijos.find((h) => h.codigo === 'KR1.1')!;
   assert.equal(kr1_1.indicador.base, '218 de 220');
   assert.doesNotMatch(kr1_1.indicador.motivo, /undefined/);
+});
+
+// ---- Nombres oficiales del OKR (lib/okr-oficial.ts) en cada nodo del árbol ----
+
+function raizDeEjemplo(): EmetrixOkrNodo {
+  return construirArbolOkr({
+    materiales: { cumplieron: 8, respondieron: 10, porcentaje: 80 },
+    marca: { cumplieron: 9, respondieron: 10, porcentaje: 90 },
+    mesaControlPreguntas: [
+      { pregunta: 'Entrada a tienda', porcentaje: 100, numerador: 10, contestaron: 10 },
+      { pregunta: 'Emetrix funcionó', porcentaje: 100, numerador: 10, contestaron: 10 },
+    ],
+    contratoFirmado: { numerador: 18, denominador: 20, legacyPorcentaje: null },
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
+  });
+}
+
+test('nombres oficiales: el árbol trae el texto LITERAL de lib/okr-oficial.ts en cada nodo, y la meta solo en los 7 KPI hoja', () => {
+  const raiz = raizDeEjemplo();
+  assert.equal(raiz.nombreOficial, OKR_OFICIAL.nombreOficial);
+  assert.equal(raiz.meta, null, 'el OKR agregado no tiene meta individual propia');
+
+  const kr1 = raiz.hijos.find((h) => h.codigo === 'KR1')!;
+  assert.equal(kr1.nombreOficial, OKR_OFICIAL.krs[0].nombreOficial);
+  assert.equal(kr1.meta, null, 'un KR agregado no tiene meta individual propia');
+
+  const contrato = kr1.hijos.find((h) => h.codigo === 'KR1.3')!;
+  assert.equal(contrato.nombreOficial, '% de nuevos ingresos con contrato firmado antes del primer día');
+  assert.equal(contrato.meta, 100);
+  assert.equal(contrato.kpiCode, null, 'pendiente de Dirección');
+  assert.notEqual(contrato.nombreOficial, contrato.nombre, 'el nombre corto en pantalla sigue siendo distinto al oficial');
+
+  const moduloCompletado = raiz.hijos.find((h) => h.codigo === 'KR3')!.hijos.find((h) => h.codigo === 'KR3.2')!;
+  assert.equal(moduloCompletado.nombreOficial, '% de promotores con el módulo que les toca por antigüedad completado');
+  assert.equal(moduloCompletado.meta, 90, 'meta oficial de Módulo completado es 90%, no 100%');
+});
+
+// ---- Metas: "97.73% · 43 de 44 · meta 100%" ----
+
+test('formatIndicadorConMeta: junta %, base y meta con " · "', () => {
+  assert.equal(formatIndicadorConMeta({ estado: 'medido', valor: 97.73, base: '43 de 44', motivo: '' }, 100), '97.73% · 43 de 44 · meta 100%');
+  assert.equal(formatIndicadorConMeta({ estado: 'medido', valor: 75.11, base: '166 de 221', motivo: '' }, 90), '75.11% · 166 de 221 · meta 90%');
+  assert.equal(formatIndicadorConMeta({ estado: 'medido', valor: 50, base: null, motivo: '' }, null), '50%', 'sin base ni meta (nodo agregado) solo el %');
+  assert.equal(formatIndicadorConMeta({ estado: 'sin-medir', valor: null, base: null, motivo: 'x' }, 100), 'Sin medir', 'sin-medir nunca muestra base ni meta');
+});
+
+// ---- periodoInicioISO ----
+
+test('periodoInicioISO: "2026-09" -> "2026-09-01"', () => {
+  assert.equal(periodoInicioISO('2026-09'), '2026-09-01');
+});
+
+// ---- Lectura para EvolveOS: GET /api/okr-resultados ----
+
+test('construirRespuestaOkrLectura: formato de la guía — okr, periodo y un indicador por cuenta × KPI hoja', () => {
+  const respuesta = construirRespuestaOkrLectura('2026-09', [{ marcaNombre: 'Spin Master', raiz: raizDeEjemplo() }]);
+  assert.equal(respuesta.okr, 'Ciclo de vida del promotor');
+  assert.deepEqual(respuesta.periodo, { tipo: 'MES', inicio: '2026-09-01' });
+  assert.equal(respuesta.indicadores.length, 7, 'un indicador por cada uno de los 7 KPI hoja');
+
+  const contrato = respuesta.indicadores.find((i) => i.indicador.includes('contrato firmado'))!;
+  assert.equal(contrato.indicador, 'Spin Master — % de nuevos ingresos con contrato firmado antes del primer día');
+  assert.equal(contrato.medible, true);
+  assert.equal(contrato.valor, 90);
+  assert.equal(contrato.base, '18 de 20');
+  assert.equal(contrato.kpi_code, null);
+});
+
+test('construirRespuestaOkrLectura: lo "sin medir" va con medible:false, valor:null y su motivo — nunca como 0', () => {
+  const raiz = construirArbolOkr({
+    materiales: null, // no hay carga de Materiales en este periodo
+    marca: null,
+    mesaControlPreguntas: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
+  });
+  const respuesta = construirRespuestaOkrLectura('2026-09', [{ marcaNombre: 'Zuru', raiz }]);
+  for (const i of respuesta.indicadores) {
+    assert.equal(i.medible, false);
+    assert.equal(i.valor, null);
+    assert.ok(i.motivo.length > 0, 'siempre debe traer un motivo, aunque sea sin-medir');
+  }
+});
+
+test('construirRespuestaOkrLectura: un 0% medido (ej. Hanes Materiales) va con medible:true y valor:0, nunca sin-medir', () => {
+  const raiz = construirArbolOkr({
+    materiales: { cumplieron: 0, respondieron: 32, porcentaje: 0 },
+    marca: null,
+    mesaControlPreguntas: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
+  });
+  const respuesta = construirRespuestaOkrLectura('2026-09', [{ marcaNombre: 'Hanes', raiz }]);
+  const materiales = respuesta.indicadores.find((i) => i.indicador.includes('materiales entregados'))!;
+  assert.equal(materiales.medible, true);
+  assert.equal(materiales.valor, 0);
+  assert.equal(materiales.base, '0 de 32');
 });

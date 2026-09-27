@@ -1947,3 +1947,11 @@ table.roster-table select.mapeo-set {
 .emetrix-captura-rapida-col {
   min-width: 190px;
 }
+
+/* Nombre oficial del OKR (lib/okr-oficial.ts) en chico debajo del nombre
+   corto de cada KPI, en la tabla del árbol OKR. */
+.emetrix-nombre-oficial {
+  font-style: italic;
+  white-space: normal;
+  max-width: 320px;
+}

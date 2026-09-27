@@ -62,17 +62,25 @@ export async function GET(request: Request) {
 
     for (const nodo of aplanarArbolOkr(cuenta.raiz)) {
       const { indicador } = nodo;
+      // Descripción: para un KPI, el nombre LITERAL del OKR oficial
+      // (lib/okr-oficial.ts) — nunca una paráfrasis propia. Para KR/OKR
+      // (nivel agregado) su `nombre` ya ES el texto oficial (ver `nodoAgregado`
+      // en lib/emetrix-ponderacion-calc.ts), así que su descripción sigue
+      // siendo el resumen propio que ya traía, sin duplicar la columna Nombre.
+      const descripcion = nodo.nivel === 'kpi' ? nodo.nombreOficial : nodo.descripcion;
+      const fuenteConMotivo = indicador.estado === 'medido' && indicador.base !== null ? `${nodo.fuente} (${indicador.motivo})` : nodo.fuente;
+      const fuente = nodo.meta !== null ? `${fuenteConMotivo} · meta ${nodo.meta}%` : fuenteConMotivo;
       const row = sheet.addRow({
         nivel: NIVEL_LABEL[nodo.nivel],
         codigo: nodo.codigo,
         area: nodo.area,
         nombre: nodo.nombre,
-        descripcion: nodo.descripcion,
+        descripcion,
         capa: nodo.capa,
         owner: nodo.owner,
         peso: nodo.peso / 100,
         obtenido: indicador.estado === 'medido' ? indicador.valor! / 100 : indicador.motivo,
-        fuente: indicador.estado === 'medido' && indicador.base !== null ? `${nodo.fuente} (${indicador.motivo})` : nodo.fuente,
+        fuente,
       });
       row.getCell('peso').numFmt = '0%';
       if (indicador.estado === 'medido') row.getCell('obtenido').numFmt = '0.00%';

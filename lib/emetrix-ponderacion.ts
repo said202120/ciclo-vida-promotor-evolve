@@ -31,10 +31,13 @@ import {
   calcularPorcentajes,
   calcularTotalPonderado,
   construirArbolOkr,
+  construirRespuestaOkrLectura,
   detectarYConvertirFormatoLargo as detectarYConvertirFormatoLargoPuro,
   esPeriodoValido,
+  formatIndicadorConMeta,
   normalizarColumnaUsuario as normalizarColumnaUsuarioPuro,
   periodoActual,
+  periodoInicioISO,
   validarBaseManual,
   ColumnasFaltantesError,
 } from './emetrix-ponderacion-calc';
@@ -60,10 +63,13 @@ export {
   calcularMarcaPuro as calcularMarca,
   calcularMaterialesPuro as calcularMateriales,
   calcularMesaControlPuro as calcularMesaControl,
+  construirRespuestaOkrLectura,
   detectarYConvertirFormatoLargoPuro as detectarYConvertirFormatoLargo,
   esPeriodoValido,
+  formatIndicadorConMeta,
   normalizarColumnaUsuarioPuro as normalizarColumnaUsuario,
   periodoActual,
+  periodoInicioISO,
   validarBaseManual,
 };
 export { aplanarArbolOkrPuro as aplanarArbolOkr };
