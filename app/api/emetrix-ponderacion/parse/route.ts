@@ -8,6 +8,7 @@ import {
   calcularMateriales,
   calcularMesaControl,
   detectarYConvertirFormatoLargo,
+  normalizarColumnaUsuario,
 } from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
@@ -43,27 +44,33 @@ export async function POST(request: Request) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { headers: headersOriginal, rows: rowsOriginal } = await parseSpreadsheet(buffer, file.name);
+    const { headers: headersCrudos, rows } = await parseSpreadsheet(buffer, file.name);
+    // Algunas cuentas (ej. Hanes) no traen columna USUARIO — usan otro
+    // nombre (ej. "NOMBRE") para el código de promotor. Se detecta y
+    // renombra ANTES de todo lo demás, para que el resto del pipeline (el
+    // pivote de formato largo y validarColumnas) vea siempre "USUARIO".
+    const { headers: headersOriginal, notaUsuario } = normalizarColumnaUsuario(headersCrudos, rows);
     // Algunas cuentas (ej. ADM) exportan el sondeo en formato "largo" (una fila
     // por respuesta) en vez de "ancho" (una fila por promotor, como Spin
     // Master); se convierte a ancho aquí, ANTES de calificar, para que las
     // reglas de cumple/no cumple de abajo corran exactamente igual en ambos
     // casos. No hace nada (regresa igual) si el archivo ya viene ancho.
-    const { headers, rows, notaFormatoLargo } = detectarYConvertirFormatoLargo(headersOriginal, rowsOriginal);
+    const { headers, rows: rowsAncho, notaFormatoLargo } = detectarYConvertirFormatoLargo(headersOriginal, rows);
 
     let calculo;
     if (kr === 'mesa_control') {
-      calculo = calcularMesaControl(headers, rows);
+      calculo = calcularMesaControl(headers, rowsAncho);
     } else if (kr === 'materiales') {
       const incluyeCelularRaw = form?.get('incluyeCelular');
       if (incluyeCelularRaw !== 'true' && incluyeCelularRaw !== 'false') {
         return NextResponse.json({ error: 'Falta indicar si la cuenta incluye celular en el acuerdo comercial.' }, { status: 400 });
       }
-      calculo = calcularMateriales(headers, rows, incluyeCelularRaw === 'true');
+      calculo = calcularMateriales(headers, rowsAncho, incluyeCelularRaw === 'true');
     } else {
-      calculo = calcularMarca(headers, rows);
+      calculo = calcularMarca(headers, rowsAncho);
     }
     calculo.diagnostico.formatoLargo = notaFormatoLargo;
+    calculo.diagnostico.columnaUsuario = notaUsuario;
 
     const preview = await armarPreview(marcaId, calculo, universoOverride);
     return NextResponse.json(preview);

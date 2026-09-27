@@ -251,6 +251,7 @@ export default function EmetrixPonderacionZona({
 
               <details className="emetrix-detalle-tecnico">
                 <summary>Ver detalle técnico</summary>
+                {preview.diagnostico.columnaUsuario && <p className="roster-hint">{preview.diagnostico.columnaUsuario}</p>}
                 {preview.diagnostico.formatoLargo && <p className="roster-hint">{preview.diagnostico.formatoLargo}</p>}
                 <p className="roster-hint">
                   Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}

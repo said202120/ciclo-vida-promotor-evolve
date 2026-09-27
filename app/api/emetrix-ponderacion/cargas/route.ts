@@ -68,6 +68,7 @@ function validarPreview(body: unknown): EmetrixCargaPreview | null {
       filasSinUsuario: typeof d?.filasSinUsuario === 'number' ? d.filasSinUsuario : 0,
       filasDuplicadas: typeof d?.filasDuplicadas === 'number' ? d.filasDuplicadas : 0,
       formatoLargo: typeof d?.formatoLargo === 'string' ? d.formatoLargo : null,
+      columnaUsuario: typeof d?.columnaUsuario === 'string' ? d.columnaUsuario : null,
     },
     filas,
     preguntas,

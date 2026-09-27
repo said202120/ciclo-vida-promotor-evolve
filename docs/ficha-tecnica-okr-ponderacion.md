@@ -230,12 +230,17 @@ función regresa los datos tal cual (no-op).
 Reglas del pivote:
 - Un **envío** = una combinación (usuario, pregunta, FECHA ENTRADA) — el
   mismo promotor puede tener varios envíos de la misma pregunta a lo largo
-  del tiempo (varias visitas a tienda).
+  del tiempo (varias visitas a tienda). Acepta tanto `FECHA ENTRADA` como
+  `FECHA DE ENTRADA` (`valorAlias`, prueba las dos, usa la que exista).
 - Si el promotor contestó la misma pregunta en más de un envío, se usa el de
-  **FECHA ENTRADA más reciente** (`compararFechaEntrada`: intenta parsear
-  ambas fechas con `parseFlexibleDate`, y si empatan o no se pudieron
-  parsear, desempata con el texto crudo completo — así conserva la hora del
-  día cuando el archivo la trae).
+  **FECHA ENTRADA más reciente** (`compararFechaEntrada`). Primero intenta
+  `parseFechaConHora` — formato "DD/Mon/YYYY, hh:mmam" con mes en 3+ letras
+  (español o inglés) y hora de 12h (ej. "24/Sep/2026, 08:33am", visto en
+  Hanes) — que da precisión de minuto y es el más confiable para desempatar
+  envíos del mismo día. Si no coincide con ese formato, cae a
+  `parseFlexibleDate` (YYYY-MM-DD, DD/MM/YYYY, seriales de Excel) y, si
+  empatan o no se pudieron parsear, al texto crudo completo como último
+  desempate.
 - Si esa pregunta es de opción múltiple (Tu Marca), las respuestas que
   comparten el mismo envío (mismo USUARIO+PREGUNTA+FECHA ENTRADA exacta) se
   juntan con `", "` — igual que ya se escriben las selecciones múltiples en
@@ -246,7 +251,31 @@ Reglas del pivote:
   sobre el total de promotores.
 - `POSICION` (columna que exige `validarColumnas` en los 3 sondeos, solo
   informativa) se toma del archivo si existe; si no, se usa `NOMBRE` como
-  respaldo.
+  respaldo (a menos que `NOMBRE` ya se haya usado como USUARIO, ver abajo).
+
+### Columna USUARIO con otro nombre (ej. Hanes)
+
+Algunas cuentas no traen una columna llamada `USUARIO` — usan otro nombre
+(ej. Hanes usa `NOMBRE`) para el código de promotor (tipo `HANPRO029`).
+`normalizarColumnaUsuario` (`lib/emetrix-ponderacion.ts`) corre ANTES que
+todo lo demás (antes del pivote de formato largo, antes de calificar): si no
+hay columna `USUARIO`, busca cuál otra columna tiene, en al menos 90% de sus
+valores no vacíos, forma de código de promotor (`/^[A-Za-z]+[0-9]+$/` —
+letras seguidas de números, sin espacios) y la renombra a `USUARIO` — el
+resto del pipeline nunca se entera de que originalmente se llamaba distinto.
+Nunca elige columnas ya reservadas (`PREGUNTA`, `RESPUESTA`, `FECHA
+ENTRADA`/`FECHA DE ENTRADA`, `FECHA SALIDA`, `BOOL`, `POSICION`).
+
+Diagnóstico: `EmetrixDiagnosticoArchivo.columnaUsuario` trae `'No se
+encontró columna USUARIO; se usó "NOMBRE" (sus valores parecen código de
+promotor).'` (o `null` si el archivo ya traía `USUARIO`), visible en "Ver
+detalle técnico" del preview.
+
+Verificado 2026-09-28 con un archivo sintético (mismo patrón que Hanes: sin
+USUARIO, código en NOMBRE, `FECHA DE ENTRADA` en formato "DD/Mon/YYYY,
+hh:mmam", dos visitas el mismo día para un promotor) y releyendo Spin Master
+y ADM reales para confirmar que sus números (OKR 65.27% y 61.49%) no
+cambiaron.
 
 **Importante — precisión de fecha/hora:** `cellToDisplay`
 (`lib/importaciones.ts`, compartida con el importador de Aspel) antes

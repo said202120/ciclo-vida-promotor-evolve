@@ -45,6 +45,14 @@ function indiceColumna(headers: string[], nombre: string): number {
   return headers.findIndex((h) => normalizar(h) === buscado);
 }
 
+/** Lee la primera columna de `candidatos` que exista en el archivo (ej. "FECHA ENTRADA" o, si no, "FECHA DE ENTRADA"). '' si ninguna existe. */
+function valorAlias(valor: (row: string[], col: string) => string, headers: string[], row: string[], candidatos: string[]): string {
+  for (const candidato of candidatos) {
+    if (indiceColumna(headers, candidato) !== -1) return valor(row, candidato);
+  }
+  return '';
+}
+
 function crearLector(headers: string[]) {
   const cache = new Map<string, number>();
   return function valor(row: string[], nombreColumna: string): string {
@@ -119,18 +127,113 @@ function resumenPreguntaOpcion(
   return { pregunta: p.columna, porcentaje: Math.round((aciertos / contestaron) * 10000) / 100, contestaron };
 }
 
-// ---- Formato "largo" (una fila por respuesta, ej. ADM) ----
+// ---- Columna USUARIO con otro nombre (ej. Hanes trae el código de promotor en "NOMBRE") ----
+
+/** letras seguidas de números, sin espacios — ej. "HANPRO029". */
+const PATRON_CODIGO_PROMOTOR = /^[A-Za-z]+[0-9]+$/;
+
+/** Columnas que nunca se confunden con la de USUARIO, aunque su contenido calzara el patrón por casualidad. */
+const COLUMNAS_NO_USUARIO = ['PREGUNTA', 'RESPUESTA', 'FECHA ENTRADA', 'FECHA DE ENTRADA', 'FECHA SALIDA', 'BOOL', 'POSICION'].map(normalizar);
 
 /**
- * Compara dos valores de FECHA ENTRADA de forma tolerante: intenta
- * normalizar ambos a fecha (acepta YYYY-MM-DD, DD/MM/YYYY o MM/DD/YYYY, y
+ * Si el archivo no trae una columna USUARIO, busca cuál otra columna (sin
+ * importar cómo se llame — ej. Hanes usa "NOMBRE" para el código de
+ * promotor, tipo "HANPRO029") tiene, en al menos 90% de sus valores no
+ * vacíos, forma de código de promotor (letras seguidas de números, sin
+ * espacios) y la renombra a "USUARIO" para que el resto del pipeline
+ * (deduplicarPorUsuario, detectarYConvertirFormatoLargo, validarColumnas)
+ * funcione exactamente igual que con un archivo que sí trae USUARIO. No hace
+ * nada (regresa tal cual, sin nota) si el archivo ya trae USUARIO.
+ */
+export function normalizarColumnaUsuario(headers: string[], rows: string[][]): { headers: string[]; notaUsuario: string | null } {
+  if (indiceColumna(headers, 'USUARIO') !== -1) return { headers, notaUsuario: null };
+
+  let mejorIndice = -1;
+  let mejorRatio = 0;
+  for (let indice = 0; indice < headers.length; indice++) {
+    if (COLUMNAS_NO_USUARIO.includes(normalizar(headers[indice]))) continue;
+    const valores = rows.map((row) => (row[indice] ?? '').trim()).filter((v) => v !== '');
+    if (valores.length === 0) continue;
+    const ratio = valores.filter((v) => PATRON_CODIGO_PROMOTOR.test(v)).length / valores.length;
+    if (ratio >= 0.9 && ratio > mejorRatio) {
+      mejorIndice = indice;
+      mejorRatio = ratio;
+    }
+  }
+
+  if (mejorIndice === -1) return { headers, notaUsuario: null };
+  const nuevosHeaders = [...headers];
+  const columnaOriginal = headers[mejorIndice];
+  nuevosHeaders[mejorIndice] = 'USUARIO';
+  return {
+    headers: nuevosHeaders,
+    notaUsuario: `No se encontró columna USUARIO; se usó "${columnaOriginal}" (sus valores parecen código de promotor).`,
+  };
+}
+
+// ---- Formato "largo" (una fila por respuesta, ej. ADM) ----
+
+const MESES_ABREV: Record<string, number> = {
+  ene: 1,
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  abr: 4,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  ago: 8,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dic: 12,
+  dec: 12,
+};
+
+/**
+ * Parsea fechas con hora tipo "24/Sep/2026, 08:33am" (día/mes-abreviado/año,
+ * hora 12h con am/pm — formato visto en el sondeo de Hanes). Acepta mes en
+ * español o inglés (3+ letras, solo se usan las primeras 3), con o sin coma
+ * antes de la hora, y la hora es opcional. Devuelve epoch ms, o null si no
+ * coincide con este formato.
+ */
+function parseFechaConHora(raw: string): number | null {
+  const m = raw.trim().match(/^(\d{1,2})\/([A-Za-zÀ-ÿ]{3,})\/(\d{4})(?:[,\s]+(\d{1,2}):(\d{2})\s*([ap])\.?\s*m\.?)?$/i);
+  if (!m) return null;
+  const dia = Number(m[1]);
+  const mes = MESES_ABREV[m[2].toLowerCase().slice(0, 3)];
+  const anio = Number(m[3]);
+  if (mes === undefined || dia < 1 || dia > 31) return null;
+  let horas = 0;
+  let minutos = 0;
+  if (m[4]) {
+    horas = Number(m[4]) % 12;
+    minutos = Number(m[5]);
+    if (m[6].toLowerCase() === 'p') horas += 12;
+  }
+  const fecha = new Date(Date.UTC(anio, mes - 1, dia, horas, minutos));
+  return Number.isNaN(fecha.getTime()) ? null : fecha.getTime();
+}
+
+/**
+ * Compara dos valores de FECHA ENTRADA de forma tolerante. Primero intenta
+ * el formato con hora de 12h "DD/Mon/YYYY, hh:mmam" (`parseFechaConHora`) —
+ * si ambos valores coinciden con ese formato, esa comparación manda (trae
+ * hora exacta, la más confiable). Si no, intenta normalizar ambos a fecha
+ * con `parseFlexibleDate` (acepta YYYY-MM-DD, DD/MM/YYYY o MM/DD/YYYY, y
  * seriales de Excel); si ambos se pudieron parsear y son distintos, ese
- * resultado manda. Si empatan (mismo día) o alguno no se pudo parsear, se usa
- * el texto crudo completo como desempate — esto conserva la hora del día si
- * el archivo la trae (ej. "20/09/2026 14:30" ordena después que "... 09:00"
- * una vez que la parte de fecha ya empató).
+ * resultado manda. Si empatan (mismo día) o alguno no se pudo parsear con
+ * ningún método, se usa el texto crudo completo como desempate — esto
+ * conserva la hora del día si el archivo la trae en un formato no
+ * reconocido explícitamente (ej. ISO "...T14:30:00.000Z" ordena después que
+ * "...T09:00:00.000Z" una vez que la parte de fecha ya empató).
  */
 function compararFechaEntrada(a: string, b: string): number {
+  const ha = parseFechaConHora(a);
+  const hb = parseFechaConHora(b);
+  if (ha !== null && hb !== null) return ha - hb;
   const pa = parseFlexibleDate(a);
   const pb = parseFlexibleDate(b);
   if (pa !== null && pb !== null && pa !== pb) return pa < pb ? -1 : 1;
@@ -182,7 +285,7 @@ export function detectarYConvertirFormatoLargo(
     // archivo largo no trae POSICION propia.
     const posicion = valor(row, 'POSICION') || valor(row, 'NOMBRE');
     const respuesta = valor(row, 'RESPUESTA');
-    const fecha = valor(row, 'FECHA ENTRADA');
+    const fecha = valorAlias(valor, headers, row, ['FECHA ENTRADA', 'FECHA DE ENTRADA']);
     const claveEnvio = JSON.stringify([normalizar(usuario), pregunta, fecha]);
     let envio = porEnvio.get(claveEnvio);
     if (!envio) {
@@ -320,7 +423,7 @@ export function calcularMesaControl(headers: string[], rows: string[][]): Calcul
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null, columnaUsuario: null },
     preguntas,
   };
 }
@@ -381,7 +484,7 @@ export function calcularMateriales(headers: string[], rows: string[][], incluyeC
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null, columnaUsuario: null },
     preguntas,
   };
 }
@@ -458,7 +561,7 @@ export function calcularMarca(headers: string[], rows: string[][]): Calculo {
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null, columnaUsuario: null },
     preguntas,
   };
 }
@@ -988,6 +1091,7 @@ export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> 
       filasSinUsuario: Number(r.filas_sin_usuario ?? 0),
       filasDuplicadas: Number(r.filas_duplicadas ?? 0),
       formatoLargo: null,
+      columnaUsuario: null,
     },
     incluyeCelular: r.incluye_celular as boolean | null,
     archivoNombre: r.archivo_nombre as string | null,
