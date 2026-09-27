@@ -706,14 +706,20 @@ function kpiDeMesaControl(
   preguntasMesaControl: EmetrixPreguntaResumen[] | null
 ): EmetrixOkrNodo {
   const p = preguntasMesaControl?.find((x) => x.pregunta === labelPregunta) ?? null;
+  // `numerador` no existía antes de 2026-09-27 — cargas guardadas con el
+  // código viejo tienen preguntas_resumen sin ese campo (undefined al leerlo
+  // de la base). Se reconstruye a partir de porcentaje/contestaron (inverso
+  // exacto de cómo se calculó) para no mostrar "undefined de N" en cargas
+  // históricas; las cargas nuevas ya traen numerador guardado tal cual.
+  const numerador = p && p.numerador != null ? p.numerador : p ? Math.round((p.porcentaje! / 100) * p.contestaron) : 0;
   const indicador = !preguntasMesaControl
     ? indicadorSinMedir('Falta cargar Mesa de Control en este periodo.')
     : !p || p.porcentaje === null
       ? indicadorSinMedir(`La pregunta "${columnaPregunta}" no se reconoció en el archivo de Mesa de Control de este periodo.`)
       : indicadorMedido(
           p.porcentaje,
-          `${p.numerador} de ${p.contestaron}`,
-          `${p.numerador} de ${p.contestaron} promotores contestaron "Sí" a "${columnaPregunta}".`
+          `${numerador} de ${p.contestaron}`,
+          `${numerador} de ${p.contestaron} promotores contestaron "Sí" a "${columnaPregunta}".`
         );
   const fuente = preguntasMesaControl
     ? `Sondeo Mesa de Control — pregunta "${labelPregunta}"${p && p.porcentaje !== null ? ` (${p.contestaron} contestaron)` : ''}`

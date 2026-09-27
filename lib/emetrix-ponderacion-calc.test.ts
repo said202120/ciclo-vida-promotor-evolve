@@ -274,3 +274,80 @@ test('regla vigente: Materiales con incluyeCelular=false ignora celular/Emetrix 
   const calculo = calcularMateriales(MATERIALES_HEADERS, rows, false);
   assert.equal(calculo.filas[0].estado, 'cumple', 'sin incluyeCelular, esas 2 preguntas no deben exigirse');
 });
+
+// ---- Confirmación: OKR real de cuentas en producción (periodo 2026-09) ----
+//
+// Fixtures tomados el 2026-09-27 leyendo la base de producción de solo
+// lectura (cumplieron/respondieron/porcentaje de cada sondeo, desglose de
+// Mesa de Control, y los 3 KPI manuales — ninguno capturado todavía en
+// ninguna de las 3 cuentas). Si cambian los datos reales de estas cuentas
+// (nueva carga, KPI manual capturado), este fixture queda desactualizado a
+// propósito — es una foto fija para confirmar que el cálculo no se rompió,
+// no una fuente de verdad viva.
+
+test('confirmación: OKR real de Spin Master (periodo 2026-09) = 65.27%', () => {
+  const raiz = construirArbolOkr({
+    materiales: { cumplieron: 25, respondieron: 49, porcentaje: 51.02 },
+    marca: { cumplieron: 27, respondieron: 51, porcentaje: 52.94 },
+    mesaControlPreguntas: [
+      { pregunta: 'Entrada a tienda', porcentaje: 97.73, numerador: 43, contestaron: 44 },
+      { pregunta: 'Emetrix funcionó', porcentaje: 95.45, numerador: 42, contestaron: 44 },
+    ],
+    contratoFirmadoManual: null,
+    imssManual: null,
+    modulosPublicadosManual: null,
+  });
+  assert.equal(raiz.indicador.valor, 65.27);
+  const kr1 = raiz.hijos.find((h) => h.codigo === 'KR1')!;
+  assert.equal(kr1.hijos.find((h) => h.codigo === 'KR1.1')!.indicador.base, '43 de 44');
+});
+
+test('confirmación: OKR real de ADM (periodo 2026-09) = 61.49%', () => {
+  const raiz = construirArbolOkr({
+    materiales: { cumplieron: 52, respondieron: 227, porcentaje: 22.91 },
+    marca: { cumplieron: 166, respondieron: 221, porcentaje: 75.11 },
+    mesaControlPreguntas: [
+      { pregunta: 'Entrada a tienda', porcentaje: 99.09, numerador: 218, contestaron: 220 },
+      { pregunta: 'Emetrix funcionó', porcentaje: 99.55, numerador: 222, contestaron: 223 },
+    ],
+    contratoFirmadoManual: null,
+    imssManual: null,
+    modulosPublicadosManual: null,
+  });
+  assert.equal(raiz.indicador.valor, 61.49);
+});
+
+test('confirmación: OKR real de Hanes (periodo 2026-09) = 43.58% — incluye Materiales en 0% medido', () => {
+  const raiz = construirArbolOkr({
+    materiales: { cumplieron: 0, respondieron: 32, porcentaje: 0 },
+    marca: { cumplieron: 15, respondieron: 31, porcentaje: 48.39 },
+    mesaControlPreguntas: [
+      { pregunta: 'Entrada a tienda', porcentaje: 96.88, numerador: 31, contestaron: 32 },
+      { pregunta: 'Emetrix funcionó', porcentaje: 96.88, numerador: 31, contestaron: 32 },
+    ],
+    contratoFirmadoManual: null,
+    imssManual: null,
+    modulosPublicadosManual: null,
+  });
+  assert.equal(raiz.indicador.valor, 43.58);
+  const kr2 = raiz.hijos.find((h) => h.codigo === 'KR2')!;
+  assert.equal(kr2.indicador.estado, 'medido');
+  assert.equal(kr2.indicador.valor, 0);
+});
+
+// ---- Compatibilidad: cargas guardadas antes de que existiera "numerador" en preguntas_resumen ----
+
+test('compatibilidad: preguntas_resumen histórico sin "numerador" no rompe el motivo (se reconstruye desde porcentaje/contestaron)', () => {
+  const raiz = construirArbolOkr({
+    materiales: null,
+    marca: null,
+    // @ts-expect-error — simula un registro histórico guardado antes de agregar `numerador` al tipo.
+    mesaControlPreguntas: [{ pregunta: 'Entrada a tienda', porcentaje: 99.09, contestaron: 220 }],
+    contratoFirmadoManual: null,
+    imssManual: null,
+    modulosPublicadosManual: null,
+  });
+  const kr1_1 = raiz.hijos.find((h) => h.codigo === 'KR1')!.hijos.find((h) => h.codigo === 'KR1.1')!;
+  assert.equal(kr1_1.indicador.base, '218 de 220');
+  assert.doesNotMatch(kr1_1.indicador.motivo, /undefined/);
+});
