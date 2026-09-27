@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
-import { fetchConfig, updateHeadcountManual, updateUmbralRespuesta } from '@/lib/emetrix-ponderacion';
+import {
+  fetchConfig,
+  updateContratoFirmadoManual,
+  updateHeadcountManual,
+  updateImssManual,
+  updateModulosPublicadosManual,
+  updateUmbralRespuesta,
+} from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,9 +26,17 @@ export async function GET(request: Request) {
   return NextResponse.json(await fetchConfig(marcaId));
 }
 
+const CAMPOS_MANUAL_KPI: Array<{ campo: 'contratoFirmadoManual' | 'imssManual' | 'modulosPublicadosManual'; update: (marcaId: string, valor: number | null) => Promise<void> }> = [
+  { campo: 'contratoFirmadoManual', update: updateContratoFirmadoManual },
+  { campo: 'imssManual', update: updateImssManual },
+  { campo: 'modulosPublicadosManual', update: updateModulosPublicadosManual },
+];
+
 // PATCH /api/emetrix-ponderacion/config — cambia el umbral mínimo de % de
-// respuesta y/o el headcount de la cuenta (manda solo lo que quieras
-// cambiar). headcountManual: null borra el headcount de la cuenta.
+// respuesta, el headcount de la cuenta, y/o los 3 KPI de captura manual del
+// OKR oficial (contratoFirmadoManual, imssManual, modulosPublicadosManual)
+// (manda solo lo que quieras cambiar). En todos los casos, null borra el
+// valor capturado (vuelve a "sin capturar" / pendiente).
 export async function PATCH(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -50,8 +65,20 @@ export async function PATCH(request: Request) {
     tareas.push(updateHeadcountManual(marcaId, headcountManual));
   }
 
+  for (const { campo, update } of CAMPOS_MANUAL_KPI) {
+    if (!(campo in body)) continue;
+    const valor = body[campo];
+    if (valor !== null && (typeof valor !== 'number' || valor < 0 || valor > 100)) {
+      return NextResponse.json({ error: `${campo} debe ser un número entre 0 y 100, o null para borrarlo.` }, { status: 400 });
+    }
+    tareas.push(update(marcaId, valor));
+  }
+
   if (tareas.length === 0) {
-    return NextResponse.json({ error: 'Nada que actualizar: manda umbralRespuesta y/o headcountManual.' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Nada que actualizar: manda umbralRespuesta, headcountManual, contratoFirmadoManual, imssManual y/o modulosPublicadosManual.' },
+      { status: 400 }
+    );
   }
 
   await Promise.all(tareas);

@@ -14,9 +14,8 @@ import type {
   EmetrixCargaPreview,
   EmetrixFilaDetalle,
   EmetrixKr,
+  EmetrixOkrResultadoCuenta,
   EmetrixPreguntaResumen,
-  EmetrixResultadoCuenta,
-  EmetrixResumenOkr,
   EmetrixUniversoFuente,
   EmetrixVistaCruzadaFila,
   EncuestaMaterialesPayload,
@@ -458,9 +457,14 @@ export function guardarCargaEmetrixPonderacion(data: {
   }).then((r) => json(r));
 }
 
-export function fetchConfigEmetrixPonderacion(
-  marcaId: string
-): Promise<{ incluyeCelular: boolean | null; umbralRespuesta: number; headcountManual: number | null }> {
+export function fetchConfigEmetrixPonderacion(marcaId: string): Promise<{
+  incluyeCelular: boolean | null;
+  umbralRespuesta: number;
+  headcountManual: number | null;
+  contratoFirmadoManual: number | null;
+  imssManual: number | null;
+  modulosPublicadosManual: number | null;
+}> {
   return fetch(`/api/emetrix-ponderacion/config?marcaId=${marcaId}`).then((r) => json(r));
 }
 
@@ -477,6 +481,33 @@ export function updateHeadcountManualEmetrixPonderacion(marcaId: string, headcou
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ marcaId, headcountManual }),
+  }).then((r) => json(r));
+}
+
+/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial — % capturado a mano. null borra la captura (vuelve a pendiente). */
+export function updateContratoFirmadoManualEmetrixPonderacion(marcaId: string, valor: number | null): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marcaId, contratoFirmadoManual: valor }),
+  }).then((r) => json(r));
+}
+
+/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial — % capturado a mano. null borra la captura (vuelve a pendiente). */
+export function updateImssManualEmetrixPonderacion(marcaId: string, valor: number | null): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marcaId, imssManual: valor }),
+  }).then((r) => json(r));
+}
+
+/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial — % capturado a mano. null borra la captura (vuelve a pendiente). */
+export function updateModulosPublicadosManualEmetrixPonderacion(marcaId: string, valor: number | null): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marcaId, modulosPublicadosManual: valor }),
   }).then((r) => json(r));
 }
 
@@ -502,30 +533,21 @@ export function emetrixPonderacionDetalleExcelUrl(marcaId: string, kr: EmetrixKr
   return `/api/emetrix-ponderacion/detalle/excel?marcaId=${marcaId}&kr=${kr}`;
 }
 
-export function fetchResultadoEmetrixPonderacion(marcaId: string): Promise<EmetrixResultadoCuenta> {
-  return fetch(`/api/emetrix-ponderacion/resultado?marcaId=${marcaId}`).then((r) => json(r));
-}
-
-export function fetchResultadoTodasCuentasEmetrixPonderacion(): Promise<EmetrixResultadoCuenta[]> {
-  return fetch('/api/emetrix-ponderacion/resultado-todas').then((r) => json(r));
-}
-
 export function fetchHistorialEmetrixPonderacion(marcaId?: string): Promise<EmetrixCarga[]> {
   return fetch(`/api/emetrix-ponderacion/cargas${marcaId ? `?marcaId=${marcaId}` : ''}`).then((r) => json(r));
 }
 
-export function updatePesoEmetrixPonderacion(marcaId: string, kr: EmetrixKr, peso: number): Promise<{ ok: true }> {
-  return fetch('/api/emetrix-ponderacion/pesos', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ marcaId, kr, peso }),
-  }).then((r) => json(r));
+/** Árbol OKR → KR → KPI de una cuenta, espejo del OKR oficial "Ciclo de vida del promotor". */
+export function fetchOkrEmetrixPonderacion(marcaId: string): Promise<EmetrixOkrResultadoCuenta> {
+  return fetch(`/api/emetrix-ponderacion/okr?marcaId=${marcaId}`).then((r) => json(r));
 }
 
-export function fetchResumenOkrEmetrixPonderacion(marcaId: string): Promise<EmetrixResumenOkr> {
-  return fetch(`/api/emetrix-ponderacion/resumen-okr?marcaId=${marcaId}`).then((r) => json(r));
+/** El árbol OKR de cada cuenta que ya tiene al menos una carga. */
+export function fetchOkrTodasCuentasEmetrixPonderacion(): Promise<EmetrixOkrResultadoCuenta[]> {
+  return fetch('/api/emetrix-ponderacion/okr/todas').then((r) => json(r));
 }
 
-export function emetrixResumenOkrExcelUrl(marcaId: string): string {
-  return `/api/emetrix-ponderacion/resumen-okr/excel?marcaId=${marcaId}`;
+/** "Descargar para OKR": un .xlsx con una hoja por cuenta cargada, mismas columnas que el archivo oficial. */
+export function emetrixOkrExcelUrl(): string {
+  return '/api/emetrix-ponderacion/okr/excel';
 }

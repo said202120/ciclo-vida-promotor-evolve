@@ -1,18 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { EmetrixCarga, EmetrixEstado, EmetrixKr, EmetrixResultadoCuenta, EmetrixResumenOkr, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
+import type { EmetrixCarga, EmetrixEstado, EmetrixKr, EmetrixOkrNodo, EmetrixOkrResultadoCuenta, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
 import {
-  emetrixResumenOkrExcelUrl,
+  emetrixOkrExcelUrl,
   fetchConfigEmetrixPonderacion,
   fetchHistorialEmetrixPonderacion,
   fetchMarcas,
-  fetchResultadoEmetrixPonderacion,
-  fetchResultadoTodasCuentasEmetrixPonderacion,
-  fetchResumenOkrEmetrixPonderacion,
+  fetchOkrEmetrixPonderacion,
+  fetchOkrTodasCuentasEmetrixPonderacion,
   fetchVistaCruzadaEmetrixPonderacion,
+  updateContratoFirmadoManualEmetrixPonderacion,
   updateHeadcountManualEmetrixPonderacion,
-  updatePesoEmetrixPonderacion,
+  updateImssManualEmetrixPonderacion,
+  updateModulosPublicadosManualEmetrixPonderacion,
   updateUmbralRespuestaEmetrixPonderacion,
 } from '@/lib/api-client';
 import EmetrixPonderacionZona from './EmetrixPonderacionZona';
@@ -31,19 +32,80 @@ const ESTADO_LABEL: Record<EmetrixEstado, string> = {
   no_contesto: '— No contestó',
 };
 
+// Los únicos KPI de captura manual del OKR (no salen de ningún sondeo) — sus códigos vienen de lib/emetrix-ponderacion.ts.
+const MANUAL_KPI_UPDATERS: Record<string, (marcaId: string, valor: number | null) => Promise<{ ok: true }>> = {
+  'KR1.3': updateContratoFirmadoManualEmetrixPonderacion,
+  'KR1.4': updateImssManualEmetrixPonderacion,
+  'KR3.1': updateModulosPublicadosManualEmetrixPonderacion,
+};
+
 function formatFecha(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+type NodoAplanado = { nodo: EmetrixOkrNodo; profundidad: number };
+
+function aplanar(nodo: EmetrixOkrNodo, profundidad = 0): NodoAplanado[] {
+  return [{ nodo, profundidad }, ...nodo.hijos.flatMap((h) => aplanar(h, profundidad + 1))];
+}
+
+function ArbolOkrTabla({ raiz, onManualKpiChange }: { raiz: EmetrixOkrNodo; onManualKpiChange: (codigo: string, valorNuevo: string) => void }) {
+  return (
+    <div className="emetrix-detalle-tabla-wrap">
+      <table className="roster-table">
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left' }}>Nombre</th>
+            <th>Peso</th>
+            <th>% Obtenido</th>
+            <th style={{ textAlign: 'left' }}>Fuente</th>
+          </tr>
+        </thead>
+        <tbody>
+          {aplanar(raiz).map(({ nodo, profundidad }) => {
+            const esManual = nodo.nivel === 'kpi' && nodo.codigo in MANUAL_KPI_UPDATERS;
+            return (
+              <tr key={nodo.codigo} style={nodo.nivel !== 'kpi' ? { fontWeight: 700 } : undefined}>
+                <td style={{ textAlign: 'left', paddingLeft: 12 + profundidad * 20 }}>
+                  <span className="roster-hint">{nodo.codigo}</span> {nodo.nombre}
+                </td>
+                <td>{nodo.peso}%</td>
+                <td>
+                  {esManual ? (
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      defaultValue={nodo.porcentaje ?? ''}
+                      placeholder={nodo.pendienteTexto ?? ''}
+                      onBlur={(e) => onManualKpiChange(nodo.codigo, e.target.value)}
+                      style={{ width: 64 }}
+                    />
+                  ) : nodo.porcentaje !== null ? (
+                    `${nodo.porcentaje}%`
+                  ) : (
+                    nodo.pendienteTexto
+                  )}
+                  {nodo.calculadoNota && <div className="roster-hint">{nodo.calculadoNota}</div>}
+                </td>
+                <td style={{ textAlign: 'left' }}>{nodo.fuente}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function EmetrixPonderacionAdmin() {
   const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
   const [marcaId, setMarcaId] = useState(TODAS);
-  const [resultado, setResultado] = useState<EmetrixResultadoCuenta | null>(null);
-  const [config, setConfig] = useState<{ incluyeCelular: boolean | null; umbralRespuesta: number; headcountManual: number | null } | null>(null);
-  const [resumenOkr, setResumenOkr] = useState<EmetrixResumenOkr | null>(null);
-  const [copiado, setCopiado] = useState(false);
-  const [resumenTodas, setResumenTodas] = useState<EmetrixResultadoCuenta[]>([]);
+  const [okr, setOkr] = useState<EmetrixOkrResultadoCuenta | null>(null);
+  const [config, setConfig] = useState<{ incluyeCelular: boolean | null; headcountManual: number | null } | null>(null);
+  const [okrTodas, setOkrTodas] = useState<EmetrixOkrResultadoCuenta[]>([]);
   const [vistaCruzada, setVistaCruzada] = useState<EmetrixVistaCruzadaFila[]>([]);
   const [historial, setHistorial] = useState<EmetrixCarga[]>([]);
   const [historialMarcaId, setHistorialMarcaId] = useState('');
@@ -53,7 +115,7 @@ export default function EmetrixPonderacionAdmin() {
     fetchMarcas()
       .then(setMarcas)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el maestro de marcas.'));
-    reloadResumenTodas();
+    reloadOkrTodas();
     reloadHistorial('');
   }, []);
 
@@ -63,46 +125,34 @@ export default function EmetrixPonderacionAdmin() {
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el historial.'));
   }
 
-  function reloadResultado(id: string) {
-    fetchResultadoEmetrixPonderacion(id)
-      .then(setResultado)
-      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el resultado.'));
+  function reloadCuenta(id: string) {
+    fetchOkrEmetrixPonderacion(id)
+      .then(setOkr)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el árbol OKR.'));
     fetchVistaCruzadaEmetrixPonderacion(id)
       .then(setVistaCruzada)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la vista cruzada.'));
     fetchConfigEmetrixPonderacion(id)
       .then(setConfig)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la configuración de la cuenta.'));
-    fetchResumenOkrEmetrixPonderacion(id)
-      .then(setResumenOkr)
-      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el resumen para OKR.'));
   }
 
-  function reloadResumenTodas() {
-    fetchResultadoTodasCuentasEmetrixPonderacion()
-      .then(setResumenTodas)
+  function reloadOkrTodas() {
+    fetchOkrTodasCuentasEmetrixPonderacion()
+      .then(setOkrTodas)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el resumen de cuentas.'));
   }
 
   function handleCuentaChange(id: string) {
     setMarcaId(id);
-    if (id === TODAS) reloadResumenTodas();
-    else reloadResultado(id);
+    if (id === TODAS) reloadOkrTodas();
+    else reloadCuenta(id);
   }
 
   function handleGuardado() {
-    if (marcaId !== TODAS) reloadResultado(marcaId);
-    reloadResumenTodas();
+    if (marcaId !== TODAS) reloadCuenta(marcaId);
+    reloadOkrTodas();
     reloadHistorial(historialMarcaId);
-  }
-
-  function handlePesoChange(kr: EmetrixKr, valorNuevo: string) {
-    if (!marcaId) return;
-    const peso = parseFloat(valorNuevo);
-    if (!Number.isFinite(peso) || peso < 0 || peso > 100) return;
-    updatePesoEmetrixPonderacion(marcaId, kr, peso)
-      .then(() => reloadResultado(marcaId))
-      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el peso.'));
   }
 
   function handleUmbralChange(valorNuevo: string) {
@@ -110,7 +160,7 @@ export default function EmetrixPonderacionAdmin() {
     const umbral = parseFloat(valorNuevo);
     if (!Number.isFinite(umbral) || umbral < 0 || umbral > 100) return;
     updateUmbralRespuestaEmetrixPonderacion(marcaId, umbral)
-      .then(() => reloadResultado(marcaId))
+      .then(() => reloadCuenta(marcaId))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el umbral de respuesta.'));
   }
 
@@ -119,25 +169,24 @@ export default function EmetrixPonderacionAdmin() {
     const headcount = valorNuevo.trim() === '' ? null : parseInt(valorNuevo, 10);
     if (headcount !== null && (!Number.isFinite(headcount) || headcount <= 0)) return;
     updateHeadcountManualEmetrixPonderacion(marcaId, headcount)
-      .then(() => reloadResultado(marcaId))
+      .then(() => reloadCuenta(marcaId))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el headcount de la cuenta.'));
+  }
+
+  function handleManualKpiChange(codigo: string, valorNuevo: string) {
+    if (!marcaId || marcaId === TODAS) return;
+    const updater = MANUAL_KPI_UPDATERS[codigo];
+    if (!updater) return;
+    const valor = valorNuevo.trim() === '' ? null : parseFloat(valorNuevo);
+    if (valor !== null && (!Number.isFinite(valor) || valor < 0 || valor > 100)) return;
+    updater(marcaId, valor)
+      .then(() => reloadCuenta(marcaId))
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el KPI.'));
   }
 
   function handleHistorialFiltro(id: string) {
     setHistorialMarcaId(id);
     reloadHistorial(id);
-  }
-
-  function handleCopiarResumenOkr() {
-    if (!resumenOkr) return;
-    const texto = resumenOkr.filas.map((f) => `${f.etiqueta}: ${f.valor}`).join('\n');
-    navigator.clipboard
-      .writeText(texto)
-      .then(() => {
-        setCopiado(true);
-        setTimeout(() => setCopiado(false), 2000);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo copiar el resumen.'));
   }
 
   return (
@@ -152,14 +201,11 @@ export default function EmetrixPonderacionAdmin() {
         </a>
       </header>
       <p className="roster-hint" style={{ marginTop: -8, marginBottom: 20, maxWidth: 720 }}>
-        Mide si los promotores nuevos completan su ciclo de incorporación: si Mesa de Control confirmó un buen primer
-        día en tienda, si ya tienen su kit de materiales completo, y si dominan el manejo de marca en anaquel. Es el
-        respaldo manual de este cálculo mientras se resuelve la integración automática con Evolve OS — subes el
-        Excel de cada sondeo por cuenta y el sistema califica según las reglas de cada KR, usando como universo el
-        headcount de la cuenta (uno solo, aplica a los 3 KR). Si a la cuenta le falta capturar el headcount, o si el
-        % de respuesta del sondeo queda muy bajo, ese KR se marca en alerta — el resultado no es representativo. Por
-        default (propuesta "Habilitación"), Mesa de Control pesa 30%, Materiales 40% y Tu Marca 30%; el resultado
-        ponderado es el % del OKR de esa cuenta.
+        Espejo del OKR oficial "Ciclo de vida del promotor" (el archivo de Carlos conectado a EvolveOS): mismos KR,
+        mismos KPI, mismos pesos — OKR = KR1×30% + KR2×40% + KR3×30%. Los KPI de sondeo (Mesa de Control, Materiales,
+        Tu Marca) se alimentan de los Excel que subes abajo; los KPI de captura manual (Contrato firmado, Alta ante
+        el IMSS, Módulos publicados) se capturan directo en la tabla y quedan "Pendiente" hasta entonces — un KPI
+        pendiente nunca cuenta como 0%, el % de su KR se calcula solo con los KPI que sí tienen dato.
       </p>
 
       {error && <p className="login-error">{error}</p>}
@@ -174,6 +220,9 @@ export default function EmetrixPonderacionAdmin() {
             </option>
           ))}
         </select>
+        <a className="add-row" href={emetrixOkrExcelUrl()} style={{ marginLeft: 'auto' }}>
+          ⇩ Descargar para OKR
+        </a>
       </div>
 
       {marcaId === TODAS ? (
@@ -181,35 +230,30 @@ export default function EmetrixPonderacionAdmin() {
           <p className="section-title" style={{ margin: '0 0 14px' }}>
             Resumen de todas las cuentas
           </p>
-          {resumenTodas.length === 0 ? (
+          {okrTodas.length === 0 ? (
             <p className="resumen-status">Ninguna cuenta tiene cargas todavía.</p>
           ) : (
             <table className="roster-table">
               <thead>
                 <tr>
                   <th>Cuenta</th>
-                  <th>Mesa de Control</th>
-                  <th>Materiales</th>
-                  <th>Marca</th>
-                  <th>Total OKR</th>
+                  <th>KR1 · Kit administrativo</th>
+                  <th>KR2 · Materiales</th>
+                  <th>KR3 · Capacitación</th>
+                  <th>OKR</th>
                 </tr>
               </thead>
               <tbody>
-                {resumenTodas.map((r) => (
-                  <tr key={r.marcaId}>
-                    <td style={{ textAlign: 'left' }}>{r.marcaNombre}</td>
-                    {(['mesa_control', 'materiales', 'marca'] as EmetrixKr[]).map((kr) => {
-                      const k = r.krs.find((x) => x.kr === kr);
-                      return (
-                        <td key={kr}>
-                          {k && k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}
-                          {k?.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠</span>}
-                        </td>
-                      );
+                {okrTodas.map((c) => (
+                  <tr key={c.marcaId}>
+                    <td style={{ textAlign: 'left' }}>{c.marcaNombre}</td>
+                    {['KR1', 'KR2', 'KR3'].map((codigo) => {
+                      const k = c.raiz.hijos.find((x) => x.codigo === codigo);
+                      return <td key={codigo}>{k && k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>;
                     })}
                     <td style={{ fontWeight: 700 }}>
-                      {r.total !== null ? `${r.total}%` : 'Sin datos'}
-                      {r.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠ alerta</span>}
+                      {c.raiz.porcentaje !== null ? `${c.raiz.porcentaje}%` : 'Sin datos'}
+                      {c.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠ alerta</span>}
                     </td>
                   </tr>
                 ))}
@@ -234,7 +278,7 @@ export default function EmetrixPonderacionAdmin() {
             </label>
             <p className="roster-hint" style={{ margin: '6px 0 0' }}>
               Puedes ajustar el universo solo para un sondeo puntual al subirlo. Si esta cuenta no tiene headcount
-              capturado, ese KR queda "sin universo" y en alerta.
+              capturado, ese KPI queda "sin universo" y en alerta.
             </p>
           </div>
 
@@ -242,7 +286,7 @@ export default function EmetrixPonderacionAdmin() {
             <EmetrixPonderacionZona
               kr="mesa_control"
               marcaId={marcaId}
-              estado={resultado?.krs.find((k) => k.kr === 'mesa_control')}
+              cargadoEn={okr?.sondeosCargadoEn.mesa_control ?? null}
               requiereCelular={false}
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
               headcountCuenta={config?.headcountManual ?? null}
@@ -251,7 +295,7 @@ export default function EmetrixPonderacionAdmin() {
             <EmetrixPonderacionZona
               kr="materiales"
               marcaId={marcaId}
-              estado={resultado?.krs.find((k) => k.kr === 'materiales')}
+              cargadoEn={okr?.sondeosCargadoEn.materiales ?? null}
               requiereCelular={true}
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
               headcountCuenta={config?.headcountManual ?? null}
@@ -260,7 +304,7 @@ export default function EmetrixPonderacionAdmin() {
             <EmetrixPonderacionZona
               kr="marca"
               marcaId={marcaId}
-              estado={resultado?.krs.find((k) => k.kr === 'marca')}
+              cargadoEn={okr?.sondeosCargadoEn.marca ?? null}
               requiereCelular={false}
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
               headcountCuenta={config?.headcountManual ?? null}
@@ -271,10 +315,10 @@ export default function EmetrixPonderacionAdmin() {
           <div className="roster">
             <div className="roster-head">
               <p className="section-title" style={{ margin: 0 }}>
-                Resultado por cuenta
-                {resultado?.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 8 }}>⚠ alerta</span>}
+                OKR — Ciclo de vida del promotor
+                {okr?.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 8 }}>⚠ alerta</span>}
               </p>
-              {resultado && (
+              {okr && (
                 <label className="roster-hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   Umbral de respuesta mínimo
                   <input
@@ -282,8 +326,8 @@ export default function EmetrixPonderacionAdmin() {
                     min={0}
                     max={100}
                     step={1}
-                    defaultValue={resultado.umbralRespuesta}
-                    key={`${resultado.marcaId}-${resultado.umbralRespuesta}`}
+                    defaultValue={okr.umbralRespuesta}
+                    key={`${okr.marcaId}-${okr.umbralRespuesta}`}
                     onBlur={(e) => handleUmbralChange(e.target.value)}
                     style={{ width: 56 }}
                   />
@@ -291,116 +335,7 @@ export default function EmetrixPonderacionAdmin() {
                 </label>
               )}
             </div>
-            {resultado && (
-              <table className="roster-table">
-                <thead>
-                  <tr>
-                    <th>KR</th>
-                    <th>Universo</th>
-                    <th>Contestaron</th>
-                    <th>% Respuesta</th>
-                    <th>Cumplieron</th>
-                    <th>% Cumplimiento</th>
-                    <th>Peso</th>
-                    <th>Aportación</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resultado.krs.map((k) => (
-                    <tr key={k.kr}>
-                      <td style={{ textAlign: 'left' }}>
-                        {KR_LABEL[k.kr]}
-                        {k.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠</span>}
-                      </td>
-                      <td>{k.universoFuente === 'sin_universo' ? 'sin definir' : (k.universo ?? '—')}</td>
-                      <td>{k.respondieron ?? '—'}</td>
-                      <td>{k.universoFuente === 'sin_universo' ? 'sin universo' : k.porcentajeRespuesta !== null ? `${k.porcentajeRespuesta}%` : '—'}</td>
-                      <td>{k.cumplieron ?? '—'}</td>
-                      <td>{k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>
-                      <td>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={0.1}
-                          defaultValue={k.peso}
-                          onBlur={(e) => handlePesoChange(k.kr, e.target.value)}
-                          style={{ width: 64 }}
-                        />
-                        %
-                      </td>
-                      <td>{k.aportacion}%</td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td style={{ textAlign: 'left', fontWeight: 700 }}>Total</td>
-                    <td colSpan={6} />
-                    <td style={{ fontWeight: 700 }}>{resultado.total !== null ? `${resultado.total}%` : 'Sin datos'}</td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
-            {resultado && (
-              <p className="roster-hint" style={{ marginTop: 8 }}>
-                Ponderación: {resultado.krs.map((k) => `${KR_LABEL[k.kr]} ${k.peso}%`).join(' · ')}
-              </p>
-            )}
-            {resultado && resultado.krs.some((k) => k.universoFuente === 'sin_universo') && (
-              <p className="roster-hint" style={{ marginTop: 8 }}>
-                ⚠ Falta capturar el headcount de esta cuenta — ese KR queda en alerta, resultado no representativo.
-              </p>
-            )}
-            {resultado && resultado.krs.some((k) => k.enAlerta && k.universoFuente !== 'sin_universo') && (
-              <p className="roster-hint" style={{ marginTop: 8 }}>
-                ⚠ Respuesta insuficiente, resultado no representativo — el % de respuesta de ese KR está por debajo
-                del umbral configurado.
-              </p>
-            )}
-            {resultado && resultado.krs.some((k) => k.porcentaje === null) && (
-              <p className="roster-hint" style={{ marginTop: 8 }}>
-                Falta cargar: {resultado.krs.filter((k) => k.porcentaje === null).map((k) => KR_LABEL[k.kr]).join(', ')} — el % del OKR se calcula solo
-                con los KR que ya tienen carga (usando el % de cumplimiento entre quienes contestaron), repartiendo el
-                peso entre los que sí tienen datos.
-              </p>
-            )}
-          </div>
-
-          <div className="roster">
-            <div className="roster-head">
-              <p className="section-title" style={{ margin: 0 }}>
-                Resumen para OKR
-              </p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="add-row" onClick={handleCopiarResumenOkr} disabled={!resumenOkr}>
-                  {copiado ? '✓ Copiado' : 'Copiar'}
-                </button>
-                <a className="add-row" href={emetrixResumenOkrExcelUrl(marcaId)}>
-                  ⇩ Descargar en Excel
-                </a>
-              </div>
-            </div>
-            <p className="roster-hint" style={{ marginTop: -8, marginBottom: 14 }}>
-              Traduce estos 3 sondeos a las métricas del OKR oficial "Ciclo de vida del promotor". Contrato e IMSS no
-              sale de este sondeo — se confirma aparte con Legal / Nómina.
-            </p>
-            {resumenOkr && (
-              <table className="roster-table">
-                <thead>
-                  <tr>
-                    <th>KR del OKR</th>
-                    <th>Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resumenOkr.filas.map((f) => (
-                    <tr key={f.etiqueta}>
-                      <td style={{ textAlign: 'left' }}>{f.etiqueta}</td>
-                      <td>{f.valor}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            {okr && <ArbolOkrTabla raiz={okr.raiz} onManualKpiChange={handleManualKpiChange} />}
           </div>
 
           {vistaCruzada.length > 0 && (
@@ -409,7 +344,7 @@ export default function EmetrixPonderacionAdmin() {
                 Vista cruzada por promotor
               </p>
               <p className="roster-hint" style={{ marginTop: -8, marginBottom: 14 }}>
-                Estado de cada promotor del padrón en la carga más reciente de cada KR (solo disponible cuando esa
+                Estado de cada promotor del padrón en la carga más reciente de cada sondeo (solo disponible cuando esa
                 carga usó el padrón como universo).
               </p>
               <div className="emetrix-detalle-tabla-wrap">

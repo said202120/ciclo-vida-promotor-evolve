@@ -1,15 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type {
-  EmetrixCargaPreview,
-  EmetrixEstado,
-  EmetrixFilaDetalle,
-  EmetrixKr,
-  EmetrixPreguntaResumen,
-  EmetrixResultadoKr,
-  EmetrixUniversoFuente,
-} from '@/lib/types';
+import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixPreguntaResumen, EmetrixUniversoFuente } from '@/lib/types';
 import { emetrixPonderacionDetalleExcelUrl, fetchDetalleEmetrixPonderacion, guardarCargaEmetrixPonderacion, parseEmetrixPonderacion } from '@/lib/api-client';
 
 const KR_LABEL: Record<EmetrixKr, string> = {
@@ -31,7 +23,7 @@ function formatFecha(iso: string): string {
 export default function EmetrixPonderacionZona({
   kr,
   marcaId,
-  estado,
+  cargadoEn,
   requiereCelular,
   incluyeCelularGuardado,
   headcountCuenta,
@@ -39,7 +31,8 @@ export default function EmetrixPonderacionZona({
 }: {
   kr: EmetrixKr;
   marcaId: string;
-  estado: EmetrixResultadoKr | undefined;
+  /** Fecha de la carga más reciente de este sondeo para la cuenta, o null si todavía no se ha cargado ninguna. */
+  cargadoEn: string | null;
   requiereCelular: boolean;
   /** Si la cuenta ya tiene guardado si incluye celular (Materiales). Sigue siendo editable aquí, solo se usa para precargar. */
   incluyeCelularGuardado: boolean | null;
@@ -67,7 +60,7 @@ export default function EmetrixPonderacionZona({
 
   const faltaCelular = requiereCelular && incluyeCelular === '';
   const puedeSubir = !!marcaId && !faltaCelular;
-  const cargado = !!estado?.cargadoEn;
+  const cargado = !!cargadoEn;
 
   // Al cambiar de cuenta: si es Materiales, precarga si ya se sabe que incluye celular (sigue siendo editable).
   useEffect(() => {
@@ -149,10 +142,9 @@ export default function EmetrixPonderacionZona({
       <div className="roster-head">
         <p className="section-title" style={{ margin: 0 }}>
           {KR_LABEL[kr]}
-          {estado && <span className="roster-hint"> · peso {estado.peso}%</span>}
         </p>
         <span className={`emetrix-estatus-badge ${cargado ? 'cargado' : 'pendiente'}`}>
-          {cargado ? `✓ Cargado · ${formatFecha(estado!.cargadoEn!)}` : 'Falta cargar'}
+          {cargado ? `✓ Cargado · ${formatFecha(cargadoEn!)}` : 'Falta cargar'}
         </span>
       </div>
 
@@ -226,6 +218,7 @@ export default function EmetrixPonderacionZona({
 
               <details className="emetrix-detalle-tecnico">
                 <summary>Ver detalle técnico</summary>
+                {preview.diagnostico.formatoLargo && <p className="roster-hint">{preview.diagnostico.formatoLargo}</p>}
                 <p className="roster-hint">
                   Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}
                   {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas} (sin USUARIO: {preview.diagnostico.filasSinUsuario},

@@ -15,6 +15,7 @@
 // docs/ficha-tecnica-okr-ponderacion.md para la especificación completa.
 
 import { sql } from '@vercel/postgres';
+import { parseFlexibleDate } from './import-shared';
 import type {
   EmetrixCarga,
   EmetrixCargaPreview,
@@ -22,10 +23,10 @@ import type {
   EmetrixEstado,
   EmetrixFilaDetalle,
   EmetrixKr,
+  EmetrixOkrNodo,
+  EmetrixOkrResultadoCuenta,
   EmetrixPreguntaResumen,
   EmetrixResultadoCuenta,
-  EmetrixResumenOkr,
-  EmetrixResumenOkrFila,
   EmetrixUniversoFuente,
   EmetrixVistaCruzadaFila,
 } from './types';
@@ -118,6 +119,117 @@ function resumenPreguntaOpcion(
   return { pregunta: p.columna, porcentaje: Math.round((aciertos / contestaron) * 10000) / 100, contestaron };
 }
 
+// ---- Formato "largo" (una fila por respuesta, ej. ADM) ----
+
+/**
+ * Compara dos valores de FECHA ENTRADA de forma tolerante: intenta
+ * normalizar ambos a fecha (acepta YYYY-MM-DD, DD/MM/YYYY o MM/DD/YYYY, y
+ * seriales de Excel); si ambos se pudieron parsear y son distintos, ese
+ * resultado manda. Si empatan (mismo día) o alguno no se pudo parsear, se usa
+ * el texto crudo completo como desempate — esto conserva la hora del día si
+ * el archivo la trae (ej. "20/09/2026 14:30" ordena después que "... 09:00"
+ * una vez que la parte de fecha ya empató).
+ */
+function compararFechaEntrada(a: string, b: string): number {
+  const pa = parseFlexibleDate(a);
+  const pb = parseFlexibleDate(b);
+  if (pa !== null && pb !== null && pa !== pb) return pa < pb ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Algunas cuentas (ej. ADM) exportan el sondeo en formato "largo": una fila
+ * por respuesta, con columnas USUARIO, PREGUNTA, RESPUESTA y FECHA ENTRADA
+ * (más NOMBRE u otras informativas). Otras (ej. Spin Master) lo traen
+ * "ancho": una fila por promotor con una columna por pregunta — el formato
+ * que ya esperan calcularMesaControl/Materiales/Marca. Esta función detecta
+ * el formato largo (trae columnas PREGUNTA y RESPUESTA) y lo convierte a
+ * ancho ANTES de calificar, para no duplicar ninguna regla de cumple/no
+ * cumple: aguas abajo todo corre exactamente igual que con un archivo ancho.
+ * Si el promotor contestó la misma pregunta más de una vez, se usa el envío
+ * con la FECHA ENTRADA más reciente; si esa pregunta es de opción múltiple,
+ * las respuestas de un mismo envío (misma fecha) se juntan con ", " — igual
+ * que ya se escriben las selecciones múltiples en un archivo ancho. Una
+ * pregunta que el promotor nunca contestó queda simplemente ausente (celda
+ * vacía), nunca se rellena con "No". No aplica nada (regresa tal cual) si el
+ * archivo no trae PREGUNTA/RESPUESTA — ya es formato ancho.
+ */
+export function detectarYConvertirFormatoLargo(
+  headers: string[],
+  rows: string[][]
+): { headers: string[]; rows: string[][]; notaFormatoLargo: string | null } {
+  if (indiceColumna(headers, 'PREGUNTA') === -1 || indiceColumna(headers, 'RESPUESTA') === -1) {
+    return { headers, rows, notaFormatoLargo: null };
+  }
+
+  const valor = crearLector(headers);
+
+  type Envio = { usuario: string; posicion: string; pregunta: string; fecha: string; respuestas: string[] };
+  const porEnvio = new Map<string, Envio>(); // clave: (usuario normalizado, pregunta, fecha) — un envío = misma pregunta, misma fecha
+  const preguntasOrden: string[] = [];
+  const preguntasVistas = new Set<string>();
+
+  for (const row of rows) {
+    const usuario = valor(row, 'USUARIO');
+    const pregunta = valor(row, 'PREGUNTA');
+    if (!usuario || !pregunta) continue; // fila inservible para el pivote
+    if (!preguntasVistas.has(pregunta)) {
+      preguntasVistas.add(pregunta);
+      preguntasOrden.push(pregunta);
+    }
+    // NOMBRE no es POSICION, pero calcularX exige que exista la columna POSICION
+    // (solo informativa, nunca califica) — se usa NOMBRE como respaldo cuando el
+    // archivo largo no trae POSICION propia.
+    const posicion = valor(row, 'POSICION') || valor(row, 'NOMBRE');
+    const respuesta = valor(row, 'RESPUESTA');
+    const fecha = valor(row, 'FECHA ENTRADA');
+    const claveEnvio = JSON.stringify([normalizar(usuario), pregunta, fecha]);
+    let envio = porEnvio.get(claveEnvio);
+    if (!envio) {
+      envio = { usuario, posicion, pregunta, fecha, respuestas: [] };
+      porEnvio.set(claveEnvio, envio);
+    }
+    if (respuesta) envio.respuestas.push(respuesta);
+  }
+
+  type UsuarioPregunta = { usuario: string; posicion: string; pregunta: string; masReciente: Envio; envios: number };
+  const porUsuarioPregunta = new Map<string, UsuarioPregunta>();
+  for (const envio of porEnvio.values()) {
+    const claveUP = JSON.stringify([normalizar(envio.usuario), envio.pregunta]);
+    const actual = porUsuarioPregunta.get(claveUP);
+    if (!actual) {
+      porUsuarioPregunta.set(claveUP, { usuario: envio.usuario, posicion: envio.posicion, pregunta: envio.pregunta, masReciente: envio, envios: 1 });
+    } else {
+      actual.envios++;
+      if (compararFechaEntrada(envio.fecha, actual.masReciente.fecha) > 0) {
+        actual.masReciente = envio;
+        actual.usuario = envio.usuario;
+        actual.posicion = envio.posicion;
+      }
+    }
+  }
+
+  const porUsuario = new Map<string, { usuario: string; posicion: string; valores: Map<string, string> }>();
+  const usuariosConMultiplesEnvios = new Set<string>();
+  for (const up of porUsuarioPregunta.values()) {
+    const uKey = normalizar(up.usuario);
+    if (!porUsuario.has(uKey)) porUsuario.set(uKey, { usuario: up.usuario, posicion: up.posicion, valores: new Map() });
+    porUsuario.get(uKey)!.valores.set(up.pregunta, up.masReciente.respuestas.join(', '));
+    if (up.envios > 1) usuariosConMultiplesEnvios.add(uKey);
+  }
+
+  const anchoHeaders = ['USUARIO', 'POSICION', ...preguntasOrden];
+  const anchoRows = [...porUsuario.values()].map(({ usuario, posicion, valores }) => [
+    usuario,
+    posicion,
+    ...preguntasOrden.map((p) => valores.get(p) ?? ''),
+  ]);
+
+  const notaFormatoLargo = `Formato largo detectado: ${rows.length} filas → ${anchoRows.length} promotores (${usuariosConMultiplesEnvios.size} con más de un envío, se usó el más reciente)`;
+
+  return { headers: anchoHeaders, rows: anchoRows, notaFormatoLargo };
+}
+
 type FilasDeduplicadas = {
   filas: string[][];
   filasLeidas: number;
@@ -208,7 +320,7 @@ export function calcularMesaControl(headers: string[], rows: string[][]): Calcul
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null },
     preguntas,
   };
 }
@@ -269,7 +381,7 @@ export function calcularMateriales(headers: string[], rows: string[][], incluyeC
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null },
     preguntas,
   };
 }
@@ -346,7 +458,7 @@ export function calcularMarca(headers: string[], rows: string[][]): Calculo {
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null },
     preguntas,
   };
 }
@@ -629,19 +741,41 @@ export async function guardarCarga(data: {
 
 /**
  * Config de la cuenta: si ya se sabe que incluye celular (Materiales), su
- * umbral de % de respuesta (80% si nunca se ha tocado), y su headcount
- * (uno solo, aplica por default a los 3 KR — null si la cuenta no tiene
- * headcount capturado).
+ * umbral de % de respuesta (80% si nunca se ha tocado), su headcount (uno
+ * solo, aplica por default a los 3 KR — null si la cuenta no tiene headcount
+ * capturado), y los 3 KPI de captura manual del OKR oficial (Contrato
+ * firmado, Alta ante el IMSS, Módulos publicados en Emetrix — null =
+ * pendiente de captura).
  */
-export async function fetchConfig(marcaId: string): Promise<{ incluyeCelular: boolean | null; umbralRespuesta: number; headcountManual: number | null }> {
-  const { rows } = await sql.query('select incluye_celular, umbral_respuesta, headcount_manual from emetrix_ponderacion_config where marca_id = $1', [
-    marcaId,
-  ]);
-  if (!rows[0]) return { incluyeCelular: null, umbralRespuesta: UMBRAL_RESPUESTA_DEFAULT, headcountManual: null };
+export async function fetchConfig(marcaId: string): Promise<{
+  incluyeCelular: boolean | null;
+  umbralRespuesta: number;
+  headcountManual: number | null;
+  contratoFirmadoManual: number | null;
+  imssManual: number | null;
+  modulosPublicadosManual: number | null;
+}> {
+  const { rows } = await sql.query(
+    `select incluye_celular, umbral_respuesta, headcount_manual, contrato_firmado_manual, imss_manual, modulos_publicados_manual
+     from emetrix_ponderacion_config where marca_id = $1`,
+    [marcaId]
+  );
+  if (!rows[0])
+    return {
+      incluyeCelular: null,
+      umbralRespuesta: UMBRAL_RESPUESTA_DEFAULT,
+      headcountManual: null,
+      contratoFirmadoManual: null,
+      imssManual: null,
+      modulosPublicadosManual: null,
+    };
   return {
     incluyeCelular: rows[0].incluye_celular as boolean | null,
     umbralRespuesta: rows[0].umbral_respuesta !== null ? Number(rows[0].umbral_respuesta) : UMBRAL_RESPUESTA_DEFAULT,
     headcountManual: rows[0].headcount_manual !== null ? Number(rows[0].headcount_manual) : null,
+    contratoFirmadoManual: rows[0].contrato_firmado_manual !== null ? Number(rows[0].contrato_firmado_manual) : null,
+    imssManual: rows[0].imss_manual !== null ? Number(rows[0].imss_manual) : null,
+    modulosPublicadosManual: rows[0].modulos_publicados_manual !== null ? Number(rows[0].modulos_publicados_manual) : null,
   };
 }
 
@@ -671,6 +805,36 @@ export async function updateHeadcountManual(marcaId: string, headcountManual: nu
      values ($1, $2)
      on conflict (marca_id) do update set headcount_manual = excluded.headcount_manual`,
     [marcaId, headcountManual]
+  );
+}
+
+/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial — % capturado a mano. null = pendiente de captura. */
+export async function updateContratoFirmadoManual(marcaId: string, valor: number | null): Promise<void> {
+  await sql.query(
+    `insert into emetrix_ponderacion_config (marca_id, contrato_firmado_manual)
+     values ($1, $2)
+     on conflict (marca_id) do update set contrato_firmado_manual = excluded.contrato_firmado_manual`,
+    [marcaId, valor]
+  );
+}
+
+/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial — % capturado a mano. null = pendiente de captura. */
+export async function updateImssManual(marcaId: string, valor: number | null): Promise<void> {
+  await sql.query(
+    `insert into emetrix_ponderacion_config (marca_id, imss_manual)
+     values ($1, $2)
+     on conflict (marca_id) do update set imss_manual = excluded.imss_manual`,
+    [marcaId, valor]
+  );
+}
+
+/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial — % capturado a mano. null = pendiente de captura. */
+export async function updateModulosPublicadosManual(marcaId: string, valor: number | null): Promise<void> {
+  await sql.query(
+    `insert into emetrix_ponderacion_config (marca_id, modulos_publicados_manual)
+     values ($1, $2)
+     on conflict (marca_id) do update set modulos_publicados_manual = excluded.modulos_publicados_manual`,
+    [marcaId, valor]
   );
 }
 
@@ -794,90 +958,6 @@ export async function fetchResultadoCuenta(marcaId: string): Promise<EmetrixResu
   return { marcaId, marcaNombre, krs, total: calcularTotalPonderado(krs), umbralRespuesta: config.umbralRespuesta, enAlerta: krs.some((k) => k.enAlerta) };
 }
 
-/** Resumen "Todas las cuentas": igual que fetchResultadoCuenta pero para cada cuenta que ya tiene al menos una carga. Las que no tienen ninguna quedan fuera. */
-export async function fetchResultadoTodasCuentas(): Promise<EmetrixResultadoCuenta[]> {
-  const [{ rows: cargaRows }, { rows: pesoRows }, { rows: configRows }] = await Promise.all([
-    sql.query(
-      `select distinct on (c.marca_id, c.kr) c.marca_id, m.nombre as marca_nombre, c.kr, c.universo, c.universo_fuente,
-              c.cumplieron, c.porcentaje, c.respondieron, c.cargado_en
-       from emetrix_ponderacion_cargas c
-       join marcas m on m.id = c.marca_id
-       order by c.marca_id, c.kr, c.cargado_en desc`
-    ),
-    sql.query('select marca_id, kr, peso from emetrix_ponderacion_pesos'),
-    sql.query('select marca_id, umbral_respuesta from emetrix_ponderacion_config'),
-  ]);
-
-  const pesoPorClave = new Map<string, number>(pesoRows.map((r) => [`${r.marca_id}:${r.kr}`, Number(r.peso)]));
-  const umbralPorMarca = new Map<string, number>(
-    configRows.map((r) => [r.marca_id as string, r.umbral_respuesta !== null ? Number(r.umbral_respuesta) : UMBRAL_RESPUESTA_DEFAULT])
-  );
-
-  type Acumulado = { marcaId: string; marcaNombre: string; krs: Map<EmetrixKr, EmetrixResultadoCuenta['krs'][number]> };
-  const porMarca = new Map<string, Acumulado>();
-  for (const row of cargaRows) {
-    const marcaId = row.marca_id as string;
-    if (!porMarca.has(marcaId)) {
-      porMarca.set(marcaId, { marcaId, marcaNombre: row.marca_nombre as string, krs: new Map() });
-    }
-    const kr = row.kr as EmetrixKr;
-    const universo = row.universo !== null ? Number(row.universo) : null;
-    const respondieron = row.respondieron !== null ? Number(row.respondieron) : null;
-    const porcentaje = Number(row.porcentaje);
-    const porcentajeRespuesta = calcularPorcentajeRespuesta(universo, respondieron);
-    const umbralRespuesta = umbralPorMarca.get(marcaId) ?? UMBRAL_RESPUESTA_DEFAULT;
-    const peso = pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT[kr];
-    porMarca.get(marcaId)!.krs.set(kr, {
-      kr,
-      universo,
-      cumplieron: Number(row.cumplieron),
-      porcentaje,
-      universoFuente: row.universo_fuente as EmetrixUniversoFuente,
-      respondieron,
-      porcentajeRespuesta,
-      enAlerta: porcentajeRespuesta === null || porcentajeRespuesta < umbralRespuesta,
-      peso,
-      aportacion: Math.round(((porcentaje * peso) / 100) * 100) / 100,
-      cargadoEn: new Date(row.cargado_en as string).toISOString(),
-    });
-  }
-
-  const KRS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
-  const resultado: EmetrixResultadoCuenta[] = [];
-  for (const { marcaId, marcaNombre, krs } of porMarca.values()) {
-    const umbralRespuesta = umbralPorMarca.get(marcaId) ?? UMBRAL_RESPUESTA_DEFAULT;
-    const krsArr = KRS.map(
-      (kr) =>
-        krs.get(kr) ?? {
-          kr,
-          universo: null,
-          cumplieron: null,
-          porcentaje: null,
-          universoFuente: null,
-          respondieron: null,
-          porcentajeRespuesta: null,
-          enAlerta: false,
-          peso: pesoPorClave.get(`${marcaId}:${kr}`) ?? PESO_DEFAULT[kr],
-          aportacion: 0,
-          cargadoEn: null,
-        }
-    );
-    resultado.push({ marcaId, marcaNombre, krs: krsArr, total: calcularTotalPonderado(krsArr), umbralRespuesta, enAlerta: krsArr.some((k) => k.enAlerta) });
-  }
-
-  resultado.sort((a, b) => a.marcaNombre.localeCompare(b.marcaNombre));
-  return resultado;
-}
-
-export async function updatePesoKr(marcaId: string, kr: EmetrixKr, peso: number): Promise<void> {
-  await sql.query(
-    `insert into emetrix_ponderacion_pesos (marca_id, kr, peso)
-     values ($1, $2, $3)
-     on conflict (marca_id, kr) do update set peso = excluded.peso`,
-    [marcaId, kr, peso]
-  );
-}
-
 /** Historial de cargas, más reciente primero. Filtrable por cuenta. */
 export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> {
   const { rows } = await sql.query(
@@ -907,6 +987,7 @@ export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> 
       filasLeidas: Number(r.filas_leidas ?? 0),
       filasSinUsuario: Number(r.filas_sin_usuario ?? 0),
       filasDuplicadas: Number(r.filas_duplicadas ?? 0),
+      formatoLargo: null,
     },
     incluyeCelular: r.incluye_celular as boolean | null,
     archivoNombre: r.archivo_nombre as string | null,
@@ -915,43 +996,296 @@ export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> 
   }));
 }
 
+// ---- Árbol del OKR oficial "Ciclo de vida del promotor" ----
+//
+// Espejo exacto (mismos nombres, mismos pesos) del archivo de Carlos que se
+// conecta a EvolveOS: OKR = KR1×30% + KR2×40% + KR3×30%. Los KPI de KR1 y KR3
+// que NO salen de un sondeo (Contrato firmado, Alta ante el IMSS, Módulos
+// publicados en Emetrix) son captura manual — ver fetchConfig/updateXManual.
+// Ningún KPI pendiente cuenta como 0%: el % de su KR se calcula solo con los
+// KPI que sí tienen dato, redistribuyendo el peso entre esos (igual en OKR
+// respecto a sus 3 KR). Ver docs/ficha-tecnica-okr-ponderacion.md.
+
+const OKR_AREA = 'Operaciones';
+
+/** % de un nodo padre = promedio ponderado SOLO de los hijos con dato, redistribuyendo su peso. null si NINGÚN hijo tiene dato. */
+function agregarNodoOkr(hijos: EmetrixOkrNodo[], unidad: string): { porcentaje: number | null; calculadoNota: string | null } {
+  const conDato = hijos.filter((h) => h.porcentaje !== null);
+  if (conDato.length === 0) return { porcentaje: null, calculadoNota: `Calculado con 0 de ${hijos.length} ${unidad}` };
+  const sumaPesos = conDato.reduce((s, h) => s + h.peso, 0);
+  const porcentaje = sumaPesos > 0 ? Math.round((conDato.reduce((s, h) => s + h.porcentaje! * h.peso, 0) / sumaPesos) * 100) / 100 : null;
+  const calculadoNota = conDato.length < hijos.length ? `Calculado con ${conDato.length} de ${hijos.length} ${unidad}` : null;
+  return { porcentaje, calculadoNota };
+}
+
+/** Arma un nodo OKR/KR (nivel agregado) a partir de sus hijos ya calculados. */
+function nodoAgregado(
+  base: { nivel: 'okr' | 'kr'; codigo: string; nombre: string; descripcion: string; capa: string; owner: string; peso: number },
+  hijos: EmetrixOkrNodo[],
+  unidadHijos: string,
+  fuente: string
+): EmetrixOkrNodo {
+  const { porcentaje, calculadoNota } = agregarNodoOkr(hijos, unidadHijos);
+  return {
+    ...base,
+    area: OKR_AREA,
+    porcentaje,
+    pendienteTexto: porcentaje === null ? 'Sin datos' : null,
+    calculadoNota,
+    fuente,
+    hijos,
+  };
+}
+
+/** KPI de KR1 alimentado por una pregunta puntual de Mesa de Control. */
+function kpiDeMesaControl(
+  codigo: string,
+  nombre: string,
+  labelPregunta: string,
+  mesaControlDetalle: Awaited<ReturnType<typeof fetchDetalleCarga>>
+): EmetrixOkrNodo {
+  const p = mesaControlDetalle?.preguntas.find((x) => x.pregunta === labelPregunta) ?? null;
+  const porcentaje = p?.porcentaje ?? null;
+  const pendienteTexto = !mesaControlDetalle
+    ? 'Falta cargar Mesa de Control'
+    : !p || p.porcentaje === null
+      ? 'Pregunta no reconocida en este archivo'
+      : null;
+  const fuente = mesaControlDetalle
+    ? `Sondeo Mesa de Control — pregunta "${labelPregunta}"${p && p.porcentaje !== null ? ` (${p.contestaron} contestaron)` : ''}`
+    : 'Sondeo Mesa de Control';
+  return {
+    nivel: 'kpi',
+    codigo,
+    area: OKR_AREA,
+    nombre,
+    descripcion: `% de "Sí" en "${labelPregunta}" (Mesa de Control)`,
+    capa: 'Actividad',
+    owner: 'Mesa de Control',
+    peso: 25,
+    porcentaje,
+    pendienteTexto,
+    calculadoNota: null,
+    fuente,
+    hijos: [],
+  };
+}
+
+/** KPI de captura manual (no sale de ningún sondeo). */
+function kpiManual(
+  codigo: string,
+  nombre: string,
+  descripcion: string,
+  owner: string,
+  peso: number,
+  valor: number | null,
+  pendienteTexto: string
+): EmetrixOkrNodo {
+  return {
+    nivel: 'kpi',
+    codigo,
+    area: OKR_AREA,
+    nombre,
+    descripcion,
+    capa: 'Actividad',
+    owner,
+    peso,
+    porcentaje: valor,
+    pendienteTexto: valor === null ? pendienteTexto : null,
+    calculadoNota: null,
+    fuente: 'Captura manual',
+    hijos: [],
+  };
+}
+
+const KR_LABEL_SONDEO: Record<EmetrixKr, string> = { mesa_control: 'Mesa de Control', materiales: 'Materiales', marca: 'Marca' };
+
+/** KPI alimentado por el % de cumplimiento (tal cual, regla vigente sin cambios) de un sondeo completo. */
+function kpiDeSondeo(
+  codigo: string,
+  nombre: string,
+  descripcion: string,
+  owner: string,
+  peso: number,
+  kr: EmetrixKr,
+  resultado: EmetrixResultadoCuenta
+): EmetrixOkrNodo {
+  const k = resultado.krs.find((x) => x.kr === kr);
+  const porcentaje = k?.porcentaje ?? null;
+  const pendienteTexto = porcentaje === null ? `Falta cargar ${KR_LABEL_SONDEO[kr]}` : null;
+  const fuente = porcentaje !== null ? `Sondeo ${KR_LABEL_SONDEO[kr]} — % de cumplimiento` : `Sondeo ${KR_LABEL_SONDEO[kr]}`;
+  return {
+    nivel: 'kpi',
+    codigo,
+    area: OKR_AREA,
+    nombre,
+    descripcion,
+    capa: 'Actividad',
+    owner,
+    peso,
+    porcentaje,
+    pendienteTexto,
+    calculadoNota: null,
+    fuente,
+    hijos: [],
+  };
+}
+
 /**
- * Resumen para el OKR "Ciclo de vida del promotor", por cuenta: traduce los
- * 3 KR del sondeo de Emetrix a las 5 métricas que pide el OKR oficial.
- * "Carta de acceso y credencial" y "Usuario en Emetrix" salen de dos
- * preguntas puntuales de Mesa de Control (no de su % de cumplimiento
- * general, que exige las 4 preguntas a la vez); "Materiales completos" y
- * "Módulo completado" son el % de cumplimiento tal cual de esos dos KR.
- * "Contrato e IMSS" no sale de este sondeo (viene del padrón/Aspel) — se
- * marca pendiente a propósito. `valor` de cada fila explica por qué no hay
- * número cuando `porcentaje` es null (falta cargar el sondeo, la pregunta no
- * se reconoció en este archivo, o es la fila fija de Contrato e IMSS).
+ * Árbol OKR → KR → KPI de una cuenta, espejo exacto del OKR oficial "Ciclo
+ * de vida del promotor" (mismos nombres, mismos pesos: OKR = KR1×30% +
+ * KR2×40% + KR3×30%). Reutiliza fetchResultadoCuenta (para el % de
+ * cumplimiento de Materiales/Tu Marca y la alerta por respuesta insuficiente)
+ * y fetchDetalleCarga de Mesa de Control (para las 2 preguntas puntuales de
+ * KR1) — no cambia ninguna regla de cumple/no cumple de esos sondeos.
  */
-export async function fetchResumenOkr(marcaId: string): Promise<EmetrixResumenOkr> {
-  const [resultado, mesaControlDetalle] = await Promise.all([fetchResultadoCuenta(marcaId), fetchDetalleCarga(marcaId, 'mesa_control')]);
+export async function fetchResultadoOkrCuenta(marcaId: string): Promise<EmetrixOkrResultadoCuenta> {
+  const [resultado, mesaControlDetalle, config] = await Promise.all([
+    fetchResultadoCuenta(marcaId),
+    fetchDetalleCarga(marcaId, 'mesa_control'),
+    fetchConfig(marcaId),
+  ]);
 
-  function filaDePregunta(etiqueta: string, labelPregunta: string): EmetrixResumenOkrFila {
-    if (!mesaControlDetalle) return { etiqueta, valor: 'Falta cargar Mesa de Control', porcentaje: null };
-    const p = mesaControlDetalle.preguntas.find((x) => x.pregunta === labelPregunta);
-    if (!p || p.porcentaje === null) return { etiqueta, valor: 'Pregunta no reconocida en este archivo', porcentaje: null };
-    return { etiqueta, valor: `${p.porcentaje}%`, porcentaje: p.porcentaje };
-  }
+  const kr1Kpis = [
+    kpiDeMesaControl('KR1.1', 'Carta de acceso y credencial', 'Entrada a tienda', mesaControlDetalle),
+    kpiDeMesaControl('KR1.2', 'Usuario en Emetrix', 'Emetrix funcionó', mesaControlDetalle),
+    kpiManual(
+      'KR1.3',
+      'Contrato firmado',
+      'Captura manual del % de promotores nuevos con contrato firmado',
+      'Legal',
+      25,
+      config.contratoFirmadoManual,
+      'Pendiente (Legal)'
+    ),
+    kpiManual(
+      'KR1.4',
+      'Alta ante el IMSS',
+      'Captura manual del % de promotores nuevos dados de alta ante el IMSS',
+      'Nómina',
+      25,
+      config.imssManual,
+      'Pendiente (Nómina)'
+    ),
+  ];
+  const kr1 = nodoAgregado(
+    {
+      nivel: 'kr',
+      codigo: 'KR1',
+      nombre: 'Kit administrativo entregado a tiempo',
+      descripcion: 'Documentos y accesos que el promotor debe tener listos al arrancar.',
+      capa: 'Resultado',
+      owner: 'Operaciones',
+      peso: 30,
+    },
+    kr1Kpis,
+    'KPI',
+    'Promedio ponderado de sus 4 KPI'
+  );
 
-  function filaDeKr(etiqueta: string, kr: EmetrixKr): EmetrixResumenOkrFila {
-    const k = resultado.krs.find((x) => x.kr === kr);
-    if (!k || k.porcentaje === null) return { etiqueta, valor: 'Falta cargar', porcentaje: null };
-    return { etiqueta, valor: `${k.porcentaje}%`, porcentaje: k.porcentaje };
-  }
+  const kr2Kpis = [
+    kpiDeSondeo(
+      'KR2.1',
+      'Materiales completos',
+      '% de cumplimiento del sondeo Materiales (regla vigente, sin cambios)',
+      'Operaciones',
+      100,
+      'materiales',
+      resultado
+    ),
+  ];
+  const kr2 = nodoAgregado(
+    {
+      nivel: 'kr',
+      codigo: 'KR2',
+      nombre: 'Materiales de campo entregados en calendario',
+      descripcion: 'Kit de materiales de campo completo y a tiempo.',
+      capa: 'Resultado',
+      owner: 'Operaciones',
+      peso: 40,
+    },
+    kr2Kpis,
+    'KPI',
+    'KPI único: Materiales completos'
+  );
+
+  const kr3Kpis = [
+    kpiManual(
+      'KR3.1',
+      'Módulos publicados en Emetrix',
+      'Captura manual del % de módulos de capacitación publicados en Emetrix',
+      'Capacitación',
+      50,
+      config.modulosPublicadosManual,
+      'Pendiente (Capacitación)'
+    ),
+    kpiDeSondeo(
+      'KR3.2',
+      'Módulo completado (aproximación)',
+      '% de cumplimiento del sondeo Tu Marca (8 de 10 o más, regla vigente, sin cambios)',
+      'Capacitación',
+      50,
+      'marca',
+      resultado
+    ),
+  ];
+  const kr3 = nodoAgregado(
+    {
+      nivel: 'kr',
+      codigo: 'KR3',
+      nombre: 'Capacitación en módulos',
+      descripcion: 'Avance de capacitación de marca y contenido operativo.',
+      capa: 'Resultado',
+      owner: 'Capacitación',
+      peso: 30,
+    },
+    kr3Kpis,
+    'KPI',
+    'Promedio ponderado de sus 2 KPI'
+  );
+
+  const krs = [kr1, kr2, kr3];
+  const raiz = nodoAgregado(
+    {
+      nivel: 'okr',
+      codigo: 'OKR',
+      nombre: 'Ciclo de vida del promotor',
+      descripcion: 'OKR oficial de incorporación del promotor, conectado a EvolveOS.',
+      capa: 'Resultado',
+      owner: 'Operaciones',
+      peso: 100,
+    },
+    krs,
+    'KR',
+    'Promedio ponderado de sus 3 KR'
+  );
 
   return {
     marcaId,
     marcaNombre: resultado.marcaNombre,
-    filas: [
-      filaDePregunta('Carta de acceso y credencial', 'Entrada a tienda'),
-      filaDePregunta('Usuario en Emetrix', 'Emetrix funcionó'),
-      filaDeKr('Materiales completos', 'materiales'),
-      filaDeKr('Módulo completado (aproximación)', 'marca'),
-      { etiqueta: 'Contrato e IMSS', valor: 'Pendiente (Legal / Nómina)', porcentaje: null },
-    ],
+    umbralRespuesta: resultado.umbralRespuesta,
+    enAlerta: resultado.enAlerta,
+    sondeosCargadoEn: {
+      mesa_control: resultado.krs.find((k) => k.kr === 'mesa_control')?.cargadoEn ?? null,
+      materiales: resultado.krs.find((k) => k.kr === 'materiales')?.cargadoEn ?? null,
+      marca: resultado.krs.find((k) => k.kr === 'marca')?.cargadoEn ?? null,
+    },
+    raiz,
   };
+}
+
+/** Aplana un árbol OKR → KR → KPI en preorden (el nodo, luego sus hijos), para tablas/Excel. */
+export function aplanarArbolOkr(nodo: EmetrixOkrNodo): EmetrixOkrNodo[] {
+  return [nodo, ...nodo.hijos.flatMap(aplanarArbolOkr)];
+}
+
+/** El árbol OKR de cada cuenta que ya tiene al menos una carga (mismo criterio que fetchResultadoTodasCuentas). Las que no tienen ninguna quedan fuera. */
+export async function fetchResultadoOkrTodasCuentas(): Promise<EmetrixOkrResultadoCuenta[]> {
+  const { rows } = await sql.query(
+    `select distinct m.id, m.nombre
+     from marcas m
+     join emetrix_ponderacion_cargas c on c.marca_id = m.id
+     order by m.nombre`
+  );
+  return Promise.all(rows.map((r) => fetchResultadoOkrCuenta(r.id as string)));
 }

@@ -612,6 +612,16 @@ alter table emetrix_ponderacion_config add column if not exists umbral_respuesta
 -- capturado (usa el padrón si existe, o queda sin universo).
 alter table emetrix_ponderacion_config add column if not exists headcount_manual int;
 
+-- KPI de captura manual del OKR oficial "Ciclo de vida del promotor" (no
+-- salen de ningún sondeo de Emetrix): % de promotores con contrato firmado
+-- (KR1, dueño Legal), % dados de alta ante el IMSS (KR1, dueño Nómina) y % de
+-- módulos de capacitación publicados en Emetrix (KR3, dueño Capacitación).
+-- null = pendiente de captura — el KPI queda fuera del cálculo de su KR (no
+-- cuenta como 0%), nunca "sin headcount capturado" como el de arriba.
+alter table emetrix_ponderacion_config add column if not exists contrato_firmado_manual numeric;
+alter table emetrix_ponderacion_config add column if not exists imss_manual numeric;
+alter table emetrix_ponderacion_config add column if not exists modulos_publicados_manual numeric;
+
 -- Detalle por promotor de una carga específica: si cumplió y, si no, qué le
 -- faltó (texto legible, ej. "Faltan: Botas, Faja" o "6/10"). Vive aparte de
 -- emetrix_ponderacion_cargas para no inflar esa tabla con una fila por

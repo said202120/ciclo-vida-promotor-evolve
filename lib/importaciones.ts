@@ -21,7 +21,14 @@ const CAMPOS_VALIDOS: ImportCampo[] = ['rfc', 'contratoFecha', 'imssFecha', 'idE
 
 function cellToDisplay(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return '';
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) {
+    const iso = value.toISOString();
+    // Fecha pura (medianoche UTC, como vienen las de Aspel) -> solo YYYY-MM-DD,
+    // igual que siempre. Fecha CON hora (ej. FECHA ENTRADA/SALIDA de un sondeo
+    // de Emetrix en formato largo) conserva la hora completa: hace falta para
+    // poder distinguir dos envíos del mismo promotor en el mismo día.
+    return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+  }
   if (typeof value === 'object') {
     const v = value as unknown as Record<string, unknown>;
     if (Array.isArray(v.richText)) {

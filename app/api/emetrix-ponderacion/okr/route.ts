@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
-import { fetchResultadoCuenta } from '@/lib/emetrix-ponderacion';
+import { fetchResultadoOkrCuenta } from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
 
-// GET /api/emetrix-ponderacion/resultado?marcaId=... — la carga más reciente
-// de cada KR para esa cuenta + su peso, con el total ponderado del OKR.
+// GET /api/emetrix-ponderacion/okr?marcaId=... — árbol OKR → KR → KPI de una
+// cuenta, espejo del OKR oficial "Ciclo de vida del promotor".
 export async function GET(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -15,5 +15,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Falta marcaId.' }, { status: 400 });
   }
 
-  return NextResponse.json(await fetchResultadoCuenta(marcaId));
+  return NextResponse.json(await fetchResultadoOkrCuenta(marcaId));
 }

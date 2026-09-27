@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
 import { parseSpreadsheet } from '@/lib/importaciones';
-import { ColumnasFaltantesError, armarPreview, calcularMarca, calcularMateriales, calcularMesaControl } from '@/lib/emetrix-ponderacion';
+import {
+  ColumnasFaltantesError,
+  armarPreview,
+  calcularMarca,
+  calcularMateriales,
+  calcularMesaControl,
+  detectarYConvertirFormatoLargo,
+} from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +43,13 @@ export async function POST(request: Request) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { headers, rows } = await parseSpreadsheet(buffer, file.name);
+    const { headers: headersOriginal, rows: rowsOriginal } = await parseSpreadsheet(buffer, file.name);
+    // Algunas cuentas (ej. ADM) exportan el sondeo en formato "largo" (una fila
+    // por respuesta) en vez de "ancho" (una fila por promotor, como Spin
+    // Master); se convierte a ancho aquí, ANTES de calificar, para que las
+    // reglas de cumple/no cumple de abajo corran exactamente igual en ambos
+    // casos. No hace nada (regresa igual) si el archivo ya viene ancho.
+    const { headers, rows, notaFormatoLargo } = detectarYConvertirFormatoLargo(headersOriginal, rowsOriginal);
 
     let calculo;
     if (kr === 'mesa_control') {
@@ -50,6 +63,7 @@ export async function POST(request: Request) {
     } else {
       calculo = calcularMarca(headers, rows);
     }
+    calculo.diagnostico.formatoLargo = notaFormatoLargo;
 
     const preview = await armarPreview(marcaId, calculo, universoOverride);
     return NextResponse.json(preview);

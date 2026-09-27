@@ -454,6 +454,8 @@ export type EmetrixDiagnosticoArchivo = {
   filasLeidas: number;
   filasSinUsuario: number;
   filasDuplicadas: number;
+  /** "Formato largo detectado: X filas → Y promotores (Z con más de un envío, se usó el más reciente)" — null si el archivo ya venía en formato ancho (una fila por promotor). */
+  formatoLargo: string | null;
 };
 
 /**
@@ -574,21 +576,52 @@ export type EmetrixVistaCruzadaFila = {
   marca: EmetrixEstado | null;
 };
 
+/** Nivel de un nodo del árbol del OKR oficial "Ciclo de vida del promotor". */
+export type EmetrixOkrNivel = 'okr' | 'kr' | 'kpi';
+
 /**
- * Una fila del "Resumen para OKR": traduce un KR del sondeo de Emetrix (o,
- * para Contrato e IMSS, una nota de que ese dato no sale de este sondeo) al
- * lenguaje del OKR oficial "Ciclo de vida del promotor". `porcentaje` es null
- * cuando `valor` es un texto (falta cargar, pregunta no reconocida, o
- * "Pendiente (Legal / Nómina)") en vez de un número.
+ * Un nodo del árbol OKR → KR → KPI, espejo del archivo oficial de Carlos que
+ * se conecta a EvolveOS (mismos nombres, mismos pesos). `peso` es el peso
+ * DENTRO de su padre (los 4 KPI de KR1 pesan 25 cada uno, KR2 tiene un solo
+ * KPI que pesa 100, los 2 KPI de KR3 pesan 50 cada uno; los 3 KR pesan
+ * 30/40/30 dentro del OKR). `porcentaje` es null cuando el KPI está
+ * pendiente (nunca se muestra como 0%) — `pendienteTexto` explica por qué
+ * ("Pendiente (Legal)", "Falta cargar Mesa de Control", "Pregunta no
+ * reconocida en este archivo", etc.). En un nodo OKR/KR, `calculadoNota` es
+ * "Calculado con X de N KPI/KR" cuando no todos sus hijos tienen dato (nunca
+ * se cuenta un pendiente como 0%, se redistribuye el peso entre los que sí
+ * tienen). `fuente` describe qué sondeo/pregunta/captura alimenta el nodo —
+ * misma columna que en el Excel "Descargar para OKR".
  */
-export type EmetrixResumenOkrFila = {
-  etiqueta: string;
-  valor: string;
+export type EmetrixOkrNodo = {
+  nivel: EmetrixOkrNivel;
+  codigo: string;
+  area: string;
+  nombre: string;
+  descripcion: string;
+  capa: string;
+  owner: string;
+  peso: number;
   porcentaje: number | null;
+  pendienteTexto: string | null;
+  calculadoNota: string | null;
+  fuente: string;
+  hijos: EmetrixOkrNodo[];
 };
 
-export type EmetrixResumenOkr = {
+/**
+ * Árbol OKR completo de una cuenta, espejo exacto del OKR oficial. `raiz` es
+ * el nodo OKR (`raiz.hijos` son los 3 KR, cada uno con sus KPI en
+ * `hijos`). `umbralRespuesta`/`enAlerta` se preservan del modelo de sondeos
+ * (alerta por % de respuesta insuficiente en Mesa de Control/Materiales/Tu
+ * Marca) — independiente de la estructura del OKR.
+ */
+export type EmetrixOkrResultadoCuenta = {
   marcaId: string;
   marcaNombre: string;
-  filas: EmetrixResumenOkrFila[];
+  umbralRespuesta: number;
+  enAlerta: boolean;
+  /** Fecha de la carga más reciente de cada sondeo (o null si no tiene ninguna) — para el badge "Cargado" de cada tarjeta. */
+  sondeosCargadoEn: Record<EmetrixKr, string | null>;
+  raiz: EmetrixOkrNodo;
 };
