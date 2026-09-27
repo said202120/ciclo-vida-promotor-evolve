@@ -2,11 +2,21 @@
 
 Pantalla `/emetrix-ponderacion` (solo rol gerente). Respaldo manual del OKR
 "Ciclo de vida del promotor" mientras se resuelve la integración automática
-con Evolve OS. Implementación: `lib/emetrix-ponderacion.ts`.
+con Evolve OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de
+datos) + `lib/emetrix-ponderacion-calc.ts` (toda la matemática, funciones
+puras — ver sección 9).
 
-**2026-09-27** — la pantalla se rehízo para ser un espejo exacto (mismos
-nombres, mismos pesos) del OKR oficial de Carlos que se conecta a EvolveOS,
-en vez de un modelo propio de 3 KR con pesos editables. Ver sección 4.
+**2026-09-27** — cada carga ahora pertenece a un periodo ("mes") y toda la
+pantalla/descarga se filtra a un solo periodo a la vez (sección 2-bis); el
+árbol OKR expone un "indicador" explícito por nodo (`{estado, valor, base,
+motivo}`, sección 4) en vez de campos sueltos; y toda la matemática se movió
+a un módulo puro con sus propias pruebas (sección 9). Ninguna regla de
+cumple/no cumple ni ningún peso cambió.
+
+**2026-09-27 (antes)** — la pantalla se rehízo para ser un espejo exacto
+(mismos nombres, mismos pesos) del OKR oficial de Carlos que se conecta a
+EvolveOS, en vez de un modelo propio de 3 KR con pesos editables. Ver
+sección 4.
 
 ## 1. Los 3 sondeos y sus reglas de cumplimiento
 
@@ -45,6 +55,43 @@ Si la cuenta no incluye celular, esas dos preguntas se ignoran por completo.
 10 preguntas de opción múltiple sobre manejo de marca en anaquel (ver
 `MARCA_PREGUNTAS` en el código para el texto exacto de cada una y la
 respuesta correcta). Cumple si acierta **8 de 10 o más**.
+
+## 1-bis. Periodo (a qué mes pertenece una carga)
+
+Cada carga (una fila de `emetrix_ponderacion_cargas`) pertenece a un mes,
+columna `periodo` en formato `"YYYY-MM"` (ej. `"2026-09"`) — mismo formato
+que ya usa el resto de la app (`/api/meses`). El gerente lo elige al subir un
+sondeo (default: el mes actual, `periodoActual()` en
+`lib/emetrix-ponderacion-calc.ts`); la pantalla muestra el label completo
+("Septiembre 2026", `formatPeriodoLabel`).
+
+Un selector de periodo arriba de `/emetrix-ponderacion`
+(`components/EmetrixPonderacionAdmin.tsx`) controla TODA la pantalla: el
+árbol OKR de la cuenta, el resumen "Todas las cuentas", la vista cruzada, el
+historial de cargas y el botón "Descargar para OKR" — todos filtran por el
+periodo seleccionado. Ninguna consulta mezcla cargas de dos periodos
+distintos en un mismo cálculo (`fetchResultadoCuenta`, `fetchDetalleCarga`,
+`fetchHistorial`, `fetchVistaCruzada` y `fetchResultadoOkrCuenta` en
+`lib/emetrix-ponderacion.ts` reciben `periodo` y lo usan en el `where` de
+cada consulta). "Todas las cuentas" solo lista cuentas con al menos una
+carga EN ESE periodo — una cuenta con cargas solo de otro mes no aparece.
+
+Los 3 KPI de captura manual del OKR (Contrato firmado, Alta ante el IMSS,
+Módulos publicados en Emetrix — sección 4) **no están periodizados**: viven
+en `emetrix_ponderacion_config` (una fila por cuenta, no por mes) y muestran
+el mismo valor sin importar qué periodo esté seleccionado — son un dato
+vigente de la cuenta, no una carga de un sondeo con fecha. Si más adelante se
+necesita historizarlos por mes, hay que rediseñar esa tabla; por ahora es una
+simplificación deliberada (no la pidió el encargo original).
+
+`GET /api/emetrix-ponderacion/periodos` regresa `{ periodos, actual }`:
+todos los periodos con al menos una carga guardada (de cualquier cuenta) más
+el mes actual (aunque no tenga cargas todavía, para poder elegirlo al subir
+el primer sondeo de un mes nuevo), más recientes primero.
+
+Las cargas guardadas antes de que existiera esta columna (todo lo capturado
+hasta el 2026-09-27) se anclaron a `"2026-09"` en la migración de
+`schema.sql` — no se perdió ni se recalculó ningún dato histórico.
 
 ## 2. Universo (a quién se mide)
 
@@ -132,10 +179,56 @@ el modelo de sondeos que sigue existiendo como pieza interna) quedan como
 código muerto histórico, no se borraron de la base de datos.
 
 Calculado en `fetchResultadoOkrCuenta`/`fetchResultadoOkrTodasCuentas`
-(`lib/emetrix-ponderacion.ts`), que internamente reutiliza
-`fetchResultadoCuenta` (para el % de cumplimiento de Materiales/Tu Marca) y
-`fetchDetalleCarga('mesa_control')` (para las 2 preguntas puntuales de KR1) —
-ninguna regla de cumple/no cumple de esos sondeos cambió.
+(`lib/emetrix-ponderacion.ts`, ambas reciben `periodo`), que internamente
+reutiliza `fetchResultadoCuenta` (para el % de cumplimiento de
+Materiales/Tu Marca EN ESE PERIODO) y `fetchDetalleCarga('mesa_control',
+periodo)` (para las 2 preguntas puntuales de KR1 de la carga de ese mismo
+periodo) — ninguna regla de cumple/no cumple de esos sondeos cambió. Esas dos
+funciones solo obtienen los datos; el cálculo del árbol en sí vive en
+`construirArbolOkr` (pura, sección 9).
+
+### 4-bis. El indicador: `{estado, valor, base, motivo}`
+
+El nivel más bajo del árbol OKR es el **indicador** = una cuenta × un KPI (o
+un KR/el OKR, agregados) × un periodo. Cada nodo del árbol (`EmetrixOkrNodo`
+en `lib/types.ts`) trae un campo `indicador: EmetrixIndicador`:
+
+```ts
+type EmetrixIndicador = {
+  estado: 'medido' | 'sin-medir';
+  valor: number | null;   // el %, solo si estado='medido'
+  base: string | null;    // "43 de 44" — el "X de Y" que sustenta el valor
+  motivo: string;         // explicación en texto plano, siempre presente
+};
+```
+
+Ejemplos reales del árbol:
+- `{ estado: 'medido', valor: 97.73, base: '43 de 44', motivo: '43 de 44
+  promotores contestaron "Sí" a "¿Pudiste entrar a tu tienda el primer
+  día?".' }` — KPI "Carta de acceso y credencial" (KR1.1).
+- `{ estado: 'sin-medir', valor: null, base: null, motivo: 'Falta el dato de
+  Legal (fecha de firma de contrato).' }` — KPI "Contrato firmado" (KR1.3)
+  sin capturar.
+- `{ estado: 'medido', valor: 0, base: '0 de 12', motivo: '0 de 12
+  promotores que contestaron Materiales cumplieron los requisitos.' }` — un
+  0% **medido** (ej. Hanes Materiales), nunca `'sin-medir'`: la diferencia
+  entre "no hay dato" y "el dato es cero" es intencional en todo el árbol.
+
+En un nodo agregado (KR u OKR), `motivo` es "Calculado con X de N KPI/KR
+(los demás están pendientes y no cuentan como 0%)" cuando no todos sus hijos
+están medidos (mismo mecanismo que antes se llamaba `calculadoNota`), o la
+descripción de cómo se agrega (ej. "Promedio ponderado de sus 3 KR") cuando
+todos sus hijos tienen dato. `motivo` **siempre** tiene texto, medido o no —
+la pantalla lo muestra en chico debajo del número (`ArbolOkrTabla` en
+`components/EmetrixPonderacionAdmin.tsx`). El campo `fuente` (que ya existía)
+sigue describiendo de qué sondeo/pregunta/captura sale el nodo, para la
+columna "Fuente" de la tabla y del Excel — `indicador.motivo` es un texto
+distinto y complementario (la explicación matemática del número), no un
+duplicado.
+
+Los campos viejos `porcentaje`/`pendienteTexto`/`calculadoNota` de
+`EmetrixOkrNodo` se eliminaron — todo lo que antes leían pasó a
+`indicador.valor`/`indicador.estado`/`indicador.motivo`.
 
 ## 5. Dónde ver esto en pantalla
 
@@ -295,3 +388,68 @@ Verificado 2026-09-27 contra el archivo real de ADM (Mesa de Control, 1958
 filas, formato largo): 223 promotores únicos, Carta de acceso 99.09% (220
 contestaron), Usuario en Emetrix 99.55% (223 contestaron) — coincide exacto
 con lo esperado.
+
+## 9. Cálculo separado y probado
+
+Toda la matemática (parseo de columnas, reglas de cumple/no cumple de los 3
+sondeos, desglose por pregunta, formato largo↔ancho, y el árbol OKR con sus
+indicadores) vive en **`lib/emetrix-ponderacion-calc.ts`** — funciones puras:
+ningún import de `@vercel/postgres`, ninguna llamada a `fetch`, nada de
+pantalla. `lib/emetrix-ponderacion.ts` solo hace las consultas a la base
+(la carga más reciente de un KR en un periodo, el padrón, la config de la
+cuenta) y le pasa esos datos ya obtenidos a las funciones puras — la
+pantalla (`components/EmetrixPonderacionZona.tsx`,
+`components/EmetrixPonderacionAdmin.tsx`), la descarga en Excel
+(`app/api/emetrix-ponderacion/*/excel/route.ts`) y cualquier envío futuro
+(a EvolveOS, por ejemplo) usan exactamente esas mismas funciones — no hay
+una segunda copia de ninguna regla.
+
+Piezas puras clave (todas exportadas desde `lib/emetrix-ponderacion-calc.ts`,
+y re-exportadas también desde `lib/emetrix-ponderacion.ts` para que las rutas
+existentes no cambien su import):
+
+- `calcularMesaControl` / `calcularMateriales` / `calcularMarca` — reglas de
+  cumple/no cumple de los 3 sondeos (sección 1).
+- `detectarYConvertirFormatoLargo` / `normalizarColumnaUsuario` — formato
+  largo↔ancho y columna USUARIO renombrada (sección 8).
+- `calcularPorcentajes` / `calcularPorcentajeRespuesta` /
+  `calcularTotalPonderado` — % de respuesta vs. % de cumplimiento
+  (sección 3) y el promedio ponderado redistribuyendo pesos.
+- `construirArbolOkr` — arma el árbol OKR → KR → KPI completo (sección 4),
+  incluyendo el `indicador` de cada nodo (sección 4-bis), a partir de datos
+  ya obtenidos (no toca la base).
+- `esPeriodoValido` / `periodoActual` / `formatPeriodoLabel` — periodo
+  (sección 1-bis).
+
+### Pruebas
+
+`lib/emetrix-ponderacion-calc.test.ts` — corren con el test runner nativo de
+Node, **sin tocar la base de datos** (no requieren `POSTGRES_URL` ni ninguna
+variable de entorno; usan archivos/datos sintéticos armados en cada prueba,
+nunca cuentas reales de producción):
+
+```
+npm test
+# o directamente:
+node --test lib/emetrix-ponderacion-calc.test.ts
+```
+
+Una prueba por regla, entre otras:
+- **Respuesta más reciente**: un USUARIO duplicado en un archivo ancho, y un
+  mismo envío repetido en formato largo con distinta `FECHA ENTRADA`, deben
+  resolverse con la aparición/envío más reciente.
+- **Vacío no es cero**: si ninguna fila trae un valor reconocible en una
+  pregunta (Sí/No u opción), su `%` debe ser `null`, nunca `0`.
+- **Cero medido**: un sondeo con 0% de cumplimiento real (ej. Materiales en
+  Hanes) debe quedar `estado: 'medido'` con `valor: 0`, nunca `'sin-medir'`.
+- **KR con KPI pendientes**: un KR con un KPI sin capturar debe redistribuir
+  el peso entre los que sí tienen dato (no contar el pendiente como 0%).
+- **OKR 30/40/30**: con los 3 KR medidos, el total debe ser exactamente el
+  promedio ponderado `KR1×30% + KR2×40% + KR3×30%`.
+- **Formato largo y ancho**: un archivo ancho no se toca (no-op), y uno largo
+  se pivotea correctamente (incluye selección múltiple con `", "`).
+
+Esta misma suite es el punto de referencia para futuros cambios: antes de
+tocar `lib/emetrix-ponderacion-calc.ts`, correr `npm test` y no romper
+ninguna de estas pruebas. No crear cuentas ni cargas de prueba en la base de
+producción para verificar una regla — para eso son estas pruebas.

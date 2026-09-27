@@ -42,6 +42,7 @@ function porcentajeOkrMesaControl(preguntas: EmetrixPreguntaResumen[]): number |
 export default function EmetrixPonderacionZona({
   kr,
   marcaId,
+  periodo,
   cargadoEn,
   requiereCelular,
   incluyeCelularGuardado,
@@ -50,7 +51,9 @@ export default function EmetrixPonderacionZona({
 }: {
   kr: EmetrixKr;
   marcaId: string;
-  /** Fecha de la carga más reciente de este sondeo para la cuenta, o null si todavía no se ha cargado ninguna. */
+  /** Periodo ("YYYY-MM") en el que se guardará esta carga y del que se lee el detalle ya guardado. */
+  periodo: string;
+  /** Fecha de la carga más reciente de este sondeo PARA ESTE PERIODO, o null si todavía no se ha cargado ninguna. */
   cargadoEn: string | null;
   requiereCelular: boolean;
   /** Si la cuenta ya tiene guardado si incluye celular (Materiales). Sigue siendo editable aquí, solo se usa para precargar. */
@@ -81,15 +84,17 @@ export default function EmetrixPonderacionZona({
   const puedeSubir = !!marcaId && !faltaCelular;
   const cargado = !!cargadoEn;
 
-  // Al cambiar de cuenta: si es Materiales, precarga si ya se sabe que incluye celular (sigue siendo editable).
+  // Al cambiar de cuenta o de periodo: si es Materiales, precarga si ya se sabe que incluye celular (sigue siendo editable). El detalle ya guardado es específico de cada periodo, así que se limpia y se vuelve a pedir.
   useEffect(() => {
     setMostrandoDetalle(false);
     setMostrandoPreguntas(false);
     setDetalle(null);
     setUniversoOverride('');
+    setPreview(null);
+    setGuardado(false);
     setIncluyeCelular(requiereCelular && incluyeCelularGuardado !== null ? (incluyeCelularGuardado ? 'si' : 'no') : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marcaId]);
+  }, [marcaId, periodo]);
 
   async function handleArchivo(file: File) {
     setError(null);
@@ -116,6 +121,7 @@ export default function EmetrixPonderacionZona({
       await guardarCargaEmetrixPonderacion({
         marcaId,
         kr,
+        periodo,
         preview,
         incluyeCelular: requiereCelular ? incluyeCelular === 'si' : null,
         archivoNombre: archivo.name,
@@ -132,7 +138,7 @@ export default function EmetrixPonderacionZona({
 
   function cargarDetalle() {
     setCargandoDetalle(true);
-    fetchDetalleEmetrixPonderacion(marcaId, kr)
+    fetchDetalleEmetrixPonderacion(marcaId, kr, periodo)
       .then((res) =>
         setDetalle(
           res
@@ -317,7 +323,7 @@ export default function EmetrixPonderacionZona({
                           </tbody>
                         </table>
                       </div>
-                      <a className="add-row" href={emetrixPonderacionDetalleExcelUrl(marcaId, kr)}>
+                      <a className="add-row" href={emetrixPonderacionDetalleExcelUrl(marcaId, kr, periodo)}>
                         ⇩ Descargar en Excel
                       </a>
                     </>

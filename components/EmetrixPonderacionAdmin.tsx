@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { EmetrixCarga, EmetrixEstado, EmetrixKr, EmetrixOkrNodo, EmetrixOkrResultadoCuenta, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
+import { formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
 import {
   emetrixOkrExcelUrl,
   fetchConfigEmetrixPonderacion,
@@ -9,6 +10,7 @@ import {
   fetchMarcas,
   fetchOkrEmetrixPonderacion,
   fetchOkrTodasCuentasEmetrixPonderacion,
+  fetchPeriodosEmetrixPonderacion,
   fetchVistaCruzadaEmetrixPonderacion,
   updateContratoFirmadoManualEmetrixPonderacion,
   updateHeadcountManualEmetrixPonderacion,
@@ -65,6 +67,7 @@ function ArbolOkrTabla({ raiz, onManualKpiChange }: { raiz: EmetrixOkrNodo; onMa
         <tbody>
           {aplanar(raiz).map(({ nodo, profundidad }) => {
             const esManual = nodo.nivel === 'kpi' && nodo.codigo in MANUAL_KPI_UPDATERS;
+            const { indicador } = nodo;
             return (
               <tr key={nodo.codigo} style={nodo.nivel !== 'kpi' ? { fontWeight: 700 } : undefined}>
                 <td style={{ textAlign: 'left', paddingLeft: 12 + profundidad * 20 }}>
@@ -78,17 +81,17 @@ function ArbolOkrTabla({ raiz, onManualKpiChange }: { raiz: EmetrixOkrNodo; onMa
                       min={0}
                       max={100}
                       step={0.1}
-                      defaultValue={nodo.porcentaje ?? ''}
-                      placeholder={nodo.pendienteTexto ?? ''}
+                      defaultValue={indicador.valor ?? ''}
+                      placeholder={indicador.estado === 'sin-medir' ? indicador.motivo : ''}
                       onBlur={(e) => onManualKpiChange(nodo.codigo, e.target.value)}
                       style={{ width: 64 }}
                     />
-                  ) : nodo.porcentaje !== null ? (
-                    `${nodo.porcentaje}%`
+                  ) : indicador.estado === 'medido' ? (
+                    `${indicador.valor}%`
                   ) : (
-                    nodo.pendienteTexto
+                    'Sin medir'
                   )}
-                  {nodo.calculadoNota && <div className="roster-hint">{nodo.calculadoNota}</div>}
+                  <div className="roster-hint">{indicador.motivo}</div>
                 </td>
                 <td style={{ textAlign: 'left' }}>{nodo.fuente}</td>
               </tr>
@@ -103,6 +106,8 @@ function ArbolOkrTabla({ raiz, onManualKpiChange }: { raiz: EmetrixOkrNodo; onMa
 export default function EmetrixPonderacionAdmin() {
   const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
   const [marcaId, setMarcaId] = useState(TODAS);
+  const [periodos, setPeriodos] = useState<string[]>([]);
+  const [periodo, setPeriodo] = useState('');
   const [okr, setOkr] = useState<EmetrixOkrResultadoCuenta | null>(null);
   const [config, setConfig] = useState<{ incluyeCelular: boolean | null; headcountManual: number | null } | null>(null);
   const [okrTodas, setOkrTodas] = useState<EmetrixOkrResultadoCuenta[]>([]);
@@ -115,21 +120,34 @@ export default function EmetrixPonderacionAdmin() {
     fetchMarcas()
       .then(setMarcas)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el maestro de marcas.'));
-    reloadOkrTodas();
-    reloadHistorial('');
+    fetchPeriodosEmetrixPonderacion()
+      .then((res) => {
+        setPeriodos(res.periodos);
+        setPeriodo(res.actual);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la lista de periodos.'));
   }, []);
 
-  function reloadHistorial(id: string) {
-    fetchHistorialEmetrixPonderacion(id || undefined)
+  // Al cambiar de periodo (o al obtenerlo por primera vez): recarga todo lo que se ve en pantalla para ese mes — nunca se mezclan periodos.
+  useEffect(() => {
+    if (!periodo) return;
+    if (marcaId === TODAS) reloadOkrTodas(periodo);
+    else reloadCuenta(marcaId, periodo);
+    reloadHistorial(historialMarcaId, periodo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodo]);
+
+  function reloadHistorial(id: string, periodoConsulta: string) {
+    fetchHistorialEmetrixPonderacion(periodoConsulta, id || undefined)
       .then(setHistorial)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el historial.'));
   }
 
-  function reloadCuenta(id: string) {
-    fetchOkrEmetrixPonderacion(id)
+  function reloadCuenta(id: string, periodoConsulta: string) {
+    fetchOkrEmetrixPonderacion(id, periodoConsulta)
       .then(setOkr)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el árbol OKR.'));
-    fetchVistaCruzadaEmetrixPonderacion(id)
+    fetchVistaCruzadaEmetrixPonderacion(id, periodoConsulta)
       .then(setVistaCruzada)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la vista cruzada.'));
     fetchConfigEmetrixPonderacion(id)
@@ -137,22 +155,26 @@ export default function EmetrixPonderacionAdmin() {
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la configuración de la cuenta.'));
   }
 
-  function reloadOkrTodas() {
-    fetchOkrTodasCuentasEmetrixPonderacion()
+  function reloadOkrTodas(periodoConsulta: string) {
+    fetchOkrTodasCuentasEmetrixPonderacion(periodoConsulta)
       .then(setOkrTodas)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el resumen de cuentas.'));
   }
 
+  function handlePeriodoChange(nuevo: string) {
+    setPeriodo(nuevo);
+  }
+
   function handleCuentaChange(id: string) {
     setMarcaId(id);
-    if (id === TODAS) reloadOkrTodas();
-    else reloadCuenta(id);
+    if (id === TODAS) reloadOkrTodas(periodo);
+    else reloadCuenta(id, periodo);
   }
 
   function handleGuardado() {
-    if (marcaId !== TODAS) reloadCuenta(marcaId);
-    reloadOkrTodas();
-    reloadHistorial(historialMarcaId);
+    if (marcaId !== TODAS) reloadCuenta(marcaId, periodo);
+    reloadOkrTodas(periodo);
+    reloadHistorial(historialMarcaId, periodo);
   }
 
   function handleUmbralChange(valorNuevo: string) {
@@ -160,7 +182,7 @@ export default function EmetrixPonderacionAdmin() {
     const umbral = parseFloat(valorNuevo);
     if (!Number.isFinite(umbral) || umbral < 0 || umbral > 100) return;
     updateUmbralRespuestaEmetrixPonderacion(marcaId, umbral)
-      .then(() => reloadCuenta(marcaId))
+      .then(() => reloadCuenta(marcaId, periodo))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el umbral de respuesta.'));
   }
 
@@ -169,7 +191,7 @@ export default function EmetrixPonderacionAdmin() {
     const headcount = valorNuevo.trim() === '' ? null : parseInt(valorNuevo, 10);
     if (headcount !== null && (!Number.isFinite(headcount) || headcount <= 0)) return;
     updateHeadcountManualEmetrixPonderacion(marcaId, headcount)
-      .then(() => reloadCuenta(marcaId))
+      .then(() => reloadCuenta(marcaId, periodo))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el headcount de la cuenta.'));
   }
 
@@ -180,13 +202,13 @@ export default function EmetrixPonderacionAdmin() {
     const valor = valorNuevo.trim() === '' ? null : parseFloat(valorNuevo);
     if (valor !== null && (!Number.isFinite(valor) || valor < 0 || valor > 100)) return;
     updater(marcaId, valor)
-      .then(() => reloadCuenta(marcaId))
+      .then(() => reloadCuenta(marcaId, periodo))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el KPI.'));
   }
 
   function handleHistorialFiltro(id: string) {
     setHistorialMarcaId(id);
-    reloadHistorial(id);
+    reloadHistorial(id, periodo);
   }
 
   return (
@@ -211,6 +233,14 @@ export default function EmetrixPonderacionAdmin() {
       {error && <p className="login-error">{error}</p>}
 
       <div className="month-bar emetrix-cuenta-bar">
+        <span className="emetrix-cuenta-label">Periodo</span>
+        <select value={periodo} onChange={(e) => handlePeriodoChange(e.target.value)}>
+          {periodos.map((p) => (
+            <option key={p} value={p}>
+              {formatPeriodoLabel(p)}
+            </option>
+          ))}
+        </select>
         <span className="emetrix-cuenta-label">Cuenta</span>
         <select value={marcaId} onChange={(e) => handleCuentaChange(e.target.value)}>
           <option value={TODAS}>Todas las cuentas</option>
@@ -220,12 +250,17 @@ export default function EmetrixPonderacionAdmin() {
             </option>
           ))}
         </select>
-        <a className="add-row" href={emetrixOkrExcelUrl()} style={{ marginLeft: 'auto' }}>
+        <a className="add-row" href={emetrixOkrExcelUrl(periodo)} style={{ marginLeft: 'auto' }}>
           ⇩ Descargar para OKR
         </a>
       </div>
+      <p className="roster-hint" style={{ marginTop: -6, marginBottom: 14 }}>
+        Toda la pantalla y la descarga muestran solo el periodo seleccionado — nunca se mezclan cargas de meses
+        distintos en un mismo cálculo. Los 3 KPI de captura manual (Contrato firmado, IMSS, Módulos publicados) son un
+        dato vigente de la cuenta, igual en cualquier periodo.
+      </p>
 
-      {marcaId === TODAS ? (
+      {!periodo ? null : marcaId === TODAS ? (
         <div className="roster">
           <p className="section-title" style={{ margin: '0 0 14px' }}>
             Resumen de todas las cuentas
@@ -249,10 +284,10 @@ export default function EmetrixPonderacionAdmin() {
                     <td style={{ textAlign: 'left' }}>{c.marcaNombre}</td>
                     {['KR1', 'KR2', 'KR3'].map((codigo) => {
                       const k = c.raiz.hijos.find((x) => x.codigo === codigo);
-                      return <td key={codigo}>{k && k.porcentaje !== null ? `${k.porcentaje}%` : 'Sin datos'}</td>;
+                      return <td key={codigo}>{k && k.indicador.estado === 'medido' ? `${k.indicador.valor}%` : 'Sin datos'}</td>;
                     })}
                     <td style={{ fontWeight: 700 }}>
-                      {c.raiz.porcentaje !== null ? `${c.raiz.porcentaje}%` : 'Sin datos'}
+                      {c.raiz.indicador.estado === 'medido' ? `${c.raiz.indicador.valor}%` : 'Sin datos'}
                       {c.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠ alerta</span>}
                     </td>
                   </tr>
@@ -286,6 +321,7 @@ export default function EmetrixPonderacionAdmin() {
             <EmetrixPonderacionZona
               kr="mesa_control"
               marcaId={marcaId}
+              periodo={periodo}
               cargadoEn={okr?.sondeosCargadoEn.mesa_control ?? null}
               requiereCelular={false}
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
@@ -295,6 +331,7 @@ export default function EmetrixPonderacionAdmin() {
             <EmetrixPonderacionZona
               kr="materiales"
               marcaId={marcaId}
+              periodo={periodo}
               cargadoEn={okr?.sondeosCargadoEn.materiales ?? null}
               requiereCelular={true}
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
@@ -304,6 +341,7 @@ export default function EmetrixPonderacionAdmin() {
             <EmetrixPonderacionZona
               kr="marca"
               marcaId={marcaId}
+              periodo={periodo}
               cargadoEn={okr?.sondeosCargadoEn.marca ?? null}
               requiereCelular={false}
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
@@ -315,7 +353,7 @@ export default function EmetrixPonderacionAdmin() {
           <div className="roster">
             <div className="roster-head">
               <p className="section-title" style={{ margin: 0 }}>
-                OKR — Ciclo de vida del promotor
+                OKR — Ciclo de vida del promotor · {formatPeriodoLabel(periodo)}
                 {okr?.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 8 }}>⚠ alerta</span>}
               </p>
               {okr && (

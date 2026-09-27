@@ -581,6 +581,21 @@ alter table emetrix_ponderacion_cargas drop constraint if exists emetrix_pondera
 alter table emetrix_ponderacion_cargas add constraint emetrix_ponderacion_cargas_universo_fuente_check
   check (universo_fuente in ('padron', 'manual', 'sin_universo'));
 
+-- Mes al que pertenece la carga ("YYYY-MM", ej. "2026-09") — se elige al
+-- subir el sondeo (default el mes actual). Ninguna consulta mezcla cargas de
+-- periodos distintos en un mismo cálculo (ver fetchResultadoCuenta/
+-- fetchDetalleCarga/fetchHistorial en lib/emetrix-ponderacion.ts, todas
+-- filtran por periodo). Las cargas guardadas antes de que existiera esta
+-- columna se anclan a "2026-09" (mes en el que se introdujo la
+-- periodización) para no perder el historial ya capturado.
+alter table emetrix_ponderacion_cargas add column if not exists periodo text;
+update emetrix_ponderacion_cargas set periodo = '2026-09' where periodo is null;
+alter table emetrix_ponderacion_cargas alter column periodo set not null;
+alter table emetrix_ponderacion_cargas drop constraint if exists emetrix_ponderacion_cargas_periodo_check;
+alter table emetrix_ponderacion_cargas add constraint emetrix_ponderacion_cargas_periodo_check
+  check (periodo ~ '^\d{4}-(0[1-9]|1[0-2])$');
+create index if not exists emetrix_ponderacion_cargas_periodo_idx on emetrix_ponderacion_cargas (marca_id, kr, periodo);
+
 -- Peso de cada KR por cuenta para el % total del OKR (33.3% por default,
 -- editable en /emetrix-ponderacion). Una fila por (marca, kr); si no existe,
 -- el default de 33.3 se aplica en la capa de aplicación, no aquí.

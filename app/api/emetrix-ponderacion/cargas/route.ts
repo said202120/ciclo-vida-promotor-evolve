@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
-import { fetchHistorial, guardarCarga } from '@/lib/emetrix-ponderacion';
+import { esPeriodoValido, fetchHistorial, guardarCarga, periodoActual } from '@/lib/emetrix-ponderacion';
 import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixPreguntaResumen, EmetrixUniversoFuente } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -9,14 +9,20 @@ const KRS_VALIDOS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
 const FUENTES_VALIDAS: EmetrixUniversoFuente[] = ['padron', 'manual', 'sin_universo'];
 const ESTADOS_VALIDOS: EmetrixEstado[] = ['cumple', 'no_cumple', 'no_contesto'];
 
-// GET /api/emetrix-ponderacion/cargas?marcaId=... — historial de cargas
-// (todas las cuentas, o filtrado a una). Más reciente primero.
+// GET /api/emetrix-ponderacion/cargas?marcaId=...&periodo=YYYY-MM —
+// historial de cargas de ESE PERIODO (todas las cuentas, o filtrado a una).
+// Más reciente primero. `periodo` default al mes actual si no se manda.
 export async function GET(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
 
-  const marcaId = new URL(request.url).searchParams.get('marcaId') ?? undefined;
-  return NextResponse.json(await fetchHistorial(marcaId));
+  const url = new URL(request.url);
+  const marcaId = url.searchParams.get('marcaId') ?? undefined;
+  const periodo = url.searchParams.get('periodo') ?? periodoActual();
+  if (!esPeriodoValido(periodo)) {
+    return NextResponse.json({ error: 'periodo inválido (debe tener formato YYYY-MM).' }, { status: 400 });
+  }
+  return NextResponse.json(await fetchHistorial(periodo, marcaId));
 }
 
 function validarPreview(body: unknown): EmetrixCargaPreview | null {
@@ -76,9 +82,10 @@ function validarPreview(body: unknown): EmetrixCargaPreview | null {
 }
 
 // POST /api/emetrix-ponderacion/cargas — guarda una carga ya calculada (ver
-// /parse: el preview que devuelve se manda tal cual aquí). Cada carga es un
-// registro nuevo, nunca se sobreescribe una anterior — así se acumula el
-// historial.
+// /parse: el preview que devuelve se manda tal cual aquí), en el periodo que
+// eligió el gerente al subir el archivo (`periodo`, default al mes actual si
+// no se manda). Cada carga es un registro nuevo, nunca se sobreescribe una
+// anterior — así se acumula el historial.
 export async function POST(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -86,6 +93,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const marcaId = typeof body.marcaId === 'string' ? body.marcaId : '';
   const kr = typeof body.kr === 'string' ? body.kr : '';
+  const periodo = typeof body.periodo === 'string' ? body.periodo : periodoActual();
   const incluyeCelular = typeof body.incluyeCelular === 'boolean' ? body.incluyeCelular : null;
   const archivoNombre = typeof body.archivoNombre === 'string' ? body.archivoNombre : '';
   const preview = validarPreview(body.preview);
@@ -93,10 +101,14 @@ export async function POST(request: Request) {
   if (!marcaId || !KRS_VALIDOS.includes(kr as EmetrixKr) || !preview) {
     return NextResponse.json({ error: 'Faltan datos para guardar la carga.' }, { status: 400 });
   }
+  if (!esPeriodoValido(periodo)) {
+    return NextResponse.json({ error: 'periodo inválido (debe tener formato YYYY-MM).' }, { status: 400 });
+  }
 
   const carga = await guardarCarga({
     marcaId,
     kr: kr as EmetrixKr,
+    periodo,
     preview,
     incluyeCelular,
     archivoNombre,

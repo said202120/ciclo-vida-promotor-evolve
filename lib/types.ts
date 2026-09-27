@@ -467,11 +467,32 @@ export type EmetrixDiagnosticoArchivo = {
  * es null cuando NINGUNA fila trae un valor reconocible en esa columna — la
  * redacción de la pregunta en este archivo probablemente no coincide con la
  * esperada; la pantalla debe decirlo explícitamente, nunca mostrar 0%.
+ * `numerador` es cuántos de `contestaron` dijeron "Sí" (o acertaron, en Tu
+ * Marca) — junto con `contestaron` forma el "X de Y" (`base`) de los
+ * indicadores que se alimentan de esta pregunta (ver EmetrixIndicador).
  */
 export type EmetrixPreguntaResumen = {
   pregunta: string;
   porcentaje: number | null;
+  numerador: number;
   contestaron: number;
+};
+
+/**
+ * El nivel más bajo del árbol OKR es el indicador = una cuenta × un KPI (o KR
+ * / OKR agregado) × un periodo. `estado` distingue "ya se midió" (aunque el
+ * valor sea 0%, ej. Materiales en Hanes) de "todavía no hay dato" — un KPI
+ * pendiente NUNCA se disfraza de 0%. `base` es el "X de Y" que sustenta el
+ * `valor` cuando aplica (ej. "43 de 44"), null si no aplica (KPI de captura
+ * manual, o un nodo agregado sin ningún hijo pendiente). `motivo` es la
+ * explicación en texto plano que se muestra en chico debajo del número —
+ * siempre presente, tanto si está medido como si no.
+ */
+export type EmetrixIndicador = {
+  estado: 'medido' | 'sin-medir';
+  valor: number | null;
+  base: string | null;
+  motivo: string;
 };
 
 /** Una carga guardada (archivo subido + calculado) para una cuenta y un KR. Se acumulan, nunca se sobreescriben. */
@@ -479,6 +500,8 @@ export type EmetrixCarga = {
   id: string;
   marcaId: string;
   marcaNombre?: string;
+  /** Mes al que pertenece esta carga, formato "YYYY-MM" (ej. "2026-09"). Nunca se mezcla con otro periodo en un mismo cálculo. */
+  periodo: string;
   kr: EmetrixKr;
   /** null si universoFuente='sin_universo' (no hay padrón ni headcount). */
   universo: number | null;
@@ -563,6 +586,8 @@ export type EmetrixResultadoKr = {
 export type EmetrixResultadoCuenta = {
   marcaId: string;
   marcaNombre: string;
+  /** Periodo ("YYYY-MM") al que pertenecen las cargas usadas — nunca mezcla cargas de otro mes. */
+  periodo: string;
   krs: EmetrixResultadoKr[];
   total: number | null;
   umbralRespuesta: number;
@@ -586,14 +611,12 @@ export type EmetrixOkrNivel = 'okr' | 'kr' | 'kpi';
  * se conecta a EvolveOS (mismos nombres, mismos pesos). `peso` es el peso
  * DENTRO de su padre (los 4 KPI de KR1 pesan 25 cada uno, KR2 tiene un solo
  * KPI que pesa 100, los 2 KPI de KR3 pesan 50 cada uno; los 3 KR pesan
- * 30/40/30 dentro del OKR). `porcentaje` es null cuando el KPI está
- * pendiente (nunca se muestra como 0%) — `pendienteTexto` explica por qué
- * ("Pendiente (Legal)", "Falta cargar Mesa de Control", "Pregunta no
- * reconocida en este archivo", etc.). En un nodo OKR/KR, `calculadoNota` es
- * "Calculado con X de N KPI/KR" cuando no todos sus hijos tienen dato (nunca
- * se cuenta un pendiente como 0%, se redistribuye el peso entre los que sí
- * tienen). `fuente` describe qué sondeo/pregunta/captura alimenta el nodo —
- * misma columna que en el Excel "Descargar para OKR".
+ * 30/40/30 dentro del OKR). `indicador` (ver EmetrixIndicador) trae el
+ * estado/valor/base/motivo de este nodo — un KPI pendiente nunca se muestra
+ * como 0%, y en un nodo OKR/KR el motivo dice "Calculado con X de N KPI/KR"
+ * cuando no todos sus hijos tienen dato (el peso se redistribuye entre los
+ * que sí tienen). `fuente` describe qué sondeo/pregunta/captura alimenta el
+ * nodo — misma columna que en el Excel "Descargar para OKR".
  */
 export type EmetrixOkrNodo = {
   nivel: EmetrixOkrNivel;
@@ -604,26 +627,29 @@ export type EmetrixOkrNodo = {
   capa: string;
   owner: string;
   peso: number;
-  porcentaje: number | null;
-  pendienteTexto: string | null;
-  calculadoNota: string | null;
+  indicador: EmetrixIndicador;
   fuente: string;
   hijos: EmetrixOkrNodo[];
 };
 
 /**
- * Árbol OKR completo de una cuenta, espejo exacto del OKR oficial. `raiz` es
- * el nodo OKR (`raiz.hijos` son los 3 KR, cada uno con sus KPI en
- * `hijos`). `umbralRespuesta`/`enAlerta` se preservan del modelo de sondeos
- * (alerta por % de respuesta insuficiente en Mesa de Control/Materiales/Tu
- * Marca) — independiente de la estructura del OKR.
+ * Árbol OKR completo de una cuenta para UN periodo, espejo exacto del OKR
+ * oficial. `raiz` es el nodo OKR (`raiz.hijos` son los 3 KR, cada uno con sus
+ * KPI en `hijos`). `umbralRespuesta`/`enAlerta` se preservan del modelo de
+ * sondeos (alerta por % de respuesta insuficiente en Mesa de Control/
+ * Materiales/Tu Marca) — independiente de la estructura del OKR. Los 3 KPI
+ * de captura manual (Contrato firmado, IMSS, Módulos publicados) NO están
+ * periodizados — son un dato vigente de la cuenta, igual en cualquier mes que
+ * se consulte.
  */
 export type EmetrixOkrResultadoCuenta = {
   marcaId: string;
   marcaNombre: string;
+  /** Periodo ("YYYY-MM") de las cargas usadas para los KPI de sondeo (Mesa de Control, Materiales, Marca). */
+  periodo: string;
   umbralRespuesta: number;
   enAlerta: boolean;
-  /** Fecha de la carga más reciente de cada sondeo (o null si no tiene ninguna) — para el badge "Cargado" de cada tarjeta. */
+  /** Fecha de la carga más reciente de cada sondeo EN ESTE PERIODO (o null si no tiene ninguna) — para el badge "Cargado" de cada tarjeta. */
   sondeosCargadoEn: Record<EmetrixKr, string | null>;
   raiz: EmetrixOkrNodo;
 };

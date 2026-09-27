@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs';
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
-import { aplanarArbolOkr, fetchResultadoOkrTodasCuentas } from '@/lib/emetrix-ponderacion';
+import { aplanarArbolOkr, esPeriodoValido, fetchResultadoOkrTodasCuentas, periodoActual } from '@/lib/emetrix-ponderacion';
+import { formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,15 +21,21 @@ function nombreHoja(marcaNombre: string, usados: Set<string>): string {
   return nombre;
 }
 
-// GET /api/emetrix-ponderacion/okr/excel — "Descargar para OKR": un .xlsx con
-// una hoja por cuenta cargada, mismas columnas que el archivo oficial de
-// Carlos (Nivel, Código, Área, Nombre, Descripción, Capa, Owner, Peso (%),
-// % Obtenido, Fuente).
-export async function GET() {
+// GET /api/emetrix-ponderacion/okr/excel?periodo=YYYY-MM — "Descargar para
+// OKR": un .xlsx con una hoja por cuenta cargada EN ESE PERIODO, mismas
+// columnas que el archivo oficial de Carlos (Nivel, Código, Área, Nombre,
+// Descripción, Capa, Owner, Peso (%), % Obtenido, Fuente). `periodo` default
+// al mes actual si no se manda.
+export async function GET(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
 
-  const cuentas = await fetchResultadoOkrTodasCuentas();
+  const periodo = new URL(request.url).searchParams.get('periodo') ?? periodoActual();
+  if (!esPeriodoValido(periodo)) {
+    return NextResponse.json({ error: 'periodo inválido (debe tener formato YYYY-MM).' }, { status: 400 });
+  }
+
+  const cuentas = await fetchResultadoOkrTodasCuentas(periodo);
 
   const workbook = new ExcelJS.Workbook();
   const nombresUsados = new Set<string>();
@@ -54,6 +61,7 @@ export async function GET() {
     sheet.getRow(1).font = { bold: true };
 
     for (const nodo of aplanarArbolOkr(cuenta.raiz)) {
+      const { indicador } = nodo;
       const row = sheet.addRow({
         nivel: NIVEL_LABEL[nodo.nivel],
         codigo: nodo.codigo,
@@ -63,21 +71,22 @@ export async function GET() {
         capa: nodo.capa,
         owner: nodo.owner,
         peso: nodo.peso / 100,
-        obtenido: nodo.porcentaje !== null ? nodo.porcentaje / 100 : nodo.pendienteTexto ?? 'Pendiente',
-        fuente: nodo.calculadoNota ? `${nodo.fuente} (${nodo.calculadoNota})` : nodo.fuente,
+        obtenido: indicador.estado === 'medido' ? indicador.valor! / 100 : indicador.motivo,
+        fuente: indicador.estado === 'medido' && indicador.base !== null ? `${nodo.fuente} (${indicador.motivo})` : nodo.fuente,
       });
       row.getCell('peso').numFmt = '0%';
-      if (nodo.porcentaje !== null) row.getCell('obtenido').numFmt = '0.00%';
+      if (indicador.estado === 'medido') row.getCell('obtenido').numFmt = '0.00%';
       if (nodo.nivel !== 'kpi') row.font = { bold: true };
     }
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
+  const nombreArchivo = `OKR Ciclo de vida del promotor - ${formatPeriodoLabel(periodo)}.xlsx`;
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': 'attachment; filename="OKR Ciclo de vida del promotor.xlsx"',
+      'Content-Disposition': `attachment; filename="${nombreArchivo}"`,
     },
   });
 }

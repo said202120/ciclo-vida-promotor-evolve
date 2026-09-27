@@ -446,6 +446,7 @@ export function parseEmetrixPonderacion(
 export function guardarCargaEmetrixPonderacion(data: {
   marcaId: string;
   kr: EmetrixKr;
+  periodo: string;
   preview: EmetrixCargaPreview;
   incluyeCelular: boolean | null;
   archivoNombre: string;
@@ -455,6 +456,11 @@ export function guardarCargaEmetrixPonderacion(data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   }).then((r) => json(r));
+}
+
+/** Periodos ("YYYY-MM") con al menos una carga guardada, más recientes primero, y el mes actual (aunque no tenga cargas todavía). */
+export function fetchPeriodosEmetrixPonderacion(): Promise<{ periodos: string[]; actual: string }> {
+  return fetch('/api/emetrix-ponderacion/periodos').then((r) => json(r));
 }
 
 export function fetchConfigEmetrixPonderacion(marcaId: string): Promise<{
@@ -513,7 +519,8 @@ export function updateModulosPublicadosManualEmetrixPonderacion(marcaId: string,
 
 export function fetchDetalleEmetrixPonderacion(
   marcaId: string,
-  kr: EmetrixKr
+  kr: EmetrixKr,
+  periodo: string
 ): Promise<{
   cargaId: string;
   cargadoEn: string;
@@ -522,32 +529,32 @@ export function fetchDetalleEmetrixPonderacion(
   filas: EmetrixFilaDetalle[];
   preguntas: EmetrixPreguntaResumen[];
 } | null> {
-  return fetch(`/api/emetrix-ponderacion/detalle?marcaId=${marcaId}&kr=${kr}`).then((r) => json(r));
+  return fetch(`/api/emetrix-ponderacion/detalle?marcaId=${marcaId}&kr=${kr}&periodo=${periodo}`).then((r) => json(r));
 }
 
-export function fetchVistaCruzadaEmetrixPonderacion(marcaId: string): Promise<EmetrixVistaCruzadaFila[]> {
-  return fetch(`/api/emetrix-ponderacion/vista-cruzada?marcaId=${marcaId}`).then((r) => json(r));
+export function fetchVistaCruzadaEmetrixPonderacion(marcaId: string, periodo: string): Promise<EmetrixVistaCruzadaFila[]> {
+  return fetch(`/api/emetrix-ponderacion/vista-cruzada?marcaId=${marcaId}&periodo=${periodo}`).then((r) => json(r));
 }
 
-export function emetrixPonderacionDetalleExcelUrl(marcaId: string, kr: EmetrixKr): string {
-  return `/api/emetrix-ponderacion/detalle/excel?marcaId=${marcaId}&kr=${kr}`;
+export function emetrixPonderacionDetalleExcelUrl(marcaId: string, kr: EmetrixKr, periodo: string): string {
+  return `/api/emetrix-ponderacion/detalle/excel?marcaId=${marcaId}&kr=${kr}&periodo=${periodo}`;
 }
 
-export function fetchHistorialEmetrixPonderacion(marcaId?: string): Promise<EmetrixCarga[]> {
-  return fetch(`/api/emetrix-ponderacion/cargas${marcaId ? `?marcaId=${marcaId}` : ''}`).then((r) => json(r));
+export function fetchHistorialEmetrixPonderacion(periodo: string, marcaId?: string): Promise<EmetrixCarga[]> {
+  return fetch(`/api/emetrix-ponderacion/cargas?periodo=${periodo}${marcaId ? `&marcaId=${marcaId}` : ''}`).then((r) => json(r));
 }
 
-/** Árbol OKR → KR → KPI de una cuenta, espejo del OKR oficial "Ciclo de vida del promotor". */
-export function fetchOkrEmetrixPonderacion(marcaId: string): Promise<EmetrixOkrResultadoCuenta> {
-  return fetch(`/api/emetrix-ponderacion/okr?marcaId=${marcaId}`).then((r) => json(r));
+/** Árbol OKR → KR → KPI de una cuenta en un periodo, espejo del OKR oficial "Ciclo de vida del promotor". */
+export function fetchOkrEmetrixPonderacion(marcaId: string, periodo: string): Promise<EmetrixOkrResultadoCuenta> {
+  return fetch(`/api/emetrix-ponderacion/okr?marcaId=${marcaId}&periodo=${periodo}`).then((r) => json(r));
 }
 
-/** El árbol OKR de cada cuenta que ya tiene al menos una carga. */
-export function fetchOkrTodasCuentasEmetrixPonderacion(): Promise<EmetrixOkrResultadoCuenta[]> {
-  return fetch('/api/emetrix-ponderacion/okr/todas').then((r) => json(r));
+/** El árbol OKR, en un periodo, de cada cuenta que ya tiene al menos una carga ese mes. */
+export function fetchOkrTodasCuentasEmetrixPonderacion(periodo: string): Promise<EmetrixOkrResultadoCuenta[]> {
+  return fetch(`/api/emetrix-ponderacion/okr/todas?periodo=${periodo}`).then((r) => json(r));
 }
 
-/** "Descargar para OKR": un .xlsx con una hoja por cuenta cargada, mismas columnas que el archivo oficial. */
-export function emetrixOkrExcelUrl(): string {
-  return '/api/emetrix-ponderacion/okr/excel';
+/** "Descargar para OKR": un .xlsx con una hoja por cuenta cargada ese periodo, mismas columnas que el archivo oficial. */
+export function emetrixOkrExcelUrl(periodo: string): string {
+  return `/api/emetrix-ponderacion/okr/excel?periodo=${periodo}`;
 }

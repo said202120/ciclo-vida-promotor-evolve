@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "db:init": "node scripts/init-db.mjs",
-    "user:create": "node scripts/create-user.mjs"
+    "user:create": "node scripts/create-user.mjs",
+    "test": "node --test lib/emetrix-ponderacion-calc.test.ts"
   },
   "dependencies": {
     "@types/papaparse": "^5.5.2",

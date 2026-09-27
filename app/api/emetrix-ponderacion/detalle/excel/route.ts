@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs';
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
-import { fetchDetalleCarga } from '@/lib/emetrix-ponderacion';
+import { esPeriodoValido, fetchDetalleCarga, periodoActual } from '@/lib/emetrix-ponderacion';
+import { formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
 import { sql } from '@vercel/postgres';
 import type { EmetrixEstado, EmetrixKr } from '@/lib/types';
 
@@ -19,10 +20,11 @@ const ESTADO_LABEL: Record<EmetrixEstado, string> = {
   no_contesto: 'No contestó',
 };
 
-// GET /api/emetrix-ponderacion/detalle/excel?marcaId=...&kr=... — descarga
-// en .xlsx el detalle por promotor de la carga más reciente de ese KR. Si la
-// carga usó el padrón como universo, agrega una segunda hoja con los
-// USUARIO del Excel que no se pudieron cruzar (para corregir el padrón).
+// GET /api/emetrix-ponderacion/detalle/excel?marcaId=...&kr=...&periodo=YYYY-MM
+// — descarga en .xlsx el detalle por promotor de la carga más reciente de
+// ese KR EN ESE PERIODO. Si la carga usó el padrón como universo, agrega una
+// segunda hoja con los USUARIO del Excel que no se pudieron cruzar (para
+// corregir el padrón). `periodo` default al mes actual si no se manda.
 export async function GET(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -33,10 +35,14 @@ export async function GET(request: Request) {
   if (!marcaId || !kr || !KRS_VALIDOS.includes(kr as EmetrixKr)) {
     return NextResponse.json({ error: 'Faltan marcaId y kr, o kr es inválido.' }, { status: 400 });
   }
+  const periodo = url.searchParams.get('periodo') ?? periodoActual();
+  if (!esPeriodoValido(periodo)) {
+    return NextResponse.json({ error: 'periodo inválido (debe tener formato YYYY-MM).' }, { status: 400 });
+  }
 
-  const detalle = await fetchDetalleCarga(marcaId, kr as EmetrixKr);
+  const detalle = await fetchDetalleCarga(marcaId, kr as EmetrixKr, periodo);
   if (!detalle) {
-    return NextResponse.json({ error: 'Esta cuenta todavía no tiene una carga de ese KR.' }, { status: 404 });
+    return NextResponse.json({ error: 'Esta cuenta todavía no tiene una carga de ese KR en este periodo.' }, { status: 404 });
   }
 
   const { rows: marcaRows } = await sql.query('select nombre from marcas where id = $1', [marcaId]);
@@ -65,7 +71,7 @@ export async function GET(request: Request) {
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const nombreArchivo = `${marcaNombre} - ${KR_LABEL[kr as EmetrixKr]}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
+  const nombreArchivo = `${marcaNombre} - ${KR_LABEL[kr as EmetrixKr]} - ${formatPeriodoLabel(periodo)}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {
