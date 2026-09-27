@@ -1919,3 +1919,31 @@ table.roster-table select.mapeo-set {
   color: var(--good);
   font-size: 13px;
 }
+
+/* Captura con base (numerador/denominador) de Contrato firmado, Alta IMSS y
+   Módulos publicados — sección 4-bis: dos números por celda en vez de un
+   solo %, con su etiqueta encima para que se lea completo (Captura rápida
+   necesita columnas más anchas para esto, ver ficha técnica). */
+.emetrix-kpi-base-inputs {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.emetrix-kpi-base-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: normal;
+}
+.emetrix-kpi-base-campo .roster-hint {
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+.emetrix-kpi-base-legacy {
+  display: block;
+  margin-top: 4px;
+  white-space: normal;
+}
+.emetrix-captura-rapida-col {
+  min-width: 190px;
+}

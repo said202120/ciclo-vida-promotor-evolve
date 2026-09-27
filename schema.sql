@@ -656,6 +656,23 @@ create table if not exists emetrix_ponderacion_kpi_manual (
   primary key (marca_id, periodo)
 );
 
+-- 2026-09-27 (captura con base): estos 3 KPI ya no se capturan como un solo
+-- %, sino como numerador y denominador ("18 de 20") — el % y el motivo en
+-- palabras se calculan a partir de estos dos números (ver
+-- calcularIndicadorManualBase/construirArbolOkr en
+-- lib/emetrix-ponderacion-calc.ts). Las 3 columnas "_manual" de arriba
+-- (contrato_firmado_manual/imss_manual/modulos_publicados_manual) quedan como
+-- respaldo de lectura: si una fila trae numerador/denominador (ambos, este
+-- periodo) se usan esos; si no, y la fila trae el % viejo, se sigue
+-- mostrando ese % tal cual (para no romper ninguna cuenta que ya lo hubiera
+-- capturado antes de este cambio) — nunca se borran datos ya capturados.
+alter table emetrix_ponderacion_kpi_manual add column if not exists contrato_firmados_antes numeric;
+alter table emetrix_ponderacion_kpi_manual add column if not exists contrato_nuevos_ingresos numeric;
+alter table emetrix_ponderacion_kpi_manual add column if not exists imss_altas_antes numeric;
+alter table emetrix_ponderacion_kpi_manual add column if not exists imss_nuevos_ingresos numeric;
+alter table emetrix_ponderacion_kpi_manual add column if not exists modulos_publicados_count numeric;
+alter table emetrix_ponderacion_kpi_manual add column if not exists modulos_programados_count numeric;
+
 -- Detalle por promotor de una carga específica: si cumplió y, si no, qué le
 -- faltó (texto legible, ej. "Faltan: Botas, Faja" o "6/10"). Vive aparte de
 -- emetrix_ponderacion_cargas para no inflar esa tabla con una fila por

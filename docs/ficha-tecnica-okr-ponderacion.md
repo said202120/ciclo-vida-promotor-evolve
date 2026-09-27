@@ -6,6 +6,20 @@ con Evolve OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de
 datos) + `lib/emetrix-ponderacion-calc.ts` (toda la matemática, funciones
 puras — ver sección 9).
 
+**2026-09-27 (captura con base)** — los 3 KPI de captura manual (Contrato
+firmado, Alta ante el IMSS, Módulos publicados) dejaron de capturarse como un
+solo %: ahora se capturan dos números por cuenta y periodo (numerador y
+denominador, ej. "18 de 20") y el sistema calcula el %, la base y el motivo en
+palabras (sección 4-bis). Los indicadores que salen de sondeo (Carta de
+acceso, Usuario Emetrix, Materiales, Módulo completado) ahora se agrupan por
+sondeo en "Pendientes de indicador", con "Ejecutivo de la cuenta" como
+responsable en vez del área dueña del KPI (sección 10). El motivo de "Módulo
+completado" ahora deja explícito que es una aproximación. Ninguna regla de
+cumple/no cumple ni ningún peso cambió — confirmado con `npm test`, que sigue
+dando Spin Master 65.27%, ADM 61.49% y Hanes 43.58% para 2026-09 (esas 3
+cuentas no tenían capturado ningún KPI manual, ni con el formato viejo ni con
+el nuevo, así que su OKR no se mueve).
+
 **2026-09-27 (vistas de indicadores)** — 3 vistas nuevas sobre la guía de
 indicadores de Operaciones: "Cómo va cada cuenta", "Pendientes de
 indicador" y "Captura rápida del mes" (sección 10). De paso se corrigió un
@@ -169,21 +183,55 @@ OKR Ciclo de vida del promotor = KR1×30% + KR2×40% + KR3×30%
 |---|---|---|---|
 | **KR1** Kit administrativo entregado a tiempo | 30% | Carta de acceso y credencial (25%) | % de "Sí" en "¿Pudiste entrar a tu tienda el primer día?" (Mesa de Control) |
 | | | Usuario en Emetrix (25%) | % de "Sí" en "¿Tu usuario Emetrix funcionó cuando lo necesitaste?" (Mesa de Control) |
-| | | Contrato firmado (25%) | Captura manual (dueño Legal) — "Pendiente (Legal)" si no se ha capturado |
-| | | Alta ante el IMSS (25%) | Captura manual (dueño Nómina) — "Pendiente (Nómina)" si no se ha capturado |
+| | | Contrato firmado (25%) | Captura manual con base (dueño Legal) — "Sin medir" si no se ha capturado |
+| | | Alta ante el IMSS (25%) | Captura manual con base (dueño Nómina) — "Sin medir" si no se ha capturado |
 | **KR2** Materiales de campo entregados en calendario | 40% | Materiales completos (100%) | % de cumplimiento del sondeo Materiales (regla de la sección 1, sin cambios) |
-| **KR3** Capacitación en módulos | 30% | Módulos publicados en Emetrix (50%) | Captura manual (dueño Capacitación) — "Pendiente (Capacitación)" si no se ha capturado |
+| **KR3** Capacitación en módulos | 30% | Módulos publicados en Emetrix (50%) | Captura manual con base (dueño Capacitación) — "Sin medir" si no se ha capturado |
 | | | Módulo completado, aproximación (50%) | % de cumplimiento del sondeo Tu Marca (8 de 10, regla de la sección 1, sin cambios) |
 
 Los 3 KPI de captura manual (Contrato firmado, Alta ante el IMSS, Módulos
-publicados en Emetrix) no salen de ningún sondeo de Emetrix — se capturan
-directo en la tabla de la pantalla (o en "Captura rápida del mes", sección
-10) y se guardan en `emetrix_ponderacion_kpi_manual` (una fila por
-marca+periodo: `contrato_firmado_manual`, `imss_manual`,
-`modulos_publicados_manual` — cada uno 0-100 o `null` si está pendiente ESE
-MES), vía `PATCH /api/emetrix-ponderacion/kpi-manual`
+publicados en Emetrix) no salen de ningún sondeo de Emetrix. **Desde
+2026-09-27 se capturan con base**: en vez de un solo %, el gerente captura dos
+números por cuenta y periodo (numerador y denominador) directo en la tabla de
+la pantalla o en "Captura rápida del mes" (sección 10):
+
+| KPI | Numerador | Denominador |
+|---|---|---|
+| Contrato firmado | Firmados antes del ingreso | Nuevos ingresos del mes |
+| Alta ante el IMSS | Altas antes del ingreso | Nuevos ingresos del mes |
+| Módulos publicados en Emetrix | Publicados | Programados a la fecha |
+
+El sistema calcula el indicador `{estado, valor, base, motivo}` (sección
+4-bis) a partir de esos dos números — ver `validarBaseManual`/
+`construirArbolOkr` en `lib/emetrix-ponderacion-calc.ts`:
+
+- Si falta cualquiera de los dos números, el indicador sigue **"Sin medir"**
+  (no cuenta como 0%).
+- Se valida que el **numerador no sea mayor al denominador**
+  (`validarBaseManual`, corre en el PATCH antes de guardar — un numerador
+  mayor nunca llega a la base de datos).
+- Si el **denominador es 0** (no hubo nuevos ingresos en el mes, o no hay
+  módulos programados), el indicador vale **100%** con un motivo explícito
+  ("Sin nuevos ingresos en el periodo."/"Sin módulos programados en el
+  periodo.") en vez de quedar "Sin medir" o dividir entre cero.
+- Con ambos números, `valor` = numerador/denominador, `base` = "18 de 20" y
+  `motivo` es una frase en palabras (ej. "18 de 20 nuevos ingresos firmaron
+  contrato antes de su primer día.").
+
+Se guardan en `emetrix_ponderacion_kpi_manual` (una fila por marca+periodo):
+`contrato_firmados_antes`/`contrato_nuevos_ingresos`,
+`imss_altas_antes`/`imss_nuevos_ingresos`,
+`modulos_publicados_count`/`modulos_programados_count` — cada uno numérico o
+`null` si está pendiente ESE MES — vía `PATCH /api/emetrix-ponderacion/kpi-manual`
 (`updateContratoFirmadoManual`/`updateImssManual`/`updateModulosPublicadosManual`
-en `lib/emetrix-ponderacion.ts`, las 3 reciben `periodo`).
+en `lib/emetrix-ponderacion.ts`, las 3 reciben `periodo` + numerador +
+denominador). Las 3 columnas `_manual` (`contrato_firmado_manual`, etc.) del
+formato anterior a este cambio **no se borraron y se siguen leyendo**: si una
+cuenta/periodo no tiene numerador/denominador capturado pero sí tiene ese %
+viejo, el indicador lo sigue mostrando tal cual (`legacyPorcentaje` en
+`EmetrixKpiManualBase`, `lib/types.ts`) — ninguna captura ya hecha se pierde
+ni cambia de valor por este cambio. Ya no se escribe en esas 3 columnas viejas
+desde el PATCH; quedan como respaldo de lectura únicamente.
 
 **Ningún KPI pendiente cuenta como 0%.** El % de un KR es el promedio
 ponderado SOLO de los KPI que sí tienen dato, redistribuyendo el peso entre
@@ -235,6 +283,16 @@ Ejemplos reales del árbol:
   promotores que contestaron Materiales cumplieron los requisitos.' }` — un
   0% **medido** (ej. Hanes Materiales), nunca `'sin-medir'`: la diferencia
   entre "no hay dato" y "el dato es cero" es intencional en todo el árbol.
+- `{ estado: 'medido', valor: 90, base: '18 de 20', motivo: '18 de 20 nuevos
+  ingresos firmaron contrato antes de su primer día.' }` — KPI "Contrato
+  firmado" (KR1.3) con captura con base (sección 4).
+- `{ estado: 'medido', valor: 100, base: '0 de 0', motivo: 'Sin nuevos
+  ingresos en el periodo.' }` — Contrato firmado o Alta IMSS cuando el
+  denominador (nuevos ingresos del mes) es 0.
+- `{ estado: 'medido', valor: 75.11, base: '166 de 221', motivo:
+  'Aproximación: 166 de 221 aprobaron Tu Marca (8 de 10 correctas).' }` — KPI
+  "Módulo completado (aproximación)" (KR3.2): el motivo deja explícito que es
+  una aproximación (no una medición directa de "módulo completado").
 
 En un nodo agregado (KR u OKR), `motivo` es "Calculado con X de N KPI/KR
 (los demás están pendientes y no cuentan como 0%)" cuando no todos sus hijos
@@ -442,6 +500,10 @@ existentes no cambien su import):
 - `construirArbolOkr` — arma el árbol OKR → KR → KPI completo (sección 4),
   incluyendo el `indicador` de cada nodo (sección 4-bis), a partir de datos
   ya obtenidos (no toca la base).
+- `validarBaseManual` — valida que el numerador no sea mayor al denominador
+  en la captura con base de Contrato firmado/Alta IMSS/Módulos publicados
+  (sección 4); la usan tanto `construirArbolOkr` como el PATCH de
+  `/api/emetrix-ponderacion/kpi-manual` antes de guardar.
 - `esPeriodoValido` / `periodoActual` / `formatPeriodoLabel` — periodo
   (sección 1-bis).
 - `indicadoresPlanos` / `pillEstado` / `calcularPendientes` — las 3 vistas
@@ -478,9 +540,22 @@ Una prueba por regla, entre otras:
   se pivotea correctamente (incluye selección múltiple con `", "`).
 - **Pastillas**: verde ≥90, amarillo ≥70, rojo abajo de 70, y `sin-medir`
   siempre gris (nunca rojo) aunque `valor` fuera 0 en otro contexto.
-- **Pendientes**: agrupación por dato/responsable ("Falta Contrato firmado:
-  N cuentas · Legal"), por cuenta ("Zuru: faltan los 3 sondeos") y headcount
-  faltante, con datos sintéticos por nodo.
+- **Pendientes**: agrupación por dato/responsable — los 3 KPI manuales por
+  KPI individual y área dueña real ("Falta Contrato firmado: N cuentas ·
+  Legal"), los 4 indicadores de sondeo agrupados **por sondeo** con "Ejecutivo
+  de la cuenta" como responsable ("Falta subir sondeo Mesa de Control: N
+  cuentas · Ejecutivo de la cuenta", sin repetir una línea por Carta de
+  acceso Y Usuario Emetrix) —, por cuenta ("Zuru: faltan los 3 sondeos") y
+  headcount faltante, con datos sintéticos por nodo.
+- **Captura con base**: `validarBaseManual` rechaza numerador > denominador;
+  "18 de 20" calcula el %/base/motivo correctos; ambos números vacíos (y sin
+  % del formato viejo) sigue "Sin medir"; denominador en 0 da 100% con el
+  motivo de "sin nuevos ingresos"/"sin módulos programados" (motivo distinto
+  para Módulos publicados); y sin numerador/denominador este periodo cae al
+  `legacyPorcentaje` del formato anterior a este cambio, para no perder
+  ninguna cuenta que ya lo hubiera capturado así.
+- **Aproximación**: el motivo de "Módulo completado" siempre empieza con
+  "Aproximación: ".
 
 Esta misma suite es el punto de referencia para futuros cambios: antes de
 tocar `lib/emetrix-ponderacion-calc.ts`, correr `npm test` y no romper
@@ -520,9 +595,23 @@ Qué falta para que cada hueco deje de serlo
 (`components/EmetrixPendientesIndicador.tsx`, cálculo en `calcularPendientes`
 — pura), en 3 columnas:
 
-1. **Por dato y responsable**: por cada uno de los 7 indicadores hoja, si
-   alguna cuenta lo tiene `sin-medir`, una línea "Falta {nombre}: N cuentas ·
-   {owner}" con la lista de cuentas debajo.
+1. **Por dato y responsable**, dos tipos de línea (`calcularPendientes`,
+   `lib/emetrix-ponderacion-calc.ts`):
+   - Los 4 indicadores hoja que salen de sondeo (Carta de acceso, Usuario
+     Emetrix, Materiales, Módulo completado) se agrupan **por sondeo**, no por
+     KPI — basta un archivo de Mesa de Control para resolver Carta de acceso Y
+     Usuario Emetrix a la vez, así que se ven como un solo hueco: "Falta subir
+     sondeo {Mesa de Control/Materiales/Marca}: N cuentas · **Ejecutivo de la
+     cuenta**" (no el área dueña del KPI — quien sube el sondeo es el
+     ejecutivo, no Legal/Nómina/Capacitación). Se dispara con
+     `sondeosCargadoEn[kr] === null` de esa cuenta en este periodo, igual que
+     "Por cuenta" abajo.
+   - Los 3 KPI de captura manual (Contrato firmado, Alta ante el IMSS,
+     Módulos publicados) se siguen agrupando **por KPI individual**, con su
+     área dueña real: "Falta {nombre}: N cuentas · {Legal/Nómina/
+     Capacitación}".
+   
+   Ambos tipos traen la lista de cuentas debajo.
 2. **Por cuenta**: por cada cuenta con al menos un hueco, una línea
    "{cuenta}: faltan los 3 sondeos" (o la lista puntual de qué sondeo/KPI
    manual falta, y "sin headcount" si aplica).
@@ -537,10 +626,18 @@ periodo." en vez de 3 columnas vacías.
 ### Captura rápida del mes
 
 Una sola tabla con todas las cuentas y las columnas que se capturan a mano
-(Contrato firmado, Alta IMSS, Módulos publicados — DE ESTE PERIODO — y
-Headcount, que NO es por periodo), para llenarlas de corrido como en Excel
-sin entrar cuenta por cuenta (`components/EmetrixCapturaRapida.tsx`). Cada
-celda guarda al salir del campo (`onBlur`), igual que la tabla del árbol OKR
-de una sola cuenta — mismas funciones `updateContratoFirmadoManual`/
-`updateImssManual`/`updateModulosPublicadosManual`/`updateHeadcountManual`,
-sin una segunda copia de la lógica de guardado.
+(Contrato firmado, Alta IMSS, Módulos publicados — DE ESTE PERIODO, cada uno
+con sus dos campos de numerador/denominador (sección 4) — y Headcount, que NO
+es por periodo), para llenarlas de corrido como en Excel sin entrar cuenta por
+cuenta (`components/EmetrixCapturaRapida.tsx`, inputs de
+`components/EmetrixKpiBaseInputs.tsx` — mismo componente que usa la tabla del
+árbol OKR de una sola cuenta, sin una segunda copia). Las columnas de captura
+manual son más anchas que el resto de la tabla (`.emetrix-captura-rapida-col`
+en `app/globals.css`) para que se lea completo el nombre de cada campo
+("Firmados antes del ingreso", "Nuevos ingresos del mes", etc.) y el número
+que se está capturando. Cada celda guarda al salir del campo (`onBlur`) —
+manda siempre los dos números juntos (el que se acaba de editar y el otro tal
+cual está en pantalla), porque el % solo se puede calcular/validar con ambos a
+la vez — mismas funciones `updateContratoFirmadoManual`/`updateImssManual`/
+`updateModulosPublicadosManual`/`updateHeadcountManual` que usa la tabla del
+árbol OKR, sin una segunda copia de la lógica de guardado.

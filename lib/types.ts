@@ -607,6 +607,22 @@ export type EmetrixVistaCruzadaFila = {
 export type EmetrixOkrNivel = 'okr' | 'kr' | 'kpi';
 
 /**
+ * Captura con base (numerador/denominador) de uno de los 3 KPI manuales del
+ * OKR — Contrato firmado, Alta ante el IMSS, Módulos publicados — DE UN
+ * PERIODO (sección 4-bis de la ficha técnica). `numerador`/`denominador` son
+ * los dos números que captura el gerente ese mes (ej. "18 de 20"); ambos
+ * null = pendiente de captura ese mes. `legacyPorcentaje` es el % capturado
+ * con el formato anterior a esta captura con base (antes de 2026-09-27) —
+ * solo se usa como respaldo de lectura si esa cuenta/periodo no tiene
+ * numerador/denominador, para no perder ninguna captura ya hecha.
+ */
+export type EmetrixKpiManualBase = {
+  numerador: number | null;
+  denominador: number | null;
+  legacyPorcentaje: number | null;
+};
+
+/**
  * Un nodo del árbol OKR → KR → KPI, espejo del archivo oficial de Carlos que
  * se conecta a EvolveOS (mismos nombres, mismos pesos). `peso` es el peso
  * DENTRO de su padre (los 4 KPI de KR1 pesan 25 cada uno, KR2 tiene un solo
@@ -638,9 +654,9 @@ export type EmetrixOkrNodo = {
  * KPI en `hijos`). `umbralRespuesta`/`enAlerta` se preservan del modelo de
  * sondeos (alerta por % de respuesta insuficiente en Mesa de Control/
  * Materiales/Tu Marca) — independiente de la estructura del OKR. Los 3 KPI
- * de captura manual (Contrato firmado, IMSS, Módulos publicados) NO están
- * periodizados — son un dato vigente de la cuenta, igual en cualquier mes que
- * se consulte.
+ * de captura manual (Contrato firmado, IMSS, Módulos publicados) SÍ están
+ * periodizados, igual que los de sondeo — se capturan mes con mes (ver
+ * `kpiManualBase`).
  */
 export type EmetrixOkrResultadoCuenta = {
   marcaId: string;
@@ -653,5 +669,11 @@ export type EmetrixOkrResultadoCuenta = {
   enAlerta: boolean;
   /** Fecha de la carga más reciente de cada sondeo EN ESTE PERIODO (o null si no tiene ninguna) — para el badge "Cargado" de cada tarjeta. */
   sondeosCargadoEn: Record<EmetrixKr, string | null>;
+  /** Captura con base (numerador/denominador) DE ESTE PERIODO de los 3 KPI manuales — misma fuente que alimenta KR1.3/KR1.4/KR3.1 en `raiz`, expuesta aparte para que la pantalla pueda editar los números crudos sin tener que parsear el `base` ("18 de 20") del árbol. */
+  kpiManualBase: {
+    contratoFirmado: EmetrixKpiManualBase;
+    imss: EmetrixKpiManualBase;
+    modulosPublicados: EmetrixKpiManualBase;
+  };
   raiz: EmetrixOkrNodo;
 };

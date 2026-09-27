@@ -35,6 +35,7 @@ import {
   esPeriodoValido,
   normalizarColumnaUsuario as normalizarColumnaUsuarioPuro,
   periodoActual,
+  validarBaseManual,
   ColumnasFaltantesError,
 } from './emetrix-ponderacion-calc';
 import type {
@@ -42,6 +43,7 @@ import type {
   EmetrixCargaPreview,
   EmetrixEstado,
   EmetrixFilaDetalle,
+  EmetrixKpiManualBase,
   EmetrixKr,
   EmetrixOkrResultadoCuenta,
   EmetrixPreguntaResumen,
@@ -62,6 +64,7 @@ export {
   esPeriodoValido,
   normalizarColumnaUsuarioPuro as normalizarColumnaUsuario,
   periodoActual,
+  validarBaseManual,
 };
 export { aplanarArbolOkrPuro as aplanarArbolOkr };
 
@@ -408,53 +411,76 @@ export async function updateHeadcountManual(marcaId: string, headcountManual: nu
 /**
  * Los 3 KPI de captura manual del OKR oficial (Contrato firmado, Alta ante
  * el IMSS, Módulos publicados en Emetrix) DE UN PERIODO — un indicador es de
- * una cuenta y un mes, igual que los de sondeo. null = pendiente de captura
- * ese mes (no cuenta como 0%, ver `construirArbolOkr`).
+ * una cuenta y un mes, igual que los de sondeo. Cada uno trae su
+ * numerador/denominador de ESTE periodo (ambos null = pendiente de captura
+ * ese mes, no cuenta como 0%, ver `construirArbolOkr`) y, como respaldo, el %
+ * capturado con el formato anterior a la captura con base (`legacyPorcentaje`,
+ * columnas `_manual` — se sigue leyendo para no perder ninguna cuenta que ya
+ * lo hubiera capturado así, pero ya no se escribe).
  */
 export async function fetchKpiManual(
   marcaId: string,
   periodo: string
-): Promise<{ contratoFirmadoManual: number | null; imssManual: number | null; modulosPublicadosManual: number | null }> {
+): Promise<{ contratoFirmado: EmetrixKpiManualBase; imss: EmetrixKpiManualBase; modulosPublicados: EmetrixKpiManualBase }> {
   const { rows } = await sql.query(
-    `select contrato_firmado_manual, imss_manual, modulos_publicados_manual
+    `select contrato_firmados_antes, contrato_nuevos_ingresos, contrato_firmado_manual,
+            imss_altas_antes, imss_nuevos_ingresos, imss_manual,
+            modulos_publicados_count, modulos_programados_count, modulos_publicados_manual
      from emetrix_ponderacion_kpi_manual where marca_id = $1 and periodo = $2`,
     [marcaId, periodo]
   );
-  if (!rows[0]) return { contratoFirmadoManual: null, imssManual: null, modulosPublicadosManual: null };
+  const num = (v: unknown): number | null => (v !== null && v !== undefined ? Number(v) : null);
+  const r = rows[0];
+  if (!r) {
+    const vacio: EmetrixKpiManualBase = { numerador: null, denominador: null, legacyPorcentaje: null };
+    return { contratoFirmado: { ...vacio }, imss: { ...vacio }, modulosPublicados: { ...vacio } };
+  }
   return {
-    contratoFirmadoManual: rows[0].contrato_firmado_manual !== null ? Number(rows[0].contrato_firmado_manual) : null,
-    imssManual: rows[0].imss_manual !== null ? Number(rows[0].imss_manual) : null,
-    modulosPublicadosManual: rows[0].modulos_publicados_manual !== null ? Number(rows[0].modulos_publicados_manual) : null,
+    contratoFirmado: { numerador: num(r.contrato_firmados_antes), denominador: num(r.contrato_nuevos_ingresos), legacyPorcentaje: num(r.contrato_firmado_manual) },
+    imss: { numerador: num(r.imss_altas_antes), denominador: num(r.imss_nuevos_ingresos), legacyPorcentaje: num(r.imss_manual) },
+    modulosPublicados: { numerador: num(r.modulos_publicados_count), denominador: num(r.modulos_programados_count), legacyPorcentaje: num(r.modulos_publicados_manual) },
   };
 }
 
-/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial, DE UN PERIODO — % capturado a mano. null = pendiente de captura ese mes. */
-export async function updateContratoFirmadoManual(marcaId: string, periodo: string, valor: number | null): Promise<void> {
+/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial, DE UN PERIODO — captura con base: "firmados antes del ingreso" (numerador) de "nuevos ingresos del mes" (denominador). null en cualquiera de los dos borra la captura de ese mes (vuelve a pendiente). */
+export async function updateContratoFirmadoManual(marcaId: string, periodo: string, firmadosAntes: number | null, nuevosIngresos: number | null): Promise<void> {
+  const error = validarBaseManual(firmadosAntes, nuevosIngresos);
+  if (error) throw new Error(error);
   await sql.query(
-    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, contrato_firmado_manual)
-     values ($1, $2, $3)
-     on conflict (marca_id, periodo) do update set contrato_firmado_manual = excluded.contrato_firmado_manual`,
-    [marcaId, periodo, valor]
+    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, contrato_firmados_antes, contrato_nuevos_ingresos)
+     values ($1, $2, $3, $4)
+     on conflict (marca_id, periodo) do update set
+       contrato_firmados_antes = excluded.contrato_firmados_antes,
+       contrato_nuevos_ingresos = excluded.contrato_nuevos_ingresos`,
+    [marcaId, periodo, firmadosAntes, nuevosIngresos]
   );
 }
 
-/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial, DE UN PERIODO — % capturado a mano. null = pendiente de captura ese mes. */
-export async function updateImssManual(marcaId: string, periodo: string, valor: number | null): Promise<void> {
+/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial, DE UN PERIODO — captura con base: "altas antes del ingreso" (numerador) de "nuevos ingresos del mes" (denominador). null en cualquiera de los dos borra la captura de ese mes (vuelve a pendiente). */
+export async function updateImssManual(marcaId: string, periodo: string, altasAntes: number | null, nuevosIngresos: number | null): Promise<void> {
+  const error = validarBaseManual(altasAntes, nuevosIngresos);
+  if (error) throw new Error(error);
   await sql.query(
-    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, imss_manual)
-     values ($1, $2, $3)
-     on conflict (marca_id, periodo) do update set imss_manual = excluded.imss_manual`,
-    [marcaId, periodo, valor]
+    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, imss_altas_antes, imss_nuevos_ingresos)
+     values ($1, $2, $3, $4)
+     on conflict (marca_id, periodo) do update set
+       imss_altas_antes = excluded.imss_altas_antes,
+       imss_nuevos_ingresos = excluded.imss_nuevos_ingresos`,
+    [marcaId, periodo, altasAntes, nuevosIngresos]
   );
 }
 
-/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial, DE UN PERIODO — % capturado a mano. null = pendiente de captura ese mes. */
-export async function updateModulosPublicadosManual(marcaId: string, periodo: string, valor: number | null): Promise<void> {
+/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial, DE UN PERIODO — captura con base: "publicados" (numerador) de "programados a la fecha" (denominador). null en cualquiera de los dos borra la captura de ese mes (vuelve a pendiente). */
+export async function updateModulosPublicadosManual(marcaId: string, periodo: string, publicados: number | null, programados: number | null): Promise<void> {
+  const error = validarBaseManual(publicados, programados);
+  if (error) throw new Error(error);
   await sql.query(
-    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, modulos_publicados_manual)
-     values ($1, $2, $3)
-     on conflict (marca_id, periodo) do update set modulos_publicados_manual = excluded.modulos_publicados_manual`,
-    [marcaId, periodo, valor]
+    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, modulos_publicados_count, modulos_programados_count)
+     values ($1, $2, $3, $4)
+     on conflict (marca_id, periodo) do update set
+       modulos_publicados_count = excluded.modulos_publicados_count,
+       modulos_programados_count = excluded.modulos_programados_count`,
+    [marcaId, periodo, publicados, programados]
   );
 }
 
@@ -642,9 +668,9 @@ export async function fetchResultadoOkrCuenta(marcaId: string, periodo: string):
         ? { cumplieron: marcaKr.cumplieron, respondieron: marcaKr.respondieron, porcentaje: marcaKr.porcentaje }
         : null,
     mesaControlPreguntas: mesaControlDetalle?.preguntas ?? null,
-    contratoFirmadoManual: kpiManual.contratoFirmadoManual,
-    imssManual: kpiManual.imssManual,
-    modulosPublicadosManual: kpiManual.modulosPublicadosManual,
+    contratoFirmado: kpiManual.contratoFirmado,
+    imss: kpiManual.imss,
+    modulosPublicados: kpiManual.modulosPublicados,
   });
 
   return {
@@ -659,6 +685,7 @@ export async function fetchResultadoOkrCuenta(marcaId: string, periodo: string):
       materiales: resultado.krs.find((k) => k.kr === 'materiales')?.cargadoEn ?? null,
       marca: resultado.krs.find((k) => k.kr === 'marca')?.cargadoEn ?? null,
     },
+    kpiManualBase: kpiManual,
     raiz,
   };
 }

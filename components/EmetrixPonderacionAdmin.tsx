@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { EmetrixCarga, EmetrixEstado, EmetrixKr, EmetrixOkrNodo, EmetrixOkrResultadoCuenta, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
+import type { EmetrixCarga, EmetrixEstado, EmetrixKpiManualBase, EmetrixKr, EmetrixOkrNodo, EmetrixOkrResultadoCuenta, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
 import { formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
 import {
   emetrixOkrExcelUrl,
@@ -22,6 +22,7 @@ import EmetrixPonderacionZona from './EmetrixPonderacionZona';
 import EmetrixComoVaCadaCuenta from './EmetrixComoVaCadaCuenta';
 import EmetrixPendientesIndicador from './EmetrixPendientesIndicador';
 import EmetrixCapturaRapida from './EmetrixCapturaRapida';
+import EmetrixKpiBaseInputs from './EmetrixKpiBaseInputs';
 
 const TODAS = '__todas__';
 
@@ -37,11 +38,33 @@ const ESTADO_LABEL: Record<EmetrixEstado, string> = {
   no_contesto: '— No contestó',
 };
 
-// Los únicos KPI de captura manual del OKR (no salen de ningún sondeo) — sus códigos vienen de lib/emetrix-ponderacion.ts. Son DE UN PERIODO, igual que los de sondeo.
-const MANUAL_KPI_UPDATERS: Record<string, (marcaId: string, periodo: string, valor: number | null) => Promise<{ ok: true }>> = {
-  'KR1.3': updateContratoFirmadoManualEmetrixPonderacion,
-  'KR1.4': updateImssManualEmetrixPonderacion,
-  'KR3.1': updateModulosPublicadosManualEmetrixPonderacion,
+// Los únicos KPI de captura manual con base del OKR (no salen de ningún sondeo) — sus códigos vienen de lib/emetrix-ponderacion.ts. Son DE UN PERIODO, igual que los de sondeo.
+type ManualKpiConfig = {
+  labelNumerador: string;
+  labelDenominador: string;
+  entrada: (kpiManualBase: EmetrixOkrResultadoCuenta['kpiManualBase']) => EmetrixKpiManualBase;
+  update: (marcaId: string, periodo: string, numerador: number | null, denominador: number | null) => Promise<{ ok: true }>;
+};
+
+const MANUAL_KPI_CONFIG: Record<string, ManualKpiConfig> = {
+  'KR1.3': {
+    labelNumerador: 'Firmados antes del ingreso',
+    labelDenominador: 'Nuevos ingresos del mes',
+    entrada: (k) => k.contratoFirmado,
+    update: updateContratoFirmadoManualEmetrixPonderacion,
+  },
+  'KR1.4': {
+    labelNumerador: 'Altas antes del ingreso',
+    labelDenominador: 'Nuevos ingresos del mes',
+    entrada: (k) => k.imss,
+    update: updateImssManualEmetrixPonderacion,
+  },
+  'KR3.1': {
+    labelNumerador: 'Publicados',
+    labelDenominador: 'Programados a la fecha',
+    entrada: (k) => k.modulosPublicados,
+    update: updateModulosPublicadosManualEmetrixPonderacion,
+  },
 };
 
 function formatFecha(iso: string): string {
@@ -55,7 +78,15 @@ function aplanar(nodo: EmetrixOkrNodo, profundidad = 0): NodoAplanado[] {
   return [{ nodo, profundidad }, ...nodo.hijos.flatMap((h) => aplanar(h, profundidad + 1))];
 }
 
-function ArbolOkrTabla({ raiz, onManualKpiChange }: { raiz: EmetrixOkrNodo; onManualKpiChange: (codigo: string, valorNuevo: string) => void }) {
+function ArbolOkrTabla({
+  raiz,
+  kpiManualBase,
+  onManualKpiChange,
+}: {
+  raiz: EmetrixOkrNodo;
+  kpiManualBase: EmetrixOkrResultadoCuenta['kpiManualBase'];
+  onManualKpiChange: (codigo: string, numerador: number | null, denominador: number | null) => void;
+}) {
   return (
     <div className="emetrix-detalle-tabla-wrap">
       <table className="roster-table">
@@ -69,7 +100,7 @@ function ArbolOkrTabla({ raiz, onManualKpiChange }: { raiz: EmetrixOkrNodo; onMa
         </thead>
         <tbody>
           {aplanar(raiz).map(({ nodo, profundidad }) => {
-            const esManual = nodo.nivel === 'kpi' && nodo.codigo in MANUAL_KPI_UPDATERS;
+            const config = nodo.nivel === 'kpi' ? MANUAL_KPI_CONFIG[nodo.codigo] : undefined;
             const { indicador } = nodo;
             return (
               <tr key={nodo.codigo} style={nodo.nivel !== 'kpi' ? { fontWeight: 700 } : undefined}>
@@ -78,16 +109,12 @@ function ArbolOkrTabla({ raiz, onManualKpiChange }: { raiz: EmetrixOkrNodo; onMa
                 </td>
                 <td>{nodo.peso}%</td>
                 <td>
-                  {esManual ? (
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={0.1}
-                      defaultValue={indicador.valor ?? ''}
-                      placeholder={indicador.estado === 'sin-medir' ? indicador.motivo : ''}
-                      onBlur={(e) => onManualKpiChange(nodo.codigo, e.target.value)}
-                      style={{ width: 64 }}
+                  {config ? (
+                    <EmetrixKpiBaseInputs
+                      entrada={config.entrada(kpiManualBase)}
+                      labelNumerador={config.labelNumerador}
+                      labelDenominador={config.labelDenominador}
+                      onGuardar={(numerador, denominador) => onManualKpiChange(nodo.codigo, numerador, denominador)}
                     />
                   ) : indicador.estado === 'medido' ? (
                     `${indicador.valor}%`
@@ -198,13 +225,12 @@ export default function EmetrixPonderacionAdmin() {
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el headcount de la cuenta.'));
   }
 
-  function handleManualKpiChange(codigo: string, valorNuevo: string) {
+  function handleManualKpiChange(codigo: string, numerador: number | null, denominador: number | null) {
     if (!marcaId || marcaId === TODAS) return;
-    const updater = MANUAL_KPI_UPDATERS[codigo];
-    if (!updater) return;
-    const valor = valorNuevo.trim() === '' ? null : parseFloat(valorNuevo);
-    if (valor !== null && (!Number.isFinite(valor) || valor < 0 || valor > 100)) return;
-    updater(marcaId, periodo, valor)
+    const config = MANUAL_KPI_CONFIG[codigo];
+    if (!config) return;
+    config
+      .update(marcaId, periodo, numerador, denominador)
       .then(() => reloadCuenta(marcaId, periodo))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el KPI.'));
   }
@@ -377,7 +403,7 @@ export default function EmetrixPonderacionAdmin() {
                 </label>
               )}
             </div>
-            {okr && <ArbolOkrTabla raiz={okr.raiz} onManualKpiChange={handleManualKpiChange} />}
+            {okr && <ArbolOkrTabla raiz={okr.raiz} kpiManualBase={okr.kpiManualBase} onManualKpiChange={handleManualKpiChange} />}
           </div>
 
           {vistaCruzada.length > 0 && (

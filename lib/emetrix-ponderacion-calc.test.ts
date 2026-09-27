@@ -20,8 +20,14 @@ import {
   formatPeriodoLabel,
   periodoActual,
   pillEstado,
+  validarBaseManual,
 } from './emetrix-ponderacion-calc.ts';
-import type { EmetrixOkrNodo } from './types';
+import type { EmetrixKpiManualBase, EmetrixOkrNodo } from './types';
+
+// KPI manual "sin capturar" (ni base ni el % del formato viejo) — el default
+// que usan la mayoría de las pruebas de construirArbolOkr de abajo, que no
+// están probando específicamente los 3 KPI de captura manual.
+const SIN_CAPTURAR: EmetrixKpiManualBase = { numerador: null, denominador: null, legacyPorcentaje: null };
 
 // ---- Periodo ----
 
@@ -171,9 +177,9 @@ test("regla: cero medido — Materiales con 0% de cumplimiento sigue siendo 'med
     materiales: { cumplieron: calculo.cumplieron, respondieron: calculo.filas.length, porcentaje: 0 },
     marca: null,
     mesaControlPreguntas: null,
-    contratoFirmadoManual: null,
-    imssManual: null,
-    modulosPublicadosManual: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
   });
   const kr2 = raiz.hijos.find((h) => h.codigo === 'KR2')!;
   const materialesKpi = kr2.hijos.find((h) => h.codigo === 'KR2.1')!;
@@ -188,9 +194,9 @@ test('regla: un KPI sin carga en este periodo queda "sin-medir" (nunca 0%)', () 
     materiales: null, // no hay carga de Materiales en este periodo
     marca: null,
     mesaControlPreguntas: null,
-    contratoFirmadoManual: null,
-    imssManual: null,
-    modulosPublicadosManual: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
   });
   assert.equal(raiz.indicador.estado, 'sin-medir');
   assert.equal(raiz.indicador.valor, null);
@@ -211,9 +217,9 @@ test('regla: KR1 con un KPI pendiente (Contrato firmado) redistribuye el peso en
     materiales: null,
     marca: null,
     mesaControlPreguntas: preguntasMesaControl,
-    contratoFirmadoManual: null, // pendiente
-    imssManual: 60,
-    modulosPublicadosManual: null,
+    contratoFirmado: SIN_CAPTURAR, // pendiente
+    imss: { numerador: null, denominador: null, legacyPorcentaje: 60 }, // formato viejo (antes de la captura con base)
+    modulosPublicados: SIN_CAPTURAR,
   });
   const kr1 = raiz.hijos.find((h) => h.codigo === 'KR1')!;
   assert.equal(kr1.indicador.estado, 'medido');
@@ -236,9 +242,9 @@ test('regla: OKR 30/40/30 — con los 3 KR completos, el total es el promedio po
     materiales: { cumplieron: 8, respondieron: 10, porcentaje: 80 },
     marca: { cumplieron: 9, respondieron: 10, porcentaje: 90 },
     mesaControlPreguntas: preguntasMesaControl,
-    contratoFirmadoManual: 100,
-    imssManual: 100,
-    modulosPublicadosManual: 100,
+    contratoFirmado: { numerador: 10, denominador: 10, legacyPorcentaje: null },
+    imss: { numerador: 10, denominador: 10, legacyPorcentaje: null },
+    modulosPublicados: { numerador: 5, denominador: 5, legacyPorcentaje: null },
   });
   const kr1 = raiz.hijos.find((h) => h.codigo === 'KR1')!;
   const kr2 = raiz.hijos.find((h) => h.codigo === 'KR2')!;
@@ -252,6 +258,97 @@ test('regla: OKR 30/40/30 — con los 3 KR completos, el total es el promedio po
   assert.equal(raiz.indicador.valor, esperado);
   assert.equal(raiz.indicador.valor, 90.5);
   assert.equal(raiz.indicador.base, null, 'con los 3 KR medidos, no debe quedar nota de "calculado con X de N"');
+
+  const moduloCompletado = kr3.hijos.find((h) => h.codigo === 'KR3.2')!;
+  assert.equal(moduloCompletado.indicador.motivo, 'Aproximación: 9 de 10 aprobaron Tu Marca (8 de 10 correctas).', 'el motivo debe dejar explícito que es una aproximación');
+});
+
+// ---- Regla: captura con base (numerador/denominador) de Contrato firmado, Alta IMSS y Módulos publicados ----
+
+test('validarBaseManual: el numerador no puede ser mayor al denominador', () => {
+  assert.equal(validarBaseManual(18, 20), null, '18 de 20 es válido');
+  assert.equal(validarBaseManual(20, 20), null, 'numerador == denominador es válido');
+  assert.equal(validarBaseManual(0, 0), null, '0 de 0 es válido');
+  assert.match(validarBaseManual(21, 20)!, /no puede ser mayor/);
+  assert.match(validarBaseManual(-1, 5)!, /negativos/);
+  assert.equal(validarBaseManual(null, 20), null, 'falta el numerador: no es un error de validación, es una captura incompleta');
+  assert.equal(validarBaseManual(18, null), null, 'falta el denominador: no es un error de validación, es una captura incompleta');
+});
+
+test('captura con base: "18 de 20" calcula el %, la base y el motivo en palabras', () => {
+  const raiz = construirArbolOkr({
+    materiales: null,
+    marca: null,
+    mesaControlPreguntas: null,
+    contratoFirmado: { numerador: 18, denominador: 20, legacyPorcentaje: null },
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
+  });
+  const contrato = raiz.hijos.find((h) => h.codigo === 'KR1')!.hijos.find((h) => h.codigo === 'KR1.3')!;
+  assert.equal(contrato.indicador.estado, 'medido');
+  assert.equal(contrato.indicador.valor, 90);
+  assert.equal(contrato.indicador.base, '18 de 20');
+  assert.equal(contrato.indicador.motivo, '18 de 20 nuevos ingresos firmaron contrato antes de su primer día.');
+});
+
+test('captura con base: numerador mayor al denominador no se guarda (se valida antes, en la capa de datos/API, no aquí)', () => {
+  // construirArbolOkr es puro y confía en que el numerador/denominador ya se
+  // validaron al guardarse (ver updateContratoFirmadoManual/validarBaseManual
+  // en lib/emetrix-ponderacion.ts y el PATCH de /api/emetrix-ponderacion/kpi-manual)
+  // — esta prueba documenta esa frontera, no que construirArbolOkr valide.
+  assert.match(validarBaseManual(25, 20)!, /no puede ser mayor al denominador/);
+});
+
+test('captura con base: si está vacío (ambos null y sin % del formato viejo), sigue "Sin medir"', () => {
+  const raiz = construirArbolOkr({
+    materiales: null,
+    marca: null,
+    mesaControlPreguntas: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
+  });
+  const contrato = raiz.hijos.find((h) => h.codigo === 'KR1')!.hijos.find((h) => h.codigo === 'KR1.3')!;
+  assert.equal(contrato.indicador.estado, 'sin-medir');
+  assert.equal(contrato.indicador.valor, null);
+});
+
+test('captura con base: si el denominador es 0 (sin nuevos ingresos en el mes), el indicador vale 100%', () => {
+  const raiz = construirArbolOkr({
+    materiales: null,
+    marca: null,
+    mesaControlPreguntas: null,
+    contratoFirmado: { numerador: 0, denominador: 0, legacyPorcentaje: null },
+    imss: { numerador: 0, denominador: 0, legacyPorcentaje: null },
+    modulosPublicados: { numerador: 0, denominador: 0, legacyPorcentaje: null }, // "sin módulos programados", motivo distinto
+  });
+  const kr1 = raiz.hijos.find((h) => h.codigo === 'KR1')!;
+  const contrato = kr1.hijos.find((h) => h.codigo === 'KR1.3')!;
+  const imss = kr1.hijos.find((h) => h.codigo === 'KR1.4')!;
+  const modulos = raiz.hijos.find((h) => h.codigo === 'KR3')!.hijos.find((h) => h.codigo === 'KR3.1')!;
+  assert.equal(contrato.indicador.estado, 'medido');
+  assert.equal(contrato.indicador.valor, 100);
+  assert.equal(contrato.indicador.motivo, 'Sin nuevos ingresos en el periodo.');
+  assert.equal(imss.indicador.valor, 100);
+  assert.equal(imss.indicador.motivo, 'Sin nuevos ingresos en el periodo.');
+  assert.equal(modulos.indicador.valor, 100);
+  assert.equal(modulos.indicador.motivo, 'Sin módulos programados en el periodo.', 'módulos publicados usa un motivo propio, no el de "nuevos ingresos"');
+});
+
+test('captura con base: sin numerador/denominador este periodo, cae al % del formato viejo (legacyPorcentaje) para no perder cuentas ya capturadas', () => {
+  const raiz = construirArbolOkr({
+    materiales: null,
+    marca: null,
+    mesaControlPreguntas: null,
+    contratoFirmado: { numerador: null, denominador: null, legacyPorcentaje: 96.5 },
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
+  });
+  const contrato = raiz.hijos.find((h) => h.codigo === 'KR1')!.hijos.find((h) => h.codigo === 'KR1.3')!;
+  assert.equal(contrato.indicador.estado, 'medido');
+  assert.equal(contrato.indicador.valor, 96.5);
+  assert.equal(contrato.indicador.base, null, 'el formato viejo no trae "X de Y"');
+  assert.match(contrato.indicador.motivo, /Legal/);
 });
 
 test('regla: calcularTotalPonderado redistribuye el peso cuando un KR no tiene carga', () => {
@@ -296,9 +393,9 @@ test('confirmación: OKR real de Spin Master (periodo 2026-09) = 65.27%', () => 
       { pregunta: 'Entrada a tienda', porcentaje: 97.73, numerador: 43, contestaron: 44 },
       { pregunta: 'Emetrix funcionó', porcentaje: 95.45, numerador: 42, contestaron: 44 },
     ],
-    contratoFirmadoManual: null,
-    imssManual: null,
-    modulosPublicadosManual: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
   });
   assert.equal(raiz.indicador.valor, 65.27);
   const kr1 = raiz.hijos.find((h) => h.codigo === 'KR1')!;
@@ -313,9 +410,9 @@ test('confirmación: OKR real de ADM (periodo 2026-09) = 61.49%', () => {
       { pregunta: 'Entrada a tienda', porcentaje: 99.09, numerador: 218, contestaron: 220 },
       { pregunta: 'Emetrix funcionó', porcentaje: 99.55, numerador: 222, contestaron: 223 },
     ],
-    contratoFirmadoManual: null,
-    imssManual: null,
-    modulosPublicadosManual: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
   });
   assert.equal(raiz.indicador.valor, 61.49);
 });
@@ -328,9 +425,9 @@ test('confirmación: OKR real de Hanes (periodo 2026-09) = 43.58% — incluye Ma
       { pregunta: 'Entrada a tienda', porcentaje: 96.88, numerador: 31, contestaron: 32 },
       { pregunta: 'Emetrix funcionó', porcentaje: 96.88, numerador: 31, contestaron: 32 },
     ],
-    contratoFirmadoManual: null,
-    imssManual: null,
-    modulosPublicadosManual: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
   });
   assert.equal(raiz.indicador.valor, 43.58);
   const kr2 = raiz.hijos.find((h) => h.codigo === 'KR2')!;
@@ -424,6 +521,36 @@ test('calcularPendientes: agrupa por dato y responsable ("Falta Contrato firmado
   assert.deepEqual(pendientes.porDato[0].cuentas, ['Cuenta A', 'Cuenta B']);
 });
 
+test('calcularPendientes: los indicadores de sondeo se agrupan por sondeo, no por KPI ("Falta subir sondeo Mesa de Control: N cuentas · Ejecutivo de la cuenta")', () => {
+  // Mesa de Control no se subió este periodo -> sus 2 KPI hoja (Carta de
+  // acceso, Usuario Emetrix) quedan sin-medir, pero deben verse como UN solo
+  // hueco ("falta subir el sondeo"), no dos líneas repitiendo la misma cuenta.
+  const hojasSinMesaControl = HOJAS_COMPLETAS().map((h) =>
+    h.codigo === 'KR1.1' || h.codigo === 'KR1.2' ? { ...h, indicador: { estado: 'sin-medir' as const, valor: null, base: null, motivo: '' } } : h
+  );
+  const pendientes = calcularPendientes([
+    { marcaId: 'm1', marcaNombre: 'Cuenta A', raiz: raizConHojas(hojasSinMesaControl), sondeosCargadoEn: { mesa_control: null, materiales: 'x', marca: 'x' }, headcountManual: 10 },
+    { marcaId: 'm2', marcaNombre: 'Cuenta B', raiz: raizConHojas(hojasSinMesaControl), sondeosCargadoEn: { mesa_control: null, materiales: 'x', marca: 'x' }, headcountManual: 10 },
+  ]);
+  const entradaSondeo = pendientes.porDato.find((d) => d.codigo === 'sondeo:mesa_control');
+  assert.ok(entradaSondeo, 'debe existir una entrada agrupada para Mesa de Control');
+  assert.equal(entradaSondeo!.nombre, 'subir sondeo Mesa de Control');
+  assert.equal(entradaSondeo!.owner, 'Ejecutivo de la cuenta', 'no el área dueña del KPI (Mesa de Control)');
+  assert.deepEqual(entradaSondeo!.cuentas, ['Cuenta A', 'Cuenta B']);
+  assert.equal(pendientes.porDato.find((d) => d.codigo === 'KR1.1'), undefined, 'ya no debe existir una línea aparte por KPI hoja');
+  assert.equal(pendientes.porDato.find((d) => d.codigo === 'KR1.2'), undefined);
+});
+
+test('calcularPendientes: los 3 KPI manuales (Contrato, IMSS, Módulos publicados) se siguen agrupando por su área dueña real', () => {
+  const hojasSinModulos = HOJAS_COMPLETAS().map((h) => (h.codigo === 'KR3.1' ? { ...h, indicador: { estado: 'sin-medir' as const, valor: null, base: null, motivo: '' } } : h));
+  const pendientes = calcularPendientes([
+    { marcaId: 'm1', marcaNombre: 'Cuenta A', raiz: raizConHojas(hojasSinModulos), sondeosCargadoEn: { mesa_control: 'x', materiales: 'x', marca: 'x' }, headcountManual: 10 },
+  ]);
+  const entradaModulos = pendientes.porDato.find((d) => d.codigo === 'KR3.1');
+  assert.ok(entradaModulos, 'los KPI manuales siguen agrupados por código de KPI, no por sondeo');
+  assert.equal(entradaModulos!.owner, 'Capacitación', 'los KPI manuales conservan su área dueña real, no "Ejecutivo de la cuenta"');
+});
+
 test('calcularPendientes: agrupa por cuenta ("Zuru: faltan los 3 sondeos")', () => {
   const sinNada = raizConHojas(HOJAS_COMPLETAS().map((h) => ({ ...h, indicador: { estado: 'sin-medir' as const, valor: null, base: null, motivo: '' } })));
   const pendientes = calcularPendientes([
@@ -442,9 +569,9 @@ test('compatibilidad: preguntas_resumen histórico sin "numerador" no rompe el m
     marca: null,
     // @ts-expect-error — simula un registro histórico guardado antes de agregar `numerador` al tipo.
     mesaControlPreguntas: [{ pregunta: 'Entrada a tienda', porcentaje: 99.09, contestaron: 220 }],
-    contratoFirmadoManual: null,
-    imssManual: null,
-    modulosPublicadosManual: null,
+    contratoFirmado: SIN_CAPTURAR,
+    imss: SIN_CAPTURAR,
+    modulosPublicados: SIN_CAPTURAR,
   });
   const kr1_1 = raiz.hijos.find((h) => h.codigo === 'KR1')!.hijos.find((h) => h.codigo === 'KR1.1')!;
   assert.equal(kr1_1.indicador.base, '218 de 220');

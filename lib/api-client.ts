@@ -13,6 +13,7 @@ import type {
   EmetrixCarga,
   EmetrixCargaPreview,
   EmetrixFilaDetalle,
+  EmetrixKpiManualBase,
   EmetrixKr,
   EmetrixOkrResultadoCuenta,
   EmetrixPreguntaResumen,
@@ -487,38 +488,38 @@ export function updateHeadcountManualEmetrixPonderacion(marcaId: string, headcou
   }).then((r) => json(r));
 }
 
-/** Los 3 KPI de captura manual del OKR oficial DE UN PERIODO — un indicador es de una cuenta y un mes, igual que los de sondeo. */
+/** Los 3 KPI de captura manual con base (numerador/denominador) del OKR oficial DE UN PERIODO — un indicador es de una cuenta y un mes, igual que los de sondeo. */
 export function fetchKpiManualEmetrixPonderacion(
   marcaId: string,
   periodo: string
-): Promise<{ contratoFirmadoManual: number | null; imssManual: number | null; modulosPublicadosManual: number | null }> {
+): Promise<{ contratoFirmado: EmetrixKpiManualBase; imss: EmetrixKpiManualBase; modulosPublicados: EmetrixKpiManualBase }> {
   return fetch(`/api/emetrix-ponderacion/kpi-manual?marcaId=${marcaId}&periodo=${periodo}`).then((r) => json(r));
 }
 
-/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial, DE UN PERIODO — % capturado a mano. null borra la captura de ese mes (vuelve a pendiente). */
-export function updateContratoFirmadoManualEmetrixPonderacion(marcaId: string, periodo: string, valor: number | null): Promise<{ ok: true }> {
+/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial, DE UN PERIODO — captura con base: "firmados antes del ingreso" de "nuevos ingresos del mes". null en cualquiera de los dos borra la captura de ese mes (vuelve a pendiente). */
+export function updateContratoFirmadoManualEmetrixPonderacion(marcaId: string, periodo: string, firmadosAntes: number | null, nuevosIngresos: number | null): Promise<{ ok: true }> {
   return fetch('/api/emetrix-ponderacion/kpi-manual', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ marcaId, periodo, contratoFirmadoManual: valor }),
+    body: JSON.stringify({ marcaId, periodo, contratoFirmado: { numerador: firmadosAntes, denominador: nuevosIngresos } }),
   }).then((r) => json(r));
 }
 
-/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial, DE UN PERIODO — % capturado a mano. null borra la captura de ese mes (vuelve a pendiente). */
-export function updateImssManualEmetrixPonderacion(marcaId: string, periodo: string, valor: number | null): Promise<{ ok: true }> {
+/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial, DE UN PERIODO — captura con base: "altas antes del ingreso" de "nuevos ingresos del mes". null en cualquiera de los dos borra la captura de ese mes (vuelve a pendiente). */
+export function updateImssManualEmetrixPonderacion(marcaId: string, periodo: string, altasAntes: number | null, nuevosIngresos: number | null): Promise<{ ok: true }> {
   return fetch('/api/emetrix-ponderacion/kpi-manual', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ marcaId, periodo, imssManual: valor }),
+    body: JSON.stringify({ marcaId, periodo, imss: { numerador: altasAntes, denominador: nuevosIngresos } }),
   }).then((r) => json(r));
 }
 
-/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial, DE UN PERIODO — % capturado a mano. null borra la captura de ese mes (vuelve a pendiente). */
-export function updateModulosPublicadosManualEmetrixPonderacion(marcaId: string, periodo: string, valor: number | null): Promise<{ ok: true }> {
+/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial, DE UN PERIODO — captura con base: "publicados" de "programados a la fecha". null en cualquiera de los dos borra la captura de ese mes (vuelve a pendiente). */
+export function updateModulosPublicadosManualEmetrixPonderacion(marcaId: string, periodo: string, publicados: number | null, programados: number | null): Promise<{ ok: true }> {
   return fetch('/api/emetrix-ponderacion/kpi-manual', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ marcaId, periodo, modulosPublicadosManual: valor }),
+    body: JSON.stringify({ marcaId, periodo, modulosPublicados: { numerador: publicados, denominador: programados } }),
   }).then((r) => json(r));
 }
 

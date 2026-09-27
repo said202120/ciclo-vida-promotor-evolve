@@ -19,7 +19,7 @@
 // de "sin-medir".
 
 import { parseFlexibleDate } from './import-shared.ts';
-import type { EmetrixDiagnosticoArchivo, EmetrixFilaDetalle, EmetrixIndicador, EmetrixKr, EmetrixOkrNodo, EmetrixPreguntaResumen } from './types';
+import type { EmetrixDiagnosticoArchivo, EmetrixFilaDetalle, EmetrixIndicador, EmetrixKpiManualBase, EmetrixKr, EmetrixOkrNodo, EmetrixPreguntaResumen } from './types';
 
 // ---- Periodo ----
 
@@ -740,17 +740,56 @@ function kpiDeMesaControl(
   };
 }
 
-/** KPI de captura manual (no sale de ningún sondeo) — un indicador es de una cuenta y UN periodo, igual que los de sondeo; el valor de este periodo lo trae `valor` (ya resuelto por el llamador). `motivoPendiente` explica qué falta capturar y quién es el dueño. */
-function kpiManual(
+/** Alias local del tipo de types.ts, para no repetir el nombre completo en cada firma de función de esta sección. */
+type EntradaKpiManualBase = EmetrixKpiManualBase;
+
+/**
+ * Valida que el numerador no sea mayor al denominador (cuando ambos existen)
+ * — para el KPI de captura manual con base ("18 de 20"). null si es válido o
+ * si falta alguno de los dos números (una captura incompleta se valida por
+ * separado como "sin medir", no como error).
+ */
+export function validarBaseManual(numerador: number | null, denominador: number | null): string | null {
+  if (numerador === null || denominador === null) return null;
+  if (numerador < 0 || denominador < 0) return 'El numerador y el denominador no pueden ser negativos.';
+  if (numerador > denominador) return `El numerador (${numerador}) no puede ser mayor al denominador (${denominador}).`;
+  return null;
+}
+
+/**
+ * Indicador de un KPI de captura manual con base (numerador/denominador,
+ * sección 4-bis): si ambos números están capturados este periodo, el % y el
+ * motivo salen de ahí — "18 de 20 {textoRelacion}." — salvo que el
+ * denominador sea 0 (no hubo qué medir ese mes), donde el indicador vale
+ * 100% con `textoSinBase` como motivo. Si falta cualquiera de los dos
+ * números, cae al `legacyPorcentaje` (formato viejo, antes de esta captura
+ * con base) si existe, y si no, queda "sin medir".
+ */
+function indicadorManualConBase(entrada: EntradaKpiManualBase, owner: string, textoRelacion: string, textoSinBase: string, motivoPendiente: string): EmetrixIndicador {
+  const { numerador, denominador, legacyPorcentaje } = entrada;
+  if (numerador !== null && denominador !== null) {
+    if (denominador === 0) return indicadorMedido(100, '0 de 0', textoSinBase);
+    return indicadorMedido((numerador / denominador) * 100, `${numerador} de ${denominador}`, `${numerador} de ${denominador} ${textoRelacion}.`);
+  }
+  if (legacyPorcentaje !== null) {
+    return indicadorMedido(legacyPorcentaje, null, `Capturado a mano por ${owner}: ${redondear2(legacyPorcentaje)}%.`);
+  }
+  return indicadorSinMedir(motivoPendiente);
+}
+
+/** KPI de captura manual con base (no sale de ningún sondeo) — un indicador es de una cuenta y UN periodo, igual que los de sondeo. `motivoPendiente` explica qué falta capturar y quién es el dueño. */
+function kpiManualBase(
   codigo: string,
   nombre: string,
   descripcion: string,
   owner: string,
   peso: number,
-  valor: number | null,
+  entrada: EntradaKpiManualBase,
+  textoRelacion: string,
+  textoSinBase: string,
   motivoPendiente: string
 ): EmetrixOkrNodo {
-  const indicador = valor === null ? indicadorSinMedir(motivoPendiente) : indicadorMedido(valor, null, `Capturado a mano por ${owner}: ${redondear2(valor)}%.`);
+  const indicador = indicadorManualConBase(entrada, owner, textoRelacion, textoSinBase, motivoPendiente);
   return {
     nivel: 'kpi',
     codigo,
@@ -769,15 +808,21 @@ function kpiManual(
 /** Entrada de un KPI que sale del % de cumplimiento de un sondeo completo (Materiales, Marca) para la carga de ESTE periodo. null si no hay carga de ese sondeo en este periodo. */
 export type EntradaKpiSondeo = { cumplieron: number; respondieron: number; porcentaje: number } | null;
 
-/** KPI alimentado por el % de cumplimiento (tal cual, regla vigente sin cambios) de un sondeo completo, en ESTE periodo. */
-function kpiDeSondeo(codigo: string, nombre: string, descripcion: string, owner: string, peso: number, krLabel: string, entrada: EntradaKpiSondeo): EmetrixOkrNodo {
+/** KPI alimentado por el % de cumplimiento (tal cual, regla vigente sin cambios) de un sondeo completo, en ESTE periodo. `motivoTexto` arma el motivo cuando sí hay dato — por default "X de Y promotores que contestaron {krLabel} cumplieron los requisitos.", pero KR3.2 (Módulo completado) lo sobreescribe para dejar explícito que es una aproximación. */
+function kpiDeSondeo(
+  codigo: string,
+  nombre: string,
+  descripcion: string,
+  owner: string,
+  peso: number,
+  krLabel: string,
+  entrada: EntradaKpiSondeo,
+  motivoTexto: (entrada: { cumplieron: number; respondieron: number }) => string = (e) =>
+    `${e.cumplieron} de ${e.respondieron} promotores que contestaron ${krLabel} cumplieron los requisitos.`
+): EmetrixOkrNodo {
   const indicador = !entrada
     ? indicadorSinMedir(`Falta cargar ${krLabel} en este periodo.`)
-    : indicadorMedido(
-        entrada.porcentaje,
-        `${entrada.cumplieron} de ${entrada.respondieron}`,
-        `${entrada.cumplieron} de ${entrada.respondieron} promotores que contestaron ${krLabel} cumplieron los requisitos.`
-      );
+    : indicadorMedido(entrada.porcentaje, `${entrada.cumplieron} de ${entrada.respondieron}`, motivoTexto(entrada));
   const fuente = entrada ? `Sondeo ${krLabel} — % de cumplimiento` : `Sondeo ${krLabel}`;
   return { nivel: 'kpi', codigo, area: OKR_AREA, nombre, descripcion, capa: 'Actividad', owner, peso, indicador, fuente, hijos: [] };
 }
@@ -790,10 +835,10 @@ export type ConstruirArbolOkrInput = {
   marca: EntradaKpiSondeo;
   /** Desglose por pregunta de la carga de Mesa de Control de ESTE periodo. null si no hay carga de Mesa de Control en este periodo. */
   mesaControlPreguntas: EmetrixPreguntaResumen[] | null;
-  /** KPI de captura manual DE ESTE PERIODO (una cuenta × un mes, igual que los de sondeo). null = pendiente de captura ese mes. */
-  contratoFirmadoManual: number | null;
-  imssManual: number | null;
-  modulosPublicadosManual: number | null;
+  /** KPI de captura manual con base (numerador/denominador) DE ESTE PERIODO (una cuenta × un mes, igual que los de sondeo). Ambos números en null = pendiente de captura ese mes (o cae al % viejo en `legacyPorcentaje` si esa cuenta ya lo había capturado con el formato anterior). */
+  contratoFirmado: EntradaKpiManualBase;
+  imss: EntradaKpiManualBase;
+  modulosPublicados: EntradaKpiManualBase;
 };
 
 /**
@@ -810,23 +855,27 @@ export function construirArbolOkr(input: ConstruirArbolOkrInput): EmetrixOkrNodo
   const kr1Kpis = [
     kpiDeMesaControl('KR1.1', 'Carta de acceso y credencial', 'Entrada a tienda', entradaPregunta('Entrada a tienda'), input.mesaControlPreguntas),
     kpiDeMesaControl('KR1.2', 'Usuario en Emetrix', 'Emetrix funcionó', entradaPregunta('Emetrix funcionó'), input.mesaControlPreguntas),
-    kpiManual(
+    kpiManualBase(
       'KR1.3',
       'Contrato firmado',
-      'Captura manual del % de promotores nuevos con contrato firmado',
+      'Captura manual: nuevos ingresos que firmaron contrato antes de su primer día, de los nuevos ingresos del mes',
       'Legal',
       25,
-      input.contratoFirmadoManual,
-      'Falta el dato de Legal (fecha de firma de contrato).'
+      input.contratoFirmado,
+      'nuevos ingresos firmaron contrato antes de su primer día',
+      'Sin nuevos ingresos en el periodo.',
+      'Falta el dato de Legal (firmados antes del ingreso y nuevos ingresos del mes).'
     ),
-    kpiManual(
+    kpiManualBase(
       'KR1.4',
       'Alta ante el IMSS',
-      'Captura manual del % de promotores nuevos dados de alta ante el IMSS',
+      'Captura manual: nuevos ingresos dados de alta ante el IMSS antes de su primer día, de los nuevos ingresos del mes',
       'Nómina',
       25,
-      input.imssManual,
-      'Falta el dato de Nómina (fecha de alta ante el IMSS).'
+      input.imss,
+      'nuevos ingresos tuvieron alta ante el IMSS antes de su primer día',
+      'Sin nuevos ingresos en el periodo.',
+      'Falta el dato de Nómina (altas antes del ingreso y nuevos ingresos del mes).'
     ),
   ];
   const kr1 = nodoAgregado(
@@ -863,16 +912,27 @@ export function construirArbolOkr(input: ConstruirArbolOkrInput): EmetrixOkrNodo
   );
 
   const kr3Kpis = [
-    kpiManual(
+    kpiManualBase(
       'KR3.1',
       'Módulos publicados en Emetrix',
-      'Captura manual del % de módulos de capacitación publicados en Emetrix',
+      'Captura manual: módulos de capacitación publicados en Emetrix, de los módulos programados a la fecha',
       'Capacitación',
       50,
-      input.modulosPublicadosManual,
-      'Falta el dato de Capacitación (% de módulos publicados en Emetrix).'
+      input.modulosPublicados,
+      'módulos programados están publicados en Emetrix',
+      'Sin módulos programados en el periodo.',
+      'Falta el dato de Capacitación (publicados y programados a la fecha).'
     ),
-    kpiDeSondeo('KR3.2', 'Módulo completado (aproximación)', '% de cumplimiento del sondeo Tu Marca (8 de 10 o más, regla vigente, sin cambios)', 'Capacitación', 50, 'Tu Marca', input.marca),
+    kpiDeSondeo(
+      'KR3.2',
+      'Módulo completado (aproximación)',
+      '% de cumplimiento del sondeo Tu Marca (8 de 10 o más, regla vigente, sin cambios) — aproximación de módulo completado',
+      'Capacitación',
+      50,
+      'Tu Marca',
+      input.marca,
+      (e) => `Aproximación: ${e.cumplieron} de ${e.respondieron} aprobaron Tu Marca (8 de 10 correctas).`
+    ),
   ];
   const kr3 = nodoAgregado(
     {
@@ -926,6 +986,9 @@ export const KPI_CODIGOS_MANUAL = ['KR1.3', 'KR1.4', 'KR3.1'] as const;
 
 /** Etiqueta de cada sondeo, en el mismo orden que se sube en pantalla. */
 export const KR_LABEL_SONDEO: Record<EmetrixKr, string> = { mesa_control: 'Mesa de Control', materiales: 'Materiales', marca: 'Marca' };
+
+/** Orden en que se listan los 3 sondeos en "Pendientes de indicador" (mismo orden que el resto de la pantalla). */
+const KR_ORDEN_SONDEO: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
 
 /**
  * Color de la pastilla de un indicador, según la guía de indicadores de
@@ -981,7 +1044,23 @@ export function calcularPendientes(
   for (const cuenta of cuentas) {
     const planos = indicadoresPlanos(cuenta.raiz);
 
-    for (const codigo of KPI_CODIGOS_HOJA) {
+    // Indicadores que salen de sondeo (Carta de acceso/Usuario Emetrix de Mesa
+    // de Control, Materiales, Módulo completado de Tu Marca): el hueco es del
+    // EJECUTIVO DE LA CUENTA (falta subir el sondeo), no del área dueña del
+    // KPI — se agrupan por sondeo, no uno por KPI, para no repetir la misma
+    // cuenta en dos líneas cuando falta un único archivo (Mesa de Control trae
+    // 2 KPI hoja).
+    for (const kr of KR_ORDEN_SONDEO) {
+      if (cuenta.sondeosCargadoEn[kr]) continue;
+      const codigo = `sondeo:${kr}`;
+      const entrada = porDatoMapa.get(codigo) ?? { codigo, nombre: `subir sondeo ${KR_LABEL_SONDEO[kr]}`, owner: 'Ejecutivo de la cuenta', cuentas: [] };
+      entrada.cuentas.push(cuenta.marcaNombre);
+      porDatoMapa.set(codigo, entrada);
+    }
+
+    // Los 3 KPI de captura manual (Contrato, Alta IMSS, Módulos publicados) SÍ
+    // se agrupan por su área dueña real (Legal/Nómina/Capacitación).
+    for (const codigo of KPI_CODIGOS_MANUAL) {
       const nodo = planos[codigo];
       if (!nodo || nodo.indicador.estado !== 'sin-medir') continue;
       const entrada = porDatoMapa.get(codigo) ?? { codigo, nombre: nodo.nombre, owner: nodo.owner, cuentas: [] };

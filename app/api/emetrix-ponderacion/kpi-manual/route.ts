@@ -1,23 +1,24 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
-import { esPeriodoValido, fetchKpiManual, periodoActual, updateContratoFirmadoManual, updateImssManual, updateModulosPublicadosManual } from '@/lib/emetrix-ponderacion';
+import { esPeriodoValido, fetchKpiManual, periodoActual, updateContratoFirmadoManual, updateImssManual, updateModulosPublicadosManual, validarBaseManual } from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
 
 const CAMPOS_MANUAL_KPI: Array<{
-  campo: 'contratoFirmadoManual' | 'imssManual' | 'modulosPublicadosManual';
-  update: (marcaId: string, periodo: string, valor: number | null) => Promise<void>;
+  campo: 'contratoFirmado' | 'imss' | 'modulosPublicados';
+  update: (marcaId: string, periodo: string, numerador: number | null, denominador: number | null) => Promise<void>;
 }> = [
-  { campo: 'contratoFirmadoManual', update: updateContratoFirmadoManual },
-  { campo: 'imssManual', update: updateImssManual },
-  { campo: 'modulosPublicadosManual', update: updateModulosPublicadosManual },
+  { campo: 'contratoFirmado', update: updateContratoFirmadoManual },
+  { campo: 'imss', update: updateImssManual },
+  { campo: 'modulosPublicados', update: updateModulosPublicadosManual },
 ];
 
 // GET /api/emetrix-ponderacion/kpi-manual?marcaId=...&periodo=YYYY-MM — los
 // 3 KPI de captura manual del OKR oficial (Contrato firmado, Alta ante el
 // IMSS, Módulos publicados en Emetrix) DE ESE PERIODO — un indicador es de
-// una cuenta y un mes, igual que los de sondeo. `periodo` default al mes
-// actual si no se manda.
+// una cuenta y un mes, igual que los de sondeo. Cada uno trae
+// {numerador, denominador, legacyPorcentaje} (sección 4-bis de la ficha
+// técnica). `periodo` default al mes actual si no se manda.
 export async function GET(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -35,10 +36,16 @@ export async function GET(request: Request) {
   return NextResponse.json(await fetchKpiManual(marcaId, periodo));
 }
 
+function esNumeroOrNull(v: unknown): v is number | null {
+  return v === null || typeof v === 'number';
+}
+
 // PATCH /api/emetrix-ponderacion/kpi-manual — cambia, PARA UN PERIODO, uno o
-// más de los 3 KPI de captura manual (contratoFirmadoManual, imssManual,
-// modulosPublicadosManual) — manda solo lo que quieras cambiar. null borra
-// el valor capturado (vuelve a "sin-medir" ese mes).
+// más de los 3 KPI de captura manual con base (numerador/denominador): manda
+// contratoFirmado/imss/modulosPublicados como {numerador, denominador} —
+// solo lo que quieras cambiar. numerador/denominador en null borra esa
+// captura (vuelve a "sin-medir" ese mes). El numerador no puede ser mayor al
+// denominador (se valida antes de guardar).
 export async function PATCH(request: Request) {
   const auth = await requireGerente();
   if (auth.error) return auth.error;
@@ -56,16 +63,25 @@ export async function PATCH(request: Request) {
   const tareas: Promise<void>[] = [];
   for (const { campo, update } of CAMPOS_MANUAL_KPI) {
     if (!(campo in body)) continue;
-    const valor = body[campo];
-    if (valor !== null && (typeof valor !== 'number' || valor < 0 || valor > 100)) {
-      return NextResponse.json({ error: `${campo} debe ser un número entre 0 y 100, o null para borrarlo.` }, { status: 400 });
+    const par = body[campo];
+    const numerador = par?.numerador ?? null;
+    const denominador = par?.denominador ?? null;
+    if (!esNumeroOrNull(numerador) || !esNumeroOrNull(denominador)) {
+      return NextResponse.json({ error: `${campo} debe traer numerador y denominador, cada uno número o null.` }, { status: 400 });
     }
-    tareas.push(update(marcaId, periodo, valor));
+    if ((numerador !== null && numerador < 0) || (denominador !== null && denominador < 0)) {
+      return NextResponse.json({ error: `${campo}: numerador y denominador no pueden ser negativos.` }, { status: 400 });
+    }
+    const error = validarBaseManual(numerador, denominador);
+    if (error) {
+      return NextResponse.json({ error: `${campo}: ${error}` }, { status: 400 });
+    }
+    tareas.push(update(marcaId, periodo, numerador, denominador));
   }
 
   if (tareas.length === 0) {
     return NextResponse.json(
-      { error: 'Nada que actualizar: manda contratoFirmadoManual, imssManual y/o modulosPublicadosManual.' },
+      { error: 'Nada que actualizar: manda contratoFirmado, imss y/o modulosPublicados como {numerador, denominador}.' },
       { status: 400 }
     );
   }

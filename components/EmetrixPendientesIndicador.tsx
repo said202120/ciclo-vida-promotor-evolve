@@ -6,10 +6,13 @@ import { calcularPendientes } from '@/lib/emetrix-ponderacion-calc';
 /**
  * "Pendientes de indicador" (guía de indicadores de Operaciones): qué falta
  * para que cada hueco deje de serlo, en tres agrupaciones — por dato y
- * responsable ("Falta Contrato firmado: 3 cuentas · Legal"), por cuenta
- * ("Zuru: faltan los 3 sondeos") y headcount faltante (dato de cuenta, no de
- * periodo). Todo el cálculo vive en `calcularPendientes` (pura, con sus
- * propias pruebas) — este componente solo pinta el resultado.
+ * responsable (los indicadores de sondeo se agrupan por sondeo, ej. "Falta
+ * subir sondeo Mesa de Control: 3 cuentas · Ejecutivo de la cuenta"; los 3
+ * KPI manuales se agrupan por su área dueña real, ej. "Falta Contrato
+ * firmado: 3 cuentas · Legal"), por cuenta ("Zuru: faltan los 3 sondeos") y
+ * headcount faltante (dato de cuenta, no de periodo). Todo el cálculo vive en
+ * `calcularPendientes` (pura, con sus propias pruebas) — este componente solo
+ * pinta el resultado.
  */
 export default function EmetrixPendientesIndicador({ cuentas }: { cuentas: EmetrixOkrResultadoCuenta[] }) {
   const pendientes = calcularPendientes(cuentas);

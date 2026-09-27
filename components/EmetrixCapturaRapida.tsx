@@ -1,21 +1,49 @@
 'use client';
 
 import { useState } from 'react';
-import type { EmetrixOkrResultadoCuenta } from '@/lib/types';
-import { indicadoresPlanos } from '@/lib/emetrix-ponderacion-calc';
+import type { EmetrixKpiManualBase, EmetrixOkrResultadoCuenta } from '@/lib/types';
 import {
   updateContratoFirmadoManualEmetrixPonderacion,
   updateHeadcountManualEmetrixPonderacion,
   updateImssManualEmetrixPonderacion,
   updateModulosPublicadosManualEmetrixPonderacion,
 } from '@/lib/api-client';
+import EmetrixKpiBaseInputs from './EmetrixKpiBaseInputs';
 
-type ColumnaManual = { codigo: string; label: string; update: (marcaId: string, periodo: string, valor: number | null) => Promise<{ ok: true }> };
+type ColumnaManual = {
+  codigo: string;
+  label: string;
+  labelNumerador: string;
+  labelDenominador: string;
+  entrada: (cuenta: EmetrixOkrResultadoCuenta) => EmetrixKpiManualBase;
+  update: (marcaId: string, periodo: string, numerador: number | null, denominador: number | null) => Promise<{ ok: true }>;
+};
 
 const COLUMNAS_MANUAL: ColumnaManual[] = [
-  { codigo: 'KR1.3', label: 'Contrato firmado', update: updateContratoFirmadoManualEmetrixPonderacion },
-  { codigo: 'KR1.4', label: 'Alta ante el IMSS', update: updateImssManualEmetrixPonderacion },
-  { codigo: 'KR3.1', label: 'Módulos publicados', update: updateModulosPublicadosManualEmetrixPonderacion },
+  {
+    codigo: 'KR1.3',
+    label: 'Contrato firmado',
+    labelNumerador: 'Firmados antes del ingreso',
+    labelDenominador: 'Nuevos ingresos del mes',
+    entrada: (c) => c.kpiManualBase.contratoFirmado,
+    update: updateContratoFirmadoManualEmetrixPonderacion,
+  },
+  {
+    codigo: 'KR1.4',
+    label: 'Alta ante el IMSS',
+    labelNumerador: 'Altas antes del ingreso',
+    labelDenominador: 'Nuevos ingresos del mes',
+    entrada: (c) => c.kpiManualBase.imss,
+    update: updateImssManualEmetrixPonderacion,
+  },
+  {
+    codigo: 'KR3.1',
+    label: 'Módulos publicados',
+    labelNumerador: 'Publicados',
+    labelDenominador: 'Programados a la fecha',
+    entrada: (c) => c.kpiManualBase.modulosPublicados,
+    update: updateModulosPublicadosManualEmetrixPonderacion,
+  },
 ];
 
 /**
@@ -37,10 +65,8 @@ export default function EmetrixCapturaRapida({
 }) {
   const [error, setError] = useState<string | null>(null);
 
-  function handleManualBlur(update: ColumnaManual['update'], marcaId: string, valorNuevo: string) {
-    const valor = valorNuevo.trim() === '' ? null : parseFloat(valorNuevo);
-    if (valor !== null && (!Number.isFinite(valor) || valor < 0 || valor > 100)) return;
-    update(marcaId, periodo, valor)
+  function handleManualGuardar(update: ColumnaManual['update'], marcaId: string, numerador: number | null, denominador: number | null) {
+    update(marcaId, periodo, numerador, denominador)
       .then(onCambio)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo guardar.'));
   }
@@ -66,31 +92,29 @@ export default function EmetrixCapturaRapida({
             <tr>
               <th style={{ textAlign: 'left' }}>Cuenta</th>
               {COLUMNAS_MANUAL.map((col) => (
-                <th key={col.codigo}>{col.label}</th>
+                <th key={col.codigo} className="emetrix-captura-rapida-col">
+                  {col.label}
+                </th>
               ))}
               <th>Headcount (no es por periodo)</th>
             </tr>
           </thead>
           <tbody>
             {cuentas.map((c) => {
-              const planos = indicadoresPlanos(c.raiz);
               return (
                 <tr key={c.marcaId}>
                   <td style={{ textAlign: 'left', fontWeight: 600 }}>{c.marcaNombre}</td>
                   {COLUMNAS_MANUAL.map((col) => {
-                    const indicador = planos[col.codigo]?.indicador;
+                    const entrada = col.entrada(c);
                     return (
                       <td key={col.codigo}>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step={0.1}
-                          defaultValue={indicador?.valor ?? ''}
-                          placeholder="Sin medir"
-                          key={`${c.marcaId}-${col.codigo}-${periodo}-${indicador?.valor ?? 'vacio'}`}
-                          onBlur={(e) => handleManualBlur(col.update, c.marcaId, e.target.value)}
-                          style={{ width: 70 }}
+                        <EmetrixKpiBaseInputs
+                          key={`${c.marcaId}-${col.codigo}-${periodo}-${entrada.numerador ?? 'v'}-${entrada.denominador ?? 'v'}`}
+                          entrada={entrada}
+                          labelNumerador={col.labelNumerador}
+                          labelDenominador={col.labelDenominador}
+                          anchoInput={80}
+                          onGuardar={(numerador, denominador) => handleManualGuardar(col.update, c.marcaId, numerador, denominador)}
                         />
                       </td>
                     );
