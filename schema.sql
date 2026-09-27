@@ -631,11 +631,30 @@ alter table emetrix_ponderacion_config add column if not exists headcount_manual
 -- salen de ningún sondeo de Emetrix): % de promotores con contrato firmado
 -- (KR1, dueño Legal), % dados de alta ante el IMSS (KR1, dueño Nómina) y % de
 -- módulos de capacitación publicados en Emetrix (KR3, dueño Capacitación).
--- null = pendiente de captura — el KPI queda fuera del cálculo de su KR (no
--- cuenta como 0%), nunca "sin headcount capturado" como el de arriba.
+-- CÓDIGO MUERTO desde 2026-09-27: estas 3 columnas ya no se leen ni se
+-- escriben — un indicador es de una cuenta y UN periodo, igual que los de
+-- sondeo, así que se movieron a emetrix_ponderacion_kpi_manual (una fila por
+-- marca+periodo) más abajo. No se borraron estas columnas porque no hay
+-- garantía de que alguna cuenta ya no soportada por la app las use, pero al
+-- momento del cambio ninguna cuenta tenía capturado ningún valor aquí (no
+-- hubo nada que migrar).
 alter table emetrix_ponderacion_config add column if not exists contrato_firmado_manual numeric;
 alter table emetrix_ponderacion_config add column if not exists imss_manual numeric;
 alter table emetrix_ponderacion_config add column if not exists modulos_publicados_manual numeric;
+
+-- Reemplaza a los 3 campos "_manual" de emetrix_ponderacion_config (arriba,
+-- ahora código muerto): un indicador de captura manual es de una cuenta y UN
+-- periodo, igual que los de sondeo — se captura mes con mes, no una vez para
+-- siempre. Una fila por (marca, periodo); si no existe, los 3 KPI de ese mes
+-- quedan "sin-medir" (nunca 0%) — ver fetchKpiManual/construirArbolOkr.
+create table if not exists emetrix_ponderacion_kpi_manual (
+  marca_id uuid not null references marcas(id) on delete cascade,
+  periodo text not null check (periodo ~ '^\d{4}-(0[1-9]|1[0-2])$'),
+  contrato_firmado_manual numeric,
+  imss_manual numeric,
+  modulos_publicados_manual numeric,
+  primary key (marca_id, periodo)
+);
 
 -- Detalle por promotor de una carga específica: si cumplió y, si no, qué le
 -- faltó (texto legible, ej. "Faltan: Botas, Faja" o "6/10"). Vive aparte de

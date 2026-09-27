@@ -645,8 +645,10 @@ export type EmetrixOkrNodo = {
 export type EmetrixOkrResultadoCuenta = {
   marcaId: string;
   marcaNombre: string;
-  /** Periodo ("YYYY-MM") de las cargas usadas para los KPI de sondeo (Mesa de Control, Materiales, Marca). */
+  /** Periodo ("YYYY-MM") de las cargas usadas para los KPI de sondeo (Mesa de Control, Materiales, Marca) y para los KPI manuales (KR1.3/KR1.4/KR3.1) — todos periodizados por igual. */
   periodo: string;
+  /** Headcount capturado para la cuenta (uno solo, aplica a los 3 sondeos) — NO es por periodo. null si no se ha capturado. */
+  headcountManual: number | null;
   umbralRespuesta: number;
   enAlerta: boolean;
   /** Fecha de la carga más reciente de cada sondeo EN ESTE PERIODO (o null si no tiene ninguna) — para el badge "Cargado" de cada tarjeta. */

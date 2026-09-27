@@ -467,9 +467,6 @@ export function fetchConfigEmetrixPonderacion(marcaId: string): Promise<{
   incluyeCelular: boolean | null;
   umbralRespuesta: number;
   headcountManual: number | null;
-  contratoFirmadoManual: number | null;
-  imssManual: number | null;
-  modulosPublicadosManual: number | null;
 }> {
   return fetch(`/api/emetrix-ponderacion/config?marcaId=${marcaId}`).then((r) => json(r));
 }
@@ -490,30 +487,38 @@ export function updateHeadcountManualEmetrixPonderacion(marcaId: string, headcou
   }).then((r) => json(r));
 }
 
-/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial — % capturado a mano. null borra la captura (vuelve a pendiente). */
-export function updateContratoFirmadoManualEmetrixPonderacion(marcaId: string, valor: number | null): Promise<{ ok: true }> {
-  return fetch('/api/emetrix-ponderacion/config', {
+/** Los 3 KPI de captura manual del OKR oficial DE UN PERIODO — un indicador es de una cuenta y un mes, igual que los de sondeo. */
+export function fetchKpiManualEmetrixPonderacion(
+  marcaId: string,
+  periodo: string
+): Promise<{ contratoFirmadoManual: number | null; imssManual: number | null; modulosPublicadosManual: number | null }> {
+  return fetch(`/api/emetrix-ponderacion/kpi-manual?marcaId=${marcaId}&periodo=${periodo}`).then((r) => json(r));
+}
+
+/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial, DE UN PERIODO — % capturado a mano. null borra la captura de ese mes (vuelve a pendiente). */
+export function updateContratoFirmadoManualEmetrixPonderacion(marcaId: string, periodo: string, valor: number | null): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/kpi-manual', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ marcaId, contratoFirmadoManual: valor }),
+    body: JSON.stringify({ marcaId, periodo, contratoFirmadoManual: valor }),
   }).then((r) => json(r));
 }
 
-/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial — % capturado a mano. null borra la captura (vuelve a pendiente). */
-export function updateImssManualEmetrixPonderacion(marcaId: string, valor: number | null): Promise<{ ok: true }> {
-  return fetch('/api/emetrix-ponderacion/config', {
+/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial, DE UN PERIODO — % capturado a mano. null borra la captura de ese mes (vuelve a pendiente). */
+export function updateImssManualEmetrixPonderacion(marcaId: string, periodo: string, valor: number | null): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/kpi-manual', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ marcaId, imssManual: valor }),
+    body: JSON.stringify({ marcaId, periodo, imssManual: valor }),
   }).then((r) => json(r));
 }
 
-/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial — % capturado a mano. null borra la captura (vuelve a pendiente). */
-export function updateModulosPublicadosManualEmetrixPonderacion(marcaId: string, valor: number | null): Promise<{ ok: true }> {
-  return fetch('/api/emetrix-ponderacion/config', {
+/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial, DE UN PERIODO — % capturado a mano. null borra la captura de ese mes (vuelve a pendiente). */
+export function updateModulosPublicadosManualEmetrixPonderacion(marcaId: string, periodo: string, valor: number | null): Promise<{ ok: true }> {
+  return fetch('/api/emetrix-ponderacion/kpi-manual', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ marcaId, modulosPublicadosManual: valor }),
+    body: JSON.stringify({ marcaId, periodo, modulosPublicadosManual: valor }),
   }).then((r) => json(r));
 }
 

@@ -19,6 +19,9 @@ import {
   updateUmbralRespuestaEmetrixPonderacion,
 } from '@/lib/api-client';
 import EmetrixPonderacionZona from './EmetrixPonderacionZona';
+import EmetrixComoVaCadaCuenta from './EmetrixComoVaCadaCuenta';
+import EmetrixPendientesIndicador from './EmetrixPendientesIndicador';
+import EmetrixCapturaRapida from './EmetrixCapturaRapida';
 
 const TODAS = '__todas__';
 
@@ -34,8 +37,8 @@ const ESTADO_LABEL: Record<EmetrixEstado, string> = {
   no_contesto: '— No contestó',
 };
 
-// Los únicos KPI de captura manual del OKR (no salen de ningún sondeo) — sus códigos vienen de lib/emetrix-ponderacion.ts.
-const MANUAL_KPI_UPDATERS: Record<string, (marcaId: string, valor: number | null) => Promise<{ ok: true }>> = {
+// Los únicos KPI de captura manual del OKR (no salen de ningún sondeo) — sus códigos vienen de lib/emetrix-ponderacion.ts. Son DE UN PERIODO, igual que los de sondeo.
+const MANUAL_KPI_UPDATERS: Record<string, (marcaId: string, periodo: string, valor: number | null) => Promise<{ ok: true }>> = {
   'KR1.3': updateContratoFirmadoManualEmetrixPonderacion,
   'KR1.4': updateImssManualEmetrixPonderacion,
   'KR3.1': updateModulosPublicadosManualEmetrixPonderacion,
@@ -201,9 +204,14 @@ export default function EmetrixPonderacionAdmin() {
     if (!updater) return;
     const valor = valorNuevo.trim() === '' ? null : parseFloat(valorNuevo);
     if (valor !== null && (!Number.isFinite(valor) || valor < 0 || valor > 100)) return;
-    updater(marcaId, valor)
+    updater(marcaId, periodo, valor)
       .then(() => reloadCuenta(marcaId, periodo))
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo actualizar el KPI.'));
+  }
+
+  function handleCapturaRapidaCambio() {
+    if (marcaId !== TODAS) reloadCuenta(marcaId, periodo);
+    reloadOkrTodas(periodo);
   }
 
   function handleHistorialFiltro(id: string) {
@@ -226,8 +234,9 @@ export default function EmetrixPonderacionAdmin() {
         Espejo del OKR oficial "Ciclo de vida del promotor" (el archivo de Carlos conectado a EvolveOS): mismos KR,
         mismos KPI, mismos pesos — OKR = KR1×30% + KR2×40% + KR3×30%. Los KPI de sondeo (Mesa de Control, Materiales,
         Tu Marca) se alimentan de los Excel que subes abajo; los KPI de captura manual (Contrato firmado, Alta ante
-        el IMSS, Módulos publicados) se capturan directo en la tabla y quedan "Pendiente" hasta entonces — un KPI
-        pendiente nunca cuenta como 0%, el % de su KR se calcula solo con los KPI que sí tienen dato.
+        el IMSS, Módulos publicados) se capturan directo en la tabla, MES CON MES igual que los de sondeo, y quedan
+        "Sin medir" hasta entonces — un indicador sin medir nunca cuenta como 0%, el % de su KR se calcula solo con
+        los que sí tienen dato.
       </p>
 
       {error && <p className="login-error">{error}</p>}
@@ -256,46 +265,41 @@ export default function EmetrixPonderacionAdmin() {
       </div>
       <p className="roster-hint" style={{ marginTop: -6, marginBottom: 14 }}>
         Toda la pantalla y la descarga muestran solo el periodo seleccionado — nunca se mezclan cargas de meses
-        distintos en un mismo cálculo. Los 3 KPI de captura manual (Contrato firmado, IMSS, Módulos publicados) son un
-        dato vigente de la cuenta, igual en cualquier periodo.
+        distintos en un mismo cálculo. Los 3 KPI de captura manual (Contrato firmado, IMSS, Módulos publicados)
+        también son de este periodo: hay que capturarlos cada mes, igual que se sube cada sondeo (el headcount de la
+        cuenta es la única excepción — ese sí aplica igual sin importar el mes).
       </p>
 
       {!periodo ? null : marcaId === TODAS ? (
-        <div className="roster">
-          <p className="section-title" style={{ margin: '0 0 14px' }}>
-            Resumen de todas las cuentas
-          </p>
-          {okrTodas.length === 0 ? (
-            <p className="resumen-status">Ninguna cuenta tiene cargas todavía.</p>
-          ) : (
-            <table className="roster-table">
-              <thead>
-                <tr>
-                  <th>Cuenta</th>
-                  <th>KR1 · Kit administrativo</th>
-                  <th>KR2 · Materiales</th>
-                  <th>KR3 · Capacitación</th>
-                  <th>OKR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {okrTodas.map((c) => (
-                  <tr key={c.marcaId}>
-                    <td style={{ textAlign: 'left' }}>{c.marcaNombre}</td>
-                    {['KR1', 'KR2', 'KR3'].map((codigo) => {
-                      const k = c.raiz.hijos.find((x) => x.codigo === codigo);
-                      return <td key={codigo}>{k && k.indicador.estado === 'medido' ? `${k.indicador.valor}%` : 'Sin datos'}</td>;
-                    })}
-                    <td style={{ fontWeight: 700 }}>
-                      {c.raiz.indicador.estado === 'medido' ? `${c.raiz.indicador.valor}%` : 'Sin datos'}
-                      {c.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 6 }}>⚠ alerta</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <>
+          <div className="roster">
+            <p className="section-title" style={{ margin: '0 0 4px' }}>
+              Cómo va cada cuenta · {formatPeriodoLabel(periodo)}
+            </p>
+            <p className="roster-hint" style={{ marginTop: 0, marginBottom: 14 }}>
+              Verde ≥90%, amarillo ≥70%, rojo abajo de 70% — "Sin medir" (gris, borde punteado) es un hueco, no un
+              incumplimiento.
+            </p>
+            <EmetrixComoVaCadaCuenta cuentas={okrTodas} />
+          </div>
+
+          <div className="roster">
+            <p className="section-title" style={{ margin: '0 0 14px' }}>
+              Pendientes de indicador
+            </p>
+            <EmetrixPendientesIndicador cuentas={okrTodas} />
+          </div>
+
+          <div className="roster">
+            <p className="section-title" style={{ margin: '0 0 4px' }}>
+              Captura rápida del mes · {formatPeriodoLabel(periodo)}
+            </p>
+            <p className="roster-hint" style={{ marginTop: 0, marginBottom: 14 }}>
+              Contrato firmado, Alta IMSS y Módulos publicados son de este periodo; el headcount no.
+            </p>
+            <EmetrixCapturaRapida cuentas={okrTodas} periodo={periodo} onCambio={handleCapturaRapidaCambio} />
+          </div>
+        </>
       ) : (
         <>
           <div className="roster emetrix-headcount-cuenta">

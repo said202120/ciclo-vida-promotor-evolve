@@ -351,42 +351,28 @@ export async function guardarCarga(data: {
 
 /**
  * Config de la cuenta: si ya se sabe que incluye celular (Materiales), su
- * umbral de % de respuesta (80% si nunca se ha tocado), su headcount (uno
+ * umbral de % de respuesta (80% si nunca se ha tocado), y su headcount (uno
  * solo, aplica por default a los 3 KR — null si la cuenta no tiene headcount
- * capturado), y los 3 KPI de captura manual del OKR oficial (Contrato
- * firmado, Alta ante el IMSS, Módulos publicados en Emetrix — null =
- * pendiente de captura). NO están periodizados: son un dato vigente de la
- * cuenta, igual en cualquier mes que se consulte.
+ * capturado). Todo esto NO está periodizado: es un dato vigente de la
+ * cuenta, igual en cualquier mes que se consulte. Los 3 KPI de captura manual
+ * del OKR oficial (Contrato firmado, Alta ante el IMSS, Módulos publicados)
+ * SÍ están periodizados — ver `fetchKpiManual`.
  */
 export async function fetchConfig(marcaId: string): Promise<{
   incluyeCelular: boolean | null;
   umbralRespuesta: number;
   headcountManual: number | null;
-  contratoFirmadoManual: number | null;
-  imssManual: number | null;
-  modulosPublicadosManual: number | null;
 }> {
   const { rows } = await sql.query(
-    `select incluye_celular, umbral_respuesta, headcount_manual, contrato_firmado_manual, imss_manual, modulos_publicados_manual
+    `select incluye_celular, umbral_respuesta, headcount_manual
      from emetrix_ponderacion_config where marca_id = $1`,
     [marcaId]
   );
-  if (!rows[0])
-    return {
-      incluyeCelular: null,
-      umbralRespuesta: UMBRAL_RESPUESTA_DEFAULT,
-      headcountManual: null,
-      contratoFirmadoManual: null,
-      imssManual: null,
-      modulosPublicadosManual: null,
-    };
+  if (!rows[0]) return { incluyeCelular: null, umbralRespuesta: UMBRAL_RESPUESTA_DEFAULT, headcountManual: null };
   return {
     incluyeCelular: rows[0].incluye_celular as boolean | null,
     umbralRespuesta: rows[0].umbral_respuesta !== null ? Number(rows[0].umbral_respuesta) : UMBRAL_RESPUESTA_DEFAULT,
     headcountManual: rows[0].headcount_manual !== null ? Number(rows[0].headcount_manual) : null,
-    contratoFirmadoManual: rows[0].contrato_firmado_manual !== null ? Number(rows[0].contrato_firmado_manual) : null,
-    imssManual: rows[0].imss_manual !== null ? Number(rows[0].imss_manual) : null,
-    modulosPublicadosManual: rows[0].modulos_publicados_manual !== null ? Number(rows[0].modulos_publicados_manual) : null,
   };
 }
 
@@ -419,33 +405,56 @@ export async function updateHeadcountManual(marcaId: string, headcountManual: nu
   );
 }
 
-/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial — % capturado a mano. null = pendiente de captura. */
-export async function updateContratoFirmadoManual(marcaId: string, valor: number | null): Promise<void> {
+/**
+ * Los 3 KPI de captura manual del OKR oficial (Contrato firmado, Alta ante
+ * el IMSS, Módulos publicados en Emetrix) DE UN PERIODO — un indicador es de
+ * una cuenta y un mes, igual que los de sondeo. null = pendiente de captura
+ * ese mes (no cuenta como 0%, ver `construirArbolOkr`).
+ */
+export async function fetchKpiManual(
+  marcaId: string,
+  periodo: string
+): Promise<{ contratoFirmadoManual: number | null; imssManual: number | null; modulosPublicadosManual: number | null }> {
+  const { rows } = await sql.query(
+    `select contrato_firmado_manual, imss_manual, modulos_publicados_manual
+     from emetrix_ponderacion_kpi_manual where marca_id = $1 and periodo = $2`,
+    [marcaId, periodo]
+  );
+  if (!rows[0]) return { contratoFirmadoManual: null, imssManual: null, modulosPublicadosManual: null };
+  return {
+    contratoFirmadoManual: rows[0].contrato_firmado_manual !== null ? Number(rows[0].contrato_firmado_manual) : null,
+    imssManual: rows[0].imss_manual !== null ? Number(rows[0].imss_manual) : null,
+    modulosPublicadosManual: rows[0].modulos_publicados_manual !== null ? Number(rows[0].modulos_publicados_manual) : null,
+  };
+}
+
+/** KPI "Contrato firmado" (KR1, dueño Legal) del OKR oficial, DE UN PERIODO — % capturado a mano. null = pendiente de captura ese mes. */
+export async function updateContratoFirmadoManual(marcaId: string, periodo: string, valor: number | null): Promise<void> {
   await sql.query(
-    `insert into emetrix_ponderacion_config (marca_id, contrato_firmado_manual)
-     values ($1, $2)
-     on conflict (marca_id) do update set contrato_firmado_manual = excluded.contrato_firmado_manual`,
-    [marcaId, valor]
+    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, contrato_firmado_manual)
+     values ($1, $2, $3)
+     on conflict (marca_id, periodo) do update set contrato_firmado_manual = excluded.contrato_firmado_manual`,
+    [marcaId, periodo, valor]
   );
 }
 
-/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial — % capturado a mano. null = pendiente de captura. */
-export async function updateImssManual(marcaId: string, valor: number | null): Promise<void> {
+/** KPI "Alta ante el IMSS" (KR1, dueño Nómina) del OKR oficial, DE UN PERIODO — % capturado a mano. null = pendiente de captura ese mes. */
+export async function updateImssManual(marcaId: string, periodo: string, valor: number | null): Promise<void> {
   await sql.query(
-    `insert into emetrix_ponderacion_config (marca_id, imss_manual)
-     values ($1, $2)
-     on conflict (marca_id) do update set imss_manual = excluded.imss_manual`,
-    [marcaId, valor]
+    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, imss_manual)
+     values ($1, $2, $3)
+     on conflict (marca_id, periodo) do update set imss_manual = excluded.imss_manual`,
+    [marcaId, periodo, valor]
   );
 }
 
-/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial — % capturado a mano. null = pendiente de captura. */
-export async function updateModulosPublicadosManual(marcaId: string, valor: number | null): Promise<void> {
+/** KPI "Módulos publicados en Emetrix" (KR3, dueño Capacitación) del OKR oficial, DE UN PERIODO — % capturado a mano. null = pendiente de captura ese mes. */
+export async function updateModulosPublicadosManual(marcaId: string, periodo: string, valor: number | null): Promise<void> {
   await sql.query(
-    `insert into emetrix_ponderacion_config (marca_id, modulos_publicados_manual)
-     values ($1, $2)
-     on conflict (marca_id) do update set modulos_publicados_manual = excluded.modulos_publicados_manual`,
-    [marcaId, valor]
+    `insert into emetrix_ponderacion_kpi_manual (marca_id, periodo, modulos_publicados_manual)
+     values ($1, $2, $3)
+     on conflict (marca_id, periodo) do update set modulos_publicados_manual = excluded.modulos_publicados_manual`,
+    [marcaId, periodo, valor]
   );
 }
 
@@ -609,13 +618,14 @@ export async function fetchHistorial(periodo: string, marcaId?: string): Promise
  * Árbol OKR → KR → KPI de una cuenta para UN periodo, espejo exacto del OKR
  * oficial "Ciclo de vida del promotor". Solo obtiene los datos (la carga más
  * reciente de Materiales/Marca/Mesa de Control EN ESE PERIODO, y los 3 KPI
- * de captura manual — que no están periodizados) y delega todo el cálculo a
+ * de captura manual DE ESE MISMO PERIODO) y delega todo el cálculo a
  * `construirArbolOkr` (lib/emetrix-ponderacion-calc.ts).
  */
 export async function fetchResultadoOkrCuenta(marcaId: string, periodo: string): Promise<EmetrixOkrResultadoCuenta> {
-  const [resultado, mesaControlDetalle, config] = await Promise.all([
+  const [resultado, mesaControlDetalle, kpiManual, config] = await Promise.all([
     fetchResultadoCuenta(marcaId, periodo),
     fetchDetalleCarga(marcaId, 'mesa_control', periodo),
+    fetchKpiManual(marcaId, periodo),
     fetchConfig(marcaId),
   ]);
 
@@ -632,15 +642,16 @@ export async function fetchResultadoOkrCuenta(marcaId: string, periodo: string):
         ? { cumplieron: marcaKr.cumplieron, respondieron: marcaKr.respondieron, porcentaje: marcaKr.porcentaje }
         : null,
     mesaControlPreguntas: mesaControlDetalle?.preguntas ?? null,
-    contratoFirmadoManual: config.contratoFirmadoManual,
-    imssManual: config.imssManual,
-    modulosPublicadosManual: config.modulosPublicadosManual,
+    contratoFirmadoManual: kpiManual.contratoFirmadoManual,
+    imssManual: kpiManual.imssManual,
+    modulosPublicadosManual: kpiManual.modulosPublicadosManual,
   });
 
   return {
     marcaId,
     marcaNombre: resultado.marcaNombre,
     periodo,
+    headcountManual: config.headcountManual,
     umbralRespuesta: resultado.umbralRespuesta,
     enAlerta: resultado.enAlerta,
     sondeosCargadoEn: {
@@ -652,15 +663,13 @@ export async function fetchResultadoOkrCuenta(marcaId: string, periodo: string):
   };
 }
 
-/** El árbol OKR, EN UN PERIODO, de cada cuenta que ya tiene al menos una carga EN ESE PERIODO. Las que no tienen ninguna en ese mes quedan fuera (aunque tengan cargas de otros meses). */
+/**
+ * El árbol OKR, EN UN PERIODO, de TODAS las cuentas registradas — incluye
+ * las que todavía no tienen ninguna carga ese mes (quedan "sin-medir" en
+ * todo el árbol), para poder verlas en "Cómo va cada cuenta" y
+ * "Pendientes de indicador" (sección 10 de la ficha técnica).
+ */
 export async function fetchResultadoOkrTodasCuentas(periodo: string): Promise<EmetrixOkrResultadoCuenta[]> {
-  const { rows } = await sql.query(
-    `select distinct m.id, m.nombre
-     from marcas m
-     join emetrix_ponderacion_cargas c on c.marca_id = m.id
-     where c.periodo = $1
-     order by m.nombre`,
-    [periodo]
-  );
+  const { rows } = await sql.query('select id, nombre from marcas order by nombre');
   return Promise.all(rows.map((r) => fetchResultadoOkrCuenta(r.id as string, periodo)));
 }

@@ -6,12 +6,20 @@ con Evolve OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de
 datos) + `lib/emetrix-ponderacion-calc.ts` (toda la matemática, funciones
 puras — ver sección 9).
 
-**2026-09-27** — cada carga ahora pertenece a un periodo ("mes") y toda la
-pantalla/descarga se filtra a un solo periodo a la vez (sección 2-bis); el
-árbol OKR expone un "indicador" explícito por nodo (`{estado, valor, base,
-motivo}`, sección 4) en vez de campos sueltos; y toda la matemática se movió
-a un módulo puro con sus propias pruebas (sección 9). Ninguna regla de
-cumple/no cumple ni ningún peso cambió.
+**2026-09-27 (vistas de indicadores)** — 3 vistas nuevas sobre la guía de
+indicadores de Operaciones: "Cómo va cada cuenta", "Pendientes de
+indicador" y "Captura rápida del mes" (sección 10). De paso se corrigió un
+error del cambio anterior: los 3 KPI de captura manual (Contrato firmado,
+Alta ante el IMSS, Módulos publicados) también son POR PERIODO — se movieron
+de `emetrix_ponderacion_config` a `emetrix_ponderacion_kpi_manual` (una fila
+por marca+periodo). Ninguna regla de cumple/no cumple ni ningún peso cambió.
+
+**2026-09-27 (periodo e indicador)** — cada carga ahora pertenece a un
+periodo ("mes") y toda la pantalla/descarga se filtra a un solo periodo a la
+vez (sección 1-bis); el árbol OKR expone un "indicador" explícito por nodo
+(`{estado, valor, base, motivo}`, sección 4-bis) en vez de campos sueltos; y
+toda la matemática se movió a un módulo puro con sus propias pruebas
+(sección 9). Ninguna regla de cumple/no cumple ni ningún peso cambió.
 
 **2026-09-27 (antes)** — la pantalla se rehízo para ser un espejo exacto
 (mismos nombres, mismos pesos) del OKR oficial de Carlos que se conecta a
@@ -67,22 +75,35 @@ sondeo (default: el mes actual, `periodoActual()` en
 
 Un selector de periodo arriba de `/emetrix-ponderacion`
 (`components/EmetrixPonderacionAdmin.tsx`) controla TODA la pantalla: el
-árbol OKR de la cuenta, el resumen "Todas las cuentas", la vista cruzada, el
-historial de cargas y el botón "Descargar para OKR" — todos filtran por el
-periodo seleccionado. Ninguna consulta mezcla cargas de dos periodos
-distintos en un mismo cálculo (`fetchResultadoCuenta`, `fetchDetalleCarga`,
-`fetchHistorial`, `fetchVistaCruzada` y `fetchResultadoOkrCuenta` en
-`lib/emetrix-ponderacion.ts` reciben `periodo` y lo usan en el `where` de
-cada consulta). "Todas las cuentas" solo lista cuentas con al menos una
-carga EN ESE periodo — una cuenta con cargas solo de otro mes no aparece.
+árbol OKR de la cuenta, las 3 vistas de "todas las cuentas" (sección 10), la
+vista cruzada, el historial de cargas y el botón "Descargar para OKR" —
+todos filtran por el periodo seleccionado. Ninguna consulta mezcla cargas de
+dos periodos distintos en un mismo cálculo (`fetchResultadoCuenta`,
+`fetchDetalleCarga`, `fetchHistorial`, `fetchVistaCruzada`,
+`fetchResultadoOkrCuenta` y `fetchKpiManual` en `lib/emetrix-ponderacion.ts`
+reciben `periodo` y lo usan en el `where` de cada consulta).
+`fetchResultadoOkrTodasCuentas` trae TODAS las marcas registradas (no solo
+las que ya tienen carga ese mes) — las que no tienen nada quedan "sin-medir"
+en todo el árbol, para poder verlas en las vistas de pendientes (sección 10)
+en vez de desaparecer de la lista.
 
 Los 3 KPI de captura manual del OKR (Contrato firmado, Alta ante el IMSS,
-Módulos publicados en Emetrix — sección 4) **no están periodizados**: viven
-en `emetrix_ponderacion_config` (una fila por cuenta, no por mes) y muestran
-el mismo valor sin importar qué periodo esté seleccionado — son un dato
-vigente de la cuenta, no una carga de un sondeo con fecha. Si más adelante se
-necesita historizarlos por mes, hay que rediseñar esa tabla; por ahora es una
-simplificación deliberada (no la pidió el encargo original).
+Módulos publicados en Emetrix — sección 4) **SÍ están periodizados**, igual
+que los 3 sondeos: un indicador es de una cuenta y UN mes, así que se
+capturan mes con mes. Viven en `emetrix_ponderacion_kpi_manual` (una fila
+por marca+periodo, `fetchKpiManual`/`updateContratoFirmadoManual`/
+`updateImssManual`/`updateModulosPublicadosManual` en
+`lib/emetrix-ponderacion.ts`). El **headcount** de la cuenta
+(`emetrix_ponderacion_config.headcount_manual`) es la única excepción: NO es
+por periodo, aplica igual sin importar qué mes esté seleccionado.
+
+**Corrección 2026-09-27:** la primera versión de la periodización (más
+arriba en este changelog) dejó los 3 KPI manuales sin periodizar por error,
+guardados en `emetrix_ponderacion_config` (una fila por cuenta). Al momento
+de corregirlo ninguna cuenta tenía capturado ningún valor ahí, así que no
+hubo nada que migrar — esas 3 columnas quedan como código muerto histórico
+en `emetrix_ponderacion_config` (mismo tratamiento que
+`emetrix_ponderacion_pesos`, sección 4), sin borrarse de la base.
 
 `GET /api/emetrix-ponderacion/periodos` regresa `{ periodos, actual }`:
 todos los periodos con al menos una carga guardada (de cualquier cuenta) más
@@ -156,12 +177,13 @@ OKR Ciclo de vida del promotor = KR1×30% + KR2×40% + KR3×30%
 
 Los 3 KPI de captura manual (Contrato firmado, Alta ante el IMSS, Módulos
 publicados en Emetrix) no salen de ningún sondeo de Emetrix — se capturan
-directo en la tabla de la pantalla y se guardan en
-`emetrix_ponderacion_config` (`contrato_firmado_manual`, `imss_manual`,
-`modulos_publicados_manual` — cada uno 0-100 o `null` si está pendiente), vía
-`PATCH /api/emetrix-ponderacion/config`
+directo en la tabla de la pantalla (o en "Captura rápida del mes", sección
+10) y se guardan en `emetrix_ponderacion_kpi_manual` (una fila por
+marca+periodo: `contrato_firmado_manual`, `imss_manual`,
+`modulos_publicados_manual` — cada uno 0-100 o `null` si está pendiente ESE
+MES), vía `PATCH /api/emetrix-ponderacion/kpi-manual`
 (`updateContratoFirmadoManual`/`updateImssManual`/`updateModulosPublicadosManual`
-en `lib/emetrix-ponderacion.ts`).
+en `lib/emetrix-ponderacion.ts`, las 3 reciben `periodo`).
 
 **Ningún KPI pendiente cuenta como 0%.** El % de un KR es el promedio
 ponderado SOLO de los KPI que sí tienen dato, redistribuyendo el peso entre
@@ -241,8 +263,10 @@ Los campos viejos `porcentaje`/`pendienteTexto`/`calculadoNota` de
   árbol OKR → KR → KPI (columnas Peso, % Obtenido, Fuente), con los 3 KPI de
   captura manual editables directo ahí. Reemplaza a las tablas "Resultado por
   cuenta" y "Resumen para OKR" del modelo anterior.
-- El resumen "Todas las cuentas" también se rehízo sobre este árbol: columnas
-  KR1/KR2/KR3/OKR en vez de Mesa de Control/Materiales/Marca/Total.
+- Con "Todas las cuentas" seleccionado, en vez de un resumen simple se
+  muestran las 3 vistas de la guía de indicadores de Operaciones: "Cómo va
+  cada cuenta", "Pendientes de indicador" y "Captura rápida del mes" — ver
+  sección 10.
 - Botón "Descargar para OKR" (junto al selector de cuenta, visible siempre):
   ver sección 7.
 
@@ -420,6 +444,10 @@ existentes no cambien su import):
   ya obtenidos (no toca la base).
 - `esPeriodoValido` / `periodoActual` / `formatPeriodoLabel` — periodo
   (sección 1-bis).
+- `indicadoresPlanos` / `pillEstado` / `calcularPendientes` — las 3 vistas
+  de indicadores (sección 10): aplanar el árbol por código, decidir el color
+  de la pastilla (verde/amarillo/rojo/sin-medir) y calcular qué falta por
+  dato/cuenta/headcount.
 
 ### Pruebas
 
@@ -448,8 +476,71 @@ Una prueba por regla, entre otras:
   promedio ponderado `KR1×30% + KR2×40% + KR3×30%`.
 - **Formato largo y ancho**: un archivo ancho no se toca (no-op), y uno largo
   se pivotea correctamente (incluye selección múltiple con `", "`).
+- **Pastillas**: verde ≥90, amarillo ≥70, rojo abajo de 70, y `sin-medir`
+  siempre gris (nunca rojo) aunque `valor` fuera 0 en otro contexto.
+- **Pendientes**: agrupación por dato/responsable ("Falta Contrato firmado:
+  N cuentas · Legal"), por cuenta ("Zuru: faltan los 3 sondeos") y headcount
+  faltante, con datos sintéticos por nodo.
 
 Esta misma suite es el punto de referencia para futuros cambios: antes de
 tocar `lib/emetrix-ponderacion-calc.ts`, correr `npm test` y no romper
 ninguna de estas pruebas. No crear cuentas ni cargas de prueba en la base de
 producción para verificar una regla — para eso son estas pruebas.
+
+## 10. Vistas de la guía de indicadores de Operaciones
+
+Con "Todas las cuentas" seleccionado en `/emetrix-ponderacion`, en vez del
+resumen simple anterior se muestran 3 vistas — las tres para el periodo
+seleccionado arriba, y las tres con scroll horizontal para verse bien en
+celular (`.emetrix-tabla-scroll` en `app/globals.css`):
+
+### Cómo va cada cuenta
+
+Tabla con un renglón por cuenta (TODAS las marcas registradas, no solo las
+que ya cargaron algo este mes) y una columna por indicador hoja del árbol
+OKR: Carta de acceso, Usuario Emetrix, Contrato, Alta IMSS, Materiales,
+Módulos publicados, Módulo completado, y el OKR al final
+(`components/EmetrixComoVaCadaCuenta.tsx`). Cada celda es una pastilla con el
+número grande y el motivo en chico debajo:
+
+- **Verde** si `indicador.valor >= 90`.
+- **Amarillo** si `indicador.valor >= 70`.
+- **Rojo** si `indicador.valor < 70`.
+- **"Sin medir"**, gris con borde punteado, si `indicador.estado ===
+  'sin-medir'` — nunca se ve como incumplimiento (rojo), es un hueco de
+  datos, no un mal resultado.
+
+Colores calculados por `pillEstado` (`lib/emetrix-ponderacion-calc.ts`,
+pura). No hay cálculo nuevo en esta vista — lee directo el árbol OKR que ya
+trae `fetchResultadoOkrTodasCuentas`.
+
+### Pendientes de indicador
+
+Qué falta para que cada hueco deje de serlo
+(`components/EmetrixPendientesIndicador.tsx`, cálculo en `calcularPendientes`
+— pura), en 3 columnas:
+
+1. **Por dato y responsable**: por cada uno de los 7 indicadores hoja, si
+   alguna cuenta lo tiene `sin-medir`, una línea "Falta {nombre}: N cuentas ·
+   {owner}" con la lista de cuentas debajo.
+2. **Por cuenta**: por cada cuenta con al menos un hueco, una línea
+   "{cuenta}: faltan los 3 sondeos" (o la lista puntual de qué sondeo/KPI
+   manual falta, y "sin headcount" si aplica).
+3. **Headcount faltante**: lista simple de cuentas sin
+   `emetrix_ponderacion_config.headcount_manual` capturado (no es por
+   periodo — afecta el % de respuesta de los 3 sondeos, se muestra aparte de
+   los huecos de indicador puntuales).
+
+Si no hay ningún hueco, la vista muestra "✓ Ningún hueco pendiente este
+periodo." en vez de 3 columnas vacías.
+
+### Captura rápida del mes
+
+Una sola tabla con todas las cuentas y las columnas que se capturan a mano
+(Contrato firmado, Alta IMSS, Módulos publicados — DE ESTE PERIODO — y
+Headcount, que NO es por periodo), para llenarlas de corrido como en Excel
+sin entrar cuenta por cuenta (`components/EmetrixCapturaRapida.tsx`). Cada
+celda guarda al salir del campo (`onBlur`), igual que la tabla del árbol OKR
+de una sola cuenta — mismas funciones `updateContratoFirmadoManual`/
+`updateImssManual`/`updateModulosPublicadosManual`/`updateHeadcountManual`,
+sin una segunda copia de la lógica de guardado.

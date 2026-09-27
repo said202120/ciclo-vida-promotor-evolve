@@ -12,13 +12,16 @@ import {
   calcularMarca,
   calcularMateriales,
   calcularMesaControl,
+  calcularPendientes,
   calcularTotalPonderado,
   construirArbolOkr,
   detectarYConvertirFormatoLargo,
   esPeriodoValido,
   formatPeriodoLabel,
   periodoActual,
+  pillEstado,
 } from './emetrix-ponderacion-calc.ts';
+import type { EmetrixOkrNodo } from './types';
 
 // ---- Periodo ----
 
@@ -336,6 +339,102 @@ test('confirmación: OKR real de Hanes (periodo 2026-09) = 43.58% — incluye Ma
 });
 
 // ---- Compatibilidad: cargas guardadas antes de que existiera "numerador" en preguntas_resumen ----
+
+// ---- Pastillas: verde >=90, amarillo >=70, rojo abajo, gris "sin-medir" ----
+
+test('pillEstado: verde >=90, amarillo >=70, rojo abajo de 70, gris si sin-medir', () => {
+  assert.equal(pillEstado({ estado: 'medido', valor: 100, base: null, motivo: '' }), 'good');
+  assert.equal(pillEstado({ estado: 'medido', valor: 90, base: null, motivo: '' }), 'good');
+  assert.equal(pillEstado({ estado: 'medido', valor: 89.99, base: null, motivo: '' }), 'warn');
+  assert.equal(pillEstado({ estado: 'medido', valor: 70, base: null, motivo: '' }), 'warn');
+  assert.equal(pillEstado({ estado: 'medido', valor: 69.99, base: null, motivo: '' }), 'bad');
+  assert.equal(pillEstado({ estado: 'medido', valor: 0, base: null, motivo: '' }), 'bad', 'un 0% medido es rojo, no gris');
+  assert.equal(pillEstado({ estado: 'sin-medir', valor: null, base: null, motivo: '' }), 'sin-medir');
+});
+
+// ---- Pendientes de indicador ----
+
+function nodoIndicador(codigo: string, nombre: string, owner: string, estado: 'medido' | 'sin-medir', valor: number | null = null): EmetrixOkrNodo {
+  return {
+    nivel: 'kpi',
+    codigo,
+    area: 'Operaciones',
+    nombre,
+    descripcion: '',
+    capa: 'Actividad',
+    owner,
+    peso: 25,
+    indicador: { estado, valor, base: null, motivo: '' },
+    fuente: '',
+    hijos: [],
+  };
+}
+
+function raizConHojas(hojas: EmetrixOkrNodo[]): EmetrixOkrNodo {
+  return {
+    nivel: 'okr',
+    codigo: 'OKR',
+    area: 'Operaciones',
+    nombre: 'Ciclo de vida del promotor',
+    descripcion: '',
+    capa: 'Resultado',
+    owner: 'Operaciones',
+    peso: 100,
+    indicador: { estado: 'sin-medir', valor: null, base: null, motivo: '' },
+    fuente: '',
+    // Las pruebas de calcularPendientes solo leen por código vía aplanarArbolOkr, así que basta con anidar las 7 hojas directo bajo la raíz (no hace falta el KR intermedio real).
+    hijos: hojas,
+  };
+}
+
+const HOJAS_COMPLETAS = () => [
+  nodoIndicador('KR1.1', 'Carta de acceso y credencial', 'Mesa de Control', 'medido', 100),
+  nodoIndicador('KR1.2', 'Usuario en Emetrix', 'Mesa de Control', 'medido', 100),
+  nodoIndicador('KR1.3', 'Contrato firmado', 'Legal', 'medido', 100),
+  nodoIndicador('KR1.4', 'Alta ante el IMSS', 'Nómina', 'medido', 100),
+  nodoIndicador('KR2.1', 'Materiales completos', 'Operaciones', 'medido', 100),
+  nodoIndicador('KR3.1', 'Módulos publicados en Emetrix', 'Capacitación', 'medido', 100),
+  nodoIndicador('KR3.2', 'Módulo completado (aproximación)', 'Capacitación', 'medido', 100),
+];
+
+test('calcularPendientes: cuenta con todo medido y headcount no aparece en ninguna lista', () => {
+  const pendientes = calcularPendientes([
+    {
+      marcaId: 'm1',
+      marcaNombre: 'Completa',
+      raiz: raizConHojas(HOJAS_COMPLETAS()),
+      sondeosCargadoEn: { mesa_control: '2026-09-01', materiales: '2026-09-01', marca: '2026-09-01' },
+      headcountManual: 50,
+    },
+  ]);
+  assert.deepEqual(pendientes.porDato, []);
+  assert.deepEqual(pendientes.porCuenta, []);
+  assert.deepEqual(pendientes.headcountFaltante, []);
+});
+
+test('calcularPendientes: agrupa por dato y responsable ("Falta Contrato firmado: N cuentas · Legal")', () => {
+  const hojasSinContrato = HOJAS_COMPLETAS().map((h) => (h.codigo === 'KR1.3' ? nodoIndicador('KR1.3', 'Contrato firmado', 'Legal', 'sin-medir') : h));
+  const pendientes = calcularPendientes([
+    { marcaId: 'm1', marcaNombre: 'Cuenta A', raiz: raizConHojas(hojasSinContrato), sondeosCargadoEn: { mesa_control: 'x', materiales: 'x', marca: 'x' }, headcountManual: 10 },
+    { marcaId: 'm2', marcaNombre: 'Cuenta B', raiz: raizConHojas(hojasSinContrato), sondeosCargadoEn: { mesa_control: 'x', materiales: 'x', marca: 'x' }, headcountManual: 10 },
+  ]);
+  assert.equal(pendientes.porDato.length, 1);
+  assert.equal(pendientes.porDato[0].codigo, 'KR1.3');
+  assert.equal(pendientes.porDato[0].owner, 'Legal');
+  assert.deepEqual(pendientes.porDato[0].cuentas, ['Cuenta A', 'Cuenta B']);
+});
+
+test('calcularPendientes: agrupa por cuenta ("Zuru: faltan los 3 sondeos")', () => {
+  const sinNada = raizConHojas(HOJAS_COMPLETAS().map((h) => ({ ...h, indicador: { estado: 'sin-medir' as const, valor: null, base: null, motivo: '' } })));
+  const pendientes = calcularPendientes([
+    { marcaId: 'm1', marcaNombre: 'Zuru', raiz: sinNada, sondeosCargadoEn: { mesa_control: null, materiales: null, marca: null }, headcountManual: null },
+  ]);
+  assert.equal(pendientes.porCuenta.length, 1);
+  assert.deepEqual(pendientes.porCuenta[0].sondeosFaltantes, ['Mesa de Control', 'Materiales', 'Marca']);
+  assert.deepEqual(pendientes.porCuenta[0].kpisManualesFaltantes, ['Contrato firmado', 'Alta ante el IMSS', 'Módulos publicados en Emetrix']);
+  assert.equal(pendientes.porCuenta[0].headcountFaltante, true);
+  assert.deepEqual(pendientes.headcountFaltante, ['Zuru']);
+});
 
 test('compatibilidad: preguntas_resumen histórico sin "numerador" no rompe el motivo (se reconstruye desde porcentaje/contestaron)', () => {
   const raiz = construirArbolOkr({

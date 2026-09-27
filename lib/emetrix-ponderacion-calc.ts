@@ -19,7 +19,7 @@
 // de "sin-medir".
 
 import { parseFlexibleDate } from './import-shared.ts';
-import type { EmetrixDiagnosticoArchivo, EmetrixFilaDetalle, EmetrixIndicador, EmetrixOkrNodo, EmetrixPreguntaResumen } from './types';
+import type { EmetrixDiagnosticoArchivo, EmetrixFilaDetalle, EmetrixIndicador, EmetrixKr, EmetrixOkrNodo, EmetrixPreguntaResumen } from './types';
 
 // ---- Periodo ----
 
@@ -641,8 +641,9 @@ export function calcularTotalPonderado(krs: ResultadoKrPeso[]): number | null {
 // Espejo exacto (mismos nombres, mismos pesos) del archivo de Carlos que se
 // conecta a EvolveOS: OKR = KR1×30% + KR2×40% + KR3×30%. Los KPI de KR1 y KR3
 // que NO salen de un sondeo (Contrato firmado, Alta ante el IMSS, Módulos
-// publicados en Emetrix) son captura manual, y NO están periodizados (dato
-// vigente de la cuenta). Ningún KPI pendiente cuenta como 0%: el % de su KR
+// publicados en Emetrix) son captura manual — un indicador de una cuenta y
+// UN periodo, igual que los de sondeo (se capturan mes con mes, no una vez
+// para siempre). Ningún KPI pendiente cuenta como 0%: el % de su KR
 // se calcula solo con los KPI que sí tienen dato, redistribuyendo el peso
 // entre esos (igual en OKR respecto a sus 3 KR).
 
@@ -739,7 +740,7 @@ function kpiDeMesaControl(
   };
 }
 
-/** KPI de captura manual (no sale de ningún sondeo, no está periodizado — dato vigente de la cuenta). `motivoPendiente` explica qué falta capturar y quién es el dueño. */
+/** KPI de captura manual (no sale de ningún sondeo) — un indicador es de una cuenta y UN periodo, igual que los de sondeo; el valor de este periodo lo trae `valor` (ya resuelto por el llamador). `motivoPendiente` explica qué falta capturar y quién es el dueño. */
 function kpiManual(
   codigo: string,
   nombre: string,
@@ -789,7 +790,7 @@ export type ConstruirArbolOkrInput = {
   marca: EntradaKpiSondeo;
   /** Desglose por pregunta de la carga de Mesa de Control de ESTE periodo. null si no hay carga de Mesa de Control en este periodo. */
   mesaControlPreguntas: EmetrixPreguntaResumen[] | null;
-  /** KPI de captura manual, dato vigente de la cuenta (NO periodizado). null = pendiente de captura. */
+  /** KPI de captura manual DE ESTE PERIODO (una cuenta × un mes, igual que los de sondeo). null = pendiente de captura ese mes. */
   contratoFirmadoManual: number | null;
   imssManual: number | null;
   modulosPublicadosManual: number | null;
@@ -908,4 +909,105 @@ export function construirArbolOkr(input: ConstruirArbolOkrInput): EmetrixOkrNodo
 /** Aplana un árbol OKR → KR → KPI en preorden (el nodo, luego sus hijos), para tablas/Excel. */
 export function aplanarArbolOkr(nodo: EmetrixOkrNodo): EmetrixOkrNodo[] {
   return [nodo, ...nodo.hijos.flatMap(aplanarArbolOkr)];
+}
+
+/** Mapa código → nodo de TODO el árbol (OKR, sus 3 KR, y los 7 KPI hoja), para leer un indicador puntual por código sin recorrer el árbol cada vez (ver vistas "Cómo va cada cuenta"/"Pendientes de indicador"). */
+export function indicadoresPlanos(raiz: EmetrixOkrNodo): Record<string, EmetrixOkrNodo> {
+  const mapa: Record<string, EmetrixOkrNodo> = {};
+  for (const nodo of aplanarArbolOkr(raiz)) mapa[nodo.codigo] = nodo;
+  return mapa;
+}
+
+/** Los 7 KPI hoja del árbol, en el orden en que se muestran en "Cómo va cada cuenta" (guía de indicadores de Operaciones). */
+export const KPI_CODIGOS_HOJA = ['KR1.1', 'KR1.2', 'KR1.3', 'KR1.4', 'KR2.1', 'KR3.1', 'KR3.2'] as const;
+
+/** Los 3 KPI de captura manual (no salen de ningún sondeo). */
+export const KPI_CODIGOS_MANUAL = ['KR1.3', 'KR1.4', 'KR3.1'] as const;
+
+/** Etiqueta de cada sondeo, en el mismo orden que se sube en pantalla. */
+export const KR_LABEL_SONDEO: Record<EmetrixKr, string> = { mesa_control: 'Mesa de Control', materiales: 'Materiales', marca: 'Marca' };
+
+/**
+ * Color de la pastilla de un indicador, según la guía de indicadores de
+ * Operaciones: verde ≥90, amarillo ≥70, rojo abajo de 70 — y `'sin-medir'`
+ * (gris, borde punteado en pantalla) para un hueco, que NUNCA debe leerse
+ * como incumplimiento (rojo).
+ */
+export function pillEstado(indicador: EmetrixIndicador): 'good' | 'warn' | 'bad' | 'sin-medir' {
+  if (indicador.estado === 'sin-medir' || indicador.valor === null) return 'sin-medir';
+  if (indicador.valor >= 90) return 'good';
+  if (indicador.valor >= 70) return 'warn';
+  return 'bad';
+}
+
+/** Un dato (KPI) con al menos una cuenta sin medir en el periodo, agrupado con su responsable — ej. "Falta Contrato firmado: 3 cuentas · Legal". */
+export type PendienteDato = { codigo: string; nombre: string; owner: string; cuentas: string[] };
+
+/** Una cuenta con al menos un hueco en el periodo: qué sondeos no se han cargado, qué KPI manuales faltan, y si le falta el headcount (dato de cuenta, no de periodo). */
+export type PendienteCuenta = {
+  marcaId: string;
+  marcaNombre: string;
+  sondeosFaltantes: string[];
+  kpisManualesFaltantes: string[];
+  headcountFaltante: boolean;
+};
+
+export type Pendientes = {
+  porDato: PendienteDato[];
+  porCuenta: PendienteCuenta[];
+  /** Cuentas sin headcount capturado (no es por periodo) — separado aparte porque afecta el % de respuesta de los 3 sondeos, no un KPI puntual. */
+  headcountFaltante: string[];
+};
+
+/**
+ * Qué falta, para todas las cuentas, en el periodo consultado — para que un
+ * hueco deje de serlo. Pura: recibe el árbol OKR y `sondeosCargadoEn` ya
+ * calculados de cada cuenta (ver fetchResultadoOkrTodasCuentas en
+ * lib/emetrix-ponderacion.ts), no toca la base.
+ */
+export function calcularPendientes(
+  cuentas: Array<{
+    marcaId: string;
+    marcaNombre: string;
+    raiz: EmetrixOkrNodo;
+    sondeosCargadoEn: Record<EmetrixKr, string | null>;
+    headcountManual: number | null;
+  }>
+): Pendientes {
+  const porDatoMapa = new Map<string, PendienteDato>();
+  const porCuenta: PendienteCuenta[] = [];
+  const headcountFaltante: string[] = [];
+
+  for (const cuenta of cuentas) {
+    const planos = indicadoresPlanos(cuenta.raiz);
+
+    for (const codigo of KPI_CODIGOS_HOJA) {
+      const nodo = planos[codigo];
+      if (!nodo || nodo.indicador.estado !== 'sin-medir') continue;
+      const entrada = porDatoMapa.get(codigo) ?? { codigo, nombre: nodo.nombre, owner: nodo.owner, cuentas: [] };
+      entrada.cuentas.push(cuenta.marcaNombre);
+      porDatoMapa.set(codigo, entrada);
+    }
+
+    const sondeosFaltantes = (Object.keys(KR_LABEL_SONDEO) as EmetrixKr[])
+      .filter((kr) => !cuenta.sondeosCargadoEn[kr])
+      .map((kr) => KR_LABEL_SONDEO[kr]);
+    const kpisManualesFaltantes = KPI_CODIGOS_MANUAL.filter((codigo) => planos[codigo]?.indicador.estado === 'sin-medir').map(
+      (codigo) => planos[codigo]!.nombre
+    );
+    const headcountFaltanteCuenta = cuenta.headcountManual === null;
+    if (headcountFaltanteCuenta) headcountFaltante.push(cuenta.marcaNombre);
+
+    if (sondeosFaltantes.length > 0 || kpisManualesFaltantes.length > 0 || headcountFaltanteCuenta) {
+      porCuenta.push({
+        marcaId: cuenta.marcaId,
+        marcaNombre: cuenta.marcaNombre,
+        sondeosFaltantes,
+        kpisManualesFaltantes,
+        headcountFaltante: headcountFaltanteCuenta,
+      });
+    }
+  }
+
+  return { porDato: [...porDatoMapa.values()], porCuenta, headcountFaltante };
 }
