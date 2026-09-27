@@ -20,6 +20,25 @@ function formatFecha(iso: string): string {
   return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+const MESA_CONTROL_PREGUNTAS_OKR = ['Entrada a tienda', 'Emetrix funcionó'];
+
+/**
+ * Mesa de Control alimenta 2 de los 4 KPI de KR1 (Carta de acceso y
+ * credencial, Usuario en Emetrix) — no las 4 preguntas del sondeo. El % que
+ * muestra esta tarjeta debe ser el mismo que ve KR1 en el árbol OKR (promedio
+ * de esas 2 preguntas, no la regla vieja de "Sí a las 4"), para que no haya
+ * dos cifras distintas del mismo sondeo en pantalla. Mismo promedio simple
+ * que agregarNodoOkr en el servidor (ambas preguntas pesan igual dentro de
+ * KR1) — null si ninguna se reconoció en el archivo.
+ */
+function porcentajeOkrMesaControl(preguntas: EmetrixPreguntaResumen[]): number | null {
+  const valores = MESA_CONTROL_PREGUNTAS_OKR.map((label) => preguntas.find((p) => p.pregunta === label)?.porcentaje ?? null).filter(
+    (v): v is number => v !== null
+  );
+  if (valores.length === 0) return null;
+  return Math.round((valores.reduce((s, v) => s + v, 0) / valores.length) * 100) / 100;
+}
+
 export default function EmetrixPonderacionZona({
   kr,
   marcaId,
@@ -204,7 +223,21 @@ export default function EmetrixPonderacionZona({
 
           {preview && (
             <div className="emetrix-preview">
-              <p className="emetrix-cumplimiento-principal">Cumplimiento: {preview.porcentaje}%</p>
+              <p className="emetrix-cumplimiento-principal">
+                Cumplimiento:{' '}
+                {kr === 'mesa_control'
+                  ? (() => {
+                      const p = porcentajeOkrMesaControl(preview.preguntas);
+                      return p !== null ? `${p}%` : 'No reconocido en este archivo';
+                    })()
+                  : `${preview.porcentaje}%`}
+              </p>
+              {kr === 'mesa_control' && (
+                <p className="roster-hint">
+                  Promedio de "Entrada a tienda" y "Emetrix funcionó" (los 2 KPI de KR1 en el OKR) — no el % de las 4
+                  preguntas del sondeo completo.
+                </p>
+              )}
               <p>
                 {preview.universoFuente === 'sin_universo'
                   ? `Contestaron ${preview.respondieron} promotores (no se definió el total del equipo)`
