@@ -4,12 +4,15 @@
 // espacios/mayúsculas/acentos en columnas y respuestas (los archivos reales
 // de Emetrix traen inconsistencias: "POSICION" vs "POSICION ", "Sí"/"SI", etc.).
 //
-// Universo: si la cuenta ya tiene padrón interno (promotores con supervisor
-// asignado a esa marca), SIEMPRE se usa ese padrón como universo, cruzando
-// cada Excel por id_emetrix contra el USUARIO del sondeo — un promotor del
-// padrón que no aparece en el Excel cuenta como "no contestó" (no cumple).
-// Si la cuenta no tiene padrón todavía, se cae al headcount manual o, a
-// falta de eso, a los promotores únicos del archivo (comportamiento previo).
+// Universo: el headcount SIEMPRE gana sobre el padrón interno, aunque exista
+// padrón — el headcount de la cuenta (uno solo, aplica a los 3 KR) o, si se
+// manda un override puntual, ese número solo para esa carga. En modo
+// headcount, "contestaron"/"cumplen" salen directo del Excel (promotores
+// únicos por USUARIO), sin exigir que estén en el padrón. El padrón solo se
+// usa como universo (cruzando cada Excel por id_emetrix contra el USUARIO,
+// con "no contestó" para quien no aparece) cuando la cuenta NO tiene
+// headcount. Sin headcount ni padrón, el universo queda sin definir. Ver
+// docs/ficha-tecnica-okr-ponderacion.md para la especificación completa.
 
 import { sql } from '@vercel/postgres';
 import type {
@@ -19,7 +22,10 @@ import type {
   EmetrixEstado,
   EmetrixFilaDetalle,
   EmetrixKr,
+  EmetrixPreguntaResumen,
   EmetrixResultadoCuenta,
+  EmetrixResumenOkr,
+  EmetrixResumenOkrFila,
   EmetrixUniversoFuente,
   EmetrixVistaCruzadaFila,
 } from './types';
@@ -63,6 +69,53 @@ function contieneOpcion(valorCrudo: string, opcionBuscada: string): boolean {
 
 function esExacto(valorCrudo: string, esperado: string): boolean {
   return normalizar(valorCrudo) === normalizar(esperado);
+}
+
+/**
+ * % de "Sí" de una pregunta Sí/No, sobre quienes contestaron esa pregunta con
+ * "Sí" o "No" (ignora vacíos). `porcentaje` es null si NINGUNA fila trae un
+ * valor reconocible en esa columna — probable indicio de que este archivo
+ * redacta la pregunta o sus respuestas distinto a lo esperado; se reporta
+ * así en vez de un 0% engañoso.
+ */
+function resumenPreguntaSiNo(valor: (row: string[], col: string) => string, filas: string[][], etiqueta: string, columna: string): EmetrixPreguntaResumen {
+  let si = 0;
+  let reconocidos = 0;
+  for (const row of filas) {
+    const raw = normalizar(valor(row, columna));
+    if (raw === 'si') {
+      si++;
+      reconocidos++;
+    } else if (raw === 'no') {
+      reconocidos++;
+    }
+  }
+  if (reconocidos === 0) return { pregunta: etiqueta, porcentaje: null, contestaron: 0 };
+  return { pregunta: etiqueta, porcentaje: Math.round((si / reconocidos) * 10000) / 100, contestaron: reconocidos };
+}
+
+/**
+ * % de respuesta correcta de una pregunta de opción múltiple (Tu Marca),
+ * sobre quienes dejaron algo contestado (ignora vacíos). `porcentaje` es null
+ * si nadie dejó respuesta en esa columna — probable indicio de que este
+ * archivo redacta la pregunta distinto a lo esperado.
+ */
+function resumenPreguntaOpcion(
+  valor: (row: string[], col: string) => string,
+  filas: string[][],
+  p: { columna: string; modo: 'contiene' | 'exacto'; esperado: string }
+): EmetrixPreguntaResumen {
+  let aciertos = 0;
+  let contestaron = 0;
+  for (const row of filas) {
+    const raw = valor(row, p.columna);
+    if (raw === '') continue;
+    contestaron++;
+    const acierto = p.modo === 'contiene' ? contieneOpcion(raw, p.esperado) : esExacto(raw, p.esperado);
+    if (acierto) aciertos++;
+  }
+  if (contestaron === 0) return { pregunta: p.columna, porcentaje: null, contestaron: 0 };
+  return { pregunta: p.columna, porcentaje: Math.round((aciertos / contestaron) * 10000) / 100, contestaron };
 }
 
 type FilasDeduplicadas = {
@@ -111,7 +164,7 @@ function validarColumnas(headers: string[], requeridas: string[], nombreArchivo:
   }
 }
 
-type Calculo = { filas: EmetrixFilaDetalle[]; cumplieron: number; diagnostico: EmetrixDiagnosticoArchivo };
+type Calculo = { filas: EmetrixFilaDetalle[]; cumplieron: number; diagnostico: EmetrixDiagnosticoArchivo; preguntas: EmetrixPreguntaResumen[] };
 
 // ---- Mesa de Control ----
 
@@ -125,6 +178,13 @@ const MESA_CONTROL_COLUMNAS = [
   '¿Ya recibiste tu saldo?',
 ];
 
+const MESA_CONTROL_PREGUNTAS: Array<{ label: string; columna: string }> = [
+  { label: 'Entrada a tienda', columna: '¿Pudiste entrar a tu tienda el primer día?' },
+  { label: 'Emetrix funcionó', columna: '¿Tu usuario Emetrix funciono cuando lo necesitaste?' },
+  { label: 'Te explicaron las marcas', columna: '¿Te explicaron que marcas y productos atender?' },
+  { label: 'Recibiste saldo', columna: '¿Ya recibiste tu saldo?' },
+];
+
 /** Cumple = SI en las 4 preguntas de fondo. "Quién te acompañó" es solo informativo, no califica. */
 export function calcularMesaControl(headers: string[], rows: string[][]): Calculo {
   validarColumnas(headers, MESA_CONTROL_COLUMNAS, 'Mesa de Control');
@@ -132,12 +192,7 @@ export function calcularMesaControl(headers: string[], rows: string[][]): Calcul
   const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas } = deduplicarPorUsuario(headers, rows);
 
   const filas: EmetrixFilaDetalle[] = filasUnicas.map((row) => {
-    const checks = [
-      { label: 'Entrada a tienda', ok: esSi(valor(row, '¿Pudiste entrar a tu tienda el primer día?')) },
-      { label: 'Emetrix funcionó', ok: esSi(valor(row, '¿Tu usuario Emetrix funciono cuando lo necesitaste?')) },
-      { label: 'Te explicaron las marcas', ok: esSi(valor(row, '¿Te explicaron que marcas y productos atender?')) },
-      { label: 'Recibiste saldo', ok: esSi(valor(row, '¿Ya recibiste tu saldo?')) },
-    ];
+    const checks = MESA_CONTROL_PREGUNTAS.map((p) => ({ label: p.label, ok: esSi(valor(row, p.columna)) }));
     const cumple = checks.every((c) => c.ok);
     return {
       promotorId: null,
@@ -148,10 +203,13 @@ export function calcularMesaControl(headers: string[], rows: string[][]): Calcul
     };
   });
 
+  const preguntas = MESA_CONTROL_PREGUNTAS.map((p) => resumenPreguntaSiNo(valor, filasUnicas, p.label, p.columna));
+
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
     diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+    preguntas,
   };
 }
 
@@ -202,10 +260,17 @@ export function calcularMateriales(headers: string[], rows: string[][], incluyeC
     };
   });
 
+  const preguntas = PRENDAS_OBLIGATORIAS.map((col) => resumenPreguntaSiNo(valor, filasUnicas, col, col));
+  if (incluyeCelular) {
+    preguntas.push(resumenPreguntaSiNo(valor, filasUnicas, 'Celular de trabajo', '¿Ya recibiste tu celular de trabajo?'));
+    preguntas.push(resumenPreguntaSiNo(valor, filasUnicas, 'Emetrix instalado', '¿Tienes Emetrix instalado y funcionando con tu usuario?'));
+  }
+
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
     diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+    preguntas,
   };
 }
 
@@ -276,10 +341,13 @@ export function calcularMarca(headers: string[], rows: string[][]): Calculo {
     };
   });
 
+  const preguntas = MARCA_PREGUNTAS.map((p) => resumenPreguntaOpcion(valor, filasUnicas, p));
+
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
     diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas },
+    preguntas,
   };
 }
 
@@ -406,6 +474,7 @@ export async function armarPreview(marcaId: string, calculo: Calculo, universoOv
       usuariosNoEncontrados: padron.length > 0 ? usuariosSinPadron(padron, calculo.filas) : [],
       diagnostico: calculo.diagnostico,
       filas: calculo.filas,
+      preguntas: calculo.preguntas,
     };
   }
 
@@ -425,6 +494,7 @@ export async function armarPreview(marcaId: string, calculo: Calculo, universoOv
       usuariosNoEncontrados: cruce.usuariosNoEncontrados,
       diagnostico: calculo.diagnostico,
       filas: cruce.filas,
+      preguntas: calculo.preguntas,
     };
   }
 
@@ -442,6 +512,7 @@ export async function armarPreview(marcaId: string, calculo: Calculo, universoOv
     usuariosNoEncontrados: [],
     diagnostico: calculo.diagnostico,
     filas: calculo.filas,
+    preguntas: calculo.preguntas,
   };
 }
 
@@ -504,8 +575,8 @@ export async function guardarCarga(data: {
   const { rows } = await sql.query(
     `insert into emetrix_ponderacion_cargas
        (marca_id, kr, universo, universo_fuente, cumplieron, porcentaje, respondieron, usuarios_no_encontrados,
-        filas_leidas, filas_sin_usuario, filas_duplicadas, incluye_celular, archivo_nombre, cargado_por)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        filas_leidas, filas_sin_usuario, filas_duplicadas, incluye_celular, archivo_nombre, cargado_por, preguntas_resumen)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
      returning id, cargado_en`,
     [
       data.marcaId,
@@ -522,6 +593,7 @@ export async function guardarCarga(data: {
       data.incluyeCelular,
       data.archivoNombre,
       data.cargadoPor,
+      JSON.stringify(preview.preguntas),
     ]
   );
   const cargaId = rows[0].id as string;
@@ -612,9 +684,10 @@ export async function fetchDetalleCarga(
   universoFuente: EmetrixUniversoFuente;
   usuariosNoEncontrados: string[];
   filas: EmetrixFilaDetalle[];
+  preguntas: EmetrixPreguntaResumen[];
 } | null> {
   const { rows: cargaRows } = await sql.query(
-    `select id, cargado_en, universo_fuente, usuarios_no_encontrados from emetrix_ponderacion_cargas
+    `select id, cargado_en, universo_fuente, usuarios_no_encontrados, preguntas_resumen from emetrix_ponderacion_cargas
      where marca_id = $1 and kr = $2 order by cargado_en desc limit 1`,
     [marcaId, kr]
   );
@@ -631,6 +704,7 @@ export async function fetchDetalleCarga(
     cargadoEn: new Date(carga.cargado_en as string).toISOString(),
     universoFuente: carga.universo_fuente as EmetrixUniversoFuente,
     usuariosNoEncontrados: (carga.usuarios_no_encontrados as string[] | null) ?? [],
+    preguntas: Array.isArray(carga.preguntas_resumen) ? (carga.preguntas_resumen as EmetrixPreguntaResumen[]) : [],
     filas: detalleRows.map((r) => ({
       promotorId: null,
       usuario: r.usuario as string,
@@ -839,4 +913,45 @@ export async function fetchHistorial(marcaId?: string): Promise<EmetrixCarga[]> 
     cargadoPorNombre: (r.cargado_por_nombre as string | null) ?? null,
     cargadoEn: new Date(r.cargado_en as string).toISOString(),
   }));
+}
+
+/**
+ * Resumen para el OKR "Ciclo de vida del promotor", por cuenta: traduce los
+ * 3 KR del sondeo de Emetrix a las 5 métricas que pide el OKR oficial.
+ * "Carta de acceso y credencial" y "Usuario en Emetrix" salen de dos
+ * preguntas puntuales de Mesa de Control (no de su % de cumplimiento
+ * general, que exige las 4 preguntas a la vez); "Materiales completos" y
+ * "Módulo completado" son el % de cumplimiento tal cual de esos dos KR.
+ * "Contrato e IMSS" no sale de este sondeo (viene del padrón/Aspel) — se
+ * marca pendiente a propósito. `valor` de cada fila explica por qué no hay
+ * número cuando `porcentaje` es null (falta cargar el sondeo, la pregunta no
+ * se reconoció en este archivo, o es la fila fija de Contrato e IMSS).
+ */
+export async function fetchResumenOkr(marcaId: string): Promise<EmetrixResumenOkr> {
+  const [resultado, mesaControlDetalle] = await Promise.all([fetchResultadoCuenta(marcaId), fetchDetalleCarga(marcaId, 'mesa_control')]);
+
+  function filaDePregunta(etiqueta: string, labelPregunta: string): EmetrixResumenOkrFila {
+    if (!mesaControlDetalle) return { etiqueta, valor: 'Falta cargar Mesa de Control', porcentaje: null };
+    const p = mesaControlDetalle.preguntas.find((x) => x.pregunta === labelPregunta);
+    if (!p || p.porcentaje === null) return { etiqueta, valor: 'Pregunta no reconocida en este archivo', porcentaje: null };
+    return { etiqueta, valor: `${p.porcentaje}%`, porcentaje: p.porcentaje };
+  }
+
+  function filaDeKr(etiqueta: string, kr: EmetrixKr): EmetrixResumenOkrFila {
+    const k = resultado.krs.find((x) => x.kr === kr);
+    if (!k || k.porcentaje === null) return { etiqueta, valor: 'Falta cargar', porcentaje: null };
+    return { etiqueta, valor: `${k.porcentaje}%`, porcentaje: k.porcentaje };
+  }
+
+  return {
+    marcaId,
+    marcaNombre: resultado.marcaNombre,
+    filas: [
+      filaDePregunta('Carta de acceso y credencial', 'Entrada a tienda'),
+      filaDePregunta('Usuario en Emetrix', 'Emetrix funcionó'),
+      filaDeKr('Materiales completos', 'materiales'),
+      filaDeKr('Módulo completado (aproximación)', 'marca'),
+      { etiqueta: 'Contrato e IMSS', valor: 'Pendiente (Legal / Nómina)', porcentaje: null },
+    ],
+  };
 }

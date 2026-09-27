@@ -1,7 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixResultadoKr, EmetrixUniversoFuente } from '@/lib/types';
+import type {
+  EmetrixCargaPreview,
+  EmetrixEstado,
+  EmetrixFilaDetalle,
+  EmetrixKr,
+  EmetrixPreguntaResumen,
+  EmetrixResultadoKr,
+  EmetrixUniversoFuente,
+} from '@/lib/types';
 import { emetrixPonderacionDetalleExcelUrl, fetchDetalleEmetrixPonderacion, guardarCargaEmetrixPonderacion, parseEmetrixPonderacion } from '@/lib/api-client';
 
 const KR_LABEL: Record<EmetrixKr, string> = {
@@ -47,10 +55,14 @@ export default function EmetrixPonderacionZona({
   const [procesando, setProcesando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
-  const [detalle, setDetalle] = useState<{ universoFuente: EmetrixUniversoFuente; usuariosNoEncontrados: string[]; filas: EmetrixFilaDetalle[] } | null>(
-    null
-  );
+  const [detalle, setDetalle] = useState<{
+    universoFuente: EmetrixUniversoFuente;
+    usuariosNoEncontrados: string[];
+    filas: EmetrixFilaDetalle[];
+    preguntas: EmetrixPreguntaResumen[];
+  } | null>(null);
   const [mostrandoDetalle, setMostrandoDetalle] = useState(false);
+  const [mostrandoPreguntas, setMostrandoPreguntas] = useState(false);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
   const faltaCelular = requiereCelular && incluyeCelular === '';
@@ -60,6 +72,7 @@ export default function EmetrixPonderacionZona({
   // Al cambiar de cuenta: si es Materiales, precarga si ya se sabe que incluye celular (sigue siendo editable).
   useEffect(() => {
     setMostrandoDetalle(false);
+    setMostrandoPreguntas(false);
     setDetalle(null);
     setUniversoOverride('');
     setIncluyeCelular(requiereCelular && incluyeCelularGuardado !== null ? (incluyeCelularGuardado ? 'si' : 'no') : '');
@@ -108,7 +121,13 @@ export default function EmetrixPonderacionZona({
   function cargarDetalle() {
     setCargandoDetalle(true);
     fetchDetalleEmetrixPonderacion(marcaId, kr)
-      .then((res) => setDetalle(res ? { universoFuente: res.universoFuente, usuariosNoEncontrados: res.usuariosNoEncontrados, filas: res.filas } : null))
+      .then((res) =>
+        setDetalle(
+          res
+            ? { universoFuente: res.universoFuente, usuariosNoEncontrados: res.usuariosNoEncontrados, filas: res.filas, preguntas: res.preguntas }
+            : null
+        )
+      )
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el detalle.'))
       .finally(() => setCargandoDetalle(false));
   }
@@ -116,6 +135,12 @@ export default function EmetrixPonderacionZona({
   function handleToggleDetalle() {
     const next = !mostrandoDetalle;
     setMostrandoDetalle(next);
+    if (next && detalle === null) cargarDetalle();
+  }
+
+  function handleTogglePreguntas() {
+    const next = !mostrandoPreguntas;
+    setMostrandoPreguntas(next);
     if (next && detalle === null) cargarDetalle();
   }
 
@@ -209,6 +234,13 @@ export default function EmetrixPonderacionZona({
                 </p>
               </details>
 
+              {preview.preguntas.length > 0 && (
+                <details className="emetrix-detalle-tecnico">
+                  <summary>Ver resultado por pregunta</summary>
+                  <TablaPreguntas preguntas={preview.preguntas} />
+                </details>
+              )}
+
               {guardado ? (
                 <p className="emetrix-guardado">✓ Carga guardada.</p>
               ) : (
@@ -221,9 +253,15 @@ export default function EmetrixPonderacionZona({
 
           {cargado && (
             <div className="emetrix-detalle">
-              <button type="button" className="add-row" onClick={handleToggleDetalle}>
-                {mostrandoDetalle ? 'Ocultar detalle por promotor' : 'Ver detalle por promotor'}
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="add-row" onClick={handleToggleDetalle}>
+                  {mostrandoDetalle ? 'Ocultar detalle por promotor' : 'Ver detalle por promotor'}
+                </button>
+                <button type="button" className="add-row" onClick={handleTogglePreguntas}>
+                  {mostrandoPreguntas ? 'Ocultar resultado por pregunta' : 'Ver resultado por pregunta'}
+                </button>
+              </div>
+              {mostrandoPreguntas && (cargandoDetalle ? <p className="resumen-status">Cargando…</p> : <TablaPreguntas preguntas={detalle?.preguntas ?? []} />)}
               {mostrandoDetalle && (
                 <>
                   {cargandoDetalle ? (
@@ -263,6 +301,33 @@ export default function EmetrixPonderacionZona({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** % de "Sí" (o de respuesta correcta en Tu Marca) de cada pregunta, sobre quienes la contestaron con un valor reconocible. */
+function TablaPreguntas({ preguntas }: { preguntas: EmetrixPreguntaResumen[] }) {
+  if (preguntas.length === 0) return <p className="resumen-status">Sin datos.</p>;
+  return (
+    <div className="emetrix-detalle-tabla-wrap">
+      <table className="roster-table">
+        <thead>
+          <tr>
+            <th>Pregunta</th>
+            <th>% Sí / correcta</th>
+            <th>Contestaron</th>
+          </tr>
+        </thead>
+        <tbody>
+          {preguntas.map((p) => (
+            <tr key={p.pregunta}>
+              <td style={{ textAlign: 'left' }}>{p.pregunta}</td>
+              <td>{p.porcentaje !== null ? `${p.porcentaje}%` : 'No reconocida en este archivo'}</td>
+              <td>{p.contestaron}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

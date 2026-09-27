@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireGerente } from '@/lib/auth';
 import { fetchHistorial, guardarCarga } from '@/lib/emetrix-ponderacion';
-import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixUniversoFuente } from '@/lib/types';
+import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixPreguntaResumen, EmetrixUniversoFuente } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +43,16 @@ function validarPreview(body: unknown): EmetrixCargaPreview | null {
       ESTADOS_VALIDOS.includes((f as EmetrixFilaDetalle).estado)
   );
   const d = b.diagnostico as Record<string, unknown> | undefined;
+  const preguntas = Array.isArray(b.preguntas)
+    ? b.preguntas.filter(
+        (p: unknown): p is EmetrixPreguntaResumen =>
+          !!p &&
+          typeof p === 'object' &&
+          typeof (p as EmetrixPreguntaResumen).pregunta === 'string' &&
+          (typeof (p as EmetrixPreguntaResumen).porcentaje === 'number' || (p as EmetrixPreguntaResumen).porcentaje === null) &&
+          typeof (p as EmetrixPreguntaResumen).contestaron === 'number'
+      )
+    : [];
   return {
     universoUsado: b.universoUsado as number | null,
     universoFuente: b.universoFuente as EmetrixUniversoFuente,
@@ -59,6 +69,7 @@ function validarPreview(body: unknown): EmetrixCargaPreview | null {
       filasDuplicadas: typeof d?.filasDuplicadas === 'number' ? d.filasDuplicadas : 0,
     },
     filas,
+    preguntas,
   };
 }
 

@@ -456,6 +456,20 @@ export type EmetrixDiagnosticoArchivo = {
   filasDuplicadas: number;
 };
 
+/**
+ * Resultado de una sola pregunta del sondeo: % de "Sí" (Mesa de Control /
+ * Materiales) o de respuesta correcta (Tu Marca), sobre quienes contestaron
+ * ESA pregunta con un valor reconocible (Sí/No, o alguna opción). `porcentaje`
+ * es null cuando NINGUNA fila trae un valor reconocible en esa columna — la
+ * redacción de la pregunta en este archivo probablemente no coincide con la
+ * esperada; la pantalla debe decirlo explícitamente, nunca mostrar 0%.
+ */
+export type EmetrixPreguntaResumen = {
+  pregunta: string;
+  porcentaje: number | null;
+  contestaron: number;
+};
+
 /** Una carga guardada (archivo subido + calculado) para una cuenta y un KR. Se acumulan, nunca se sobreescriben. */
 export type EmetrixCarga = {
   id: string;
@@ -513,6 +527,8 @@ export type EmetrixCargaPreview = {
   usuariosNoEncontrados: string[];
   diagnostico: EmetrixDiagnosticoArchivo;
   filas: EmetrixFilaDetalle[];
+  /** Desglose por pregunta del sondeo (ver EmetrixPreguntaResumen). */
+  preguntas: EmetrixPreguntaResumen[];
 };
 
 export type EmetrixResultadoKr = {
@@ -556,4 +572,23 @@ export type EmetrixVistaCruzadaFila = {
   mesaControl: EmetrixEstado | null;
   materiales: EmetrixEstado | null;
   marca: EmetrixEstado | null;
+};
+
+/**
+ * Una fila del "Resumen para OKR": traduce un KR del sondeo de Emetrix (o,
+ * para Contrato e IMSS, una nota de que ese dato no sale de este sondeo) al
+ * lenguaje del OKR oficial "Ciclo de vida del promotor". `porcentaje` es null
+ * cuando `valor` es un texto (falta cargar, pregunta no reconocida, o
+ * "Pendiente (Legal / Nómina)") en vez de un número.
+ */
+export type EmetrixResumenOkrFila = {
+  etiqueta: string;
+  valor: string;
+  porcentaje: number | null;
+};
+
+export type EmetrixResumenOkr = {
+  marcaId: string;
+  marcaNombre: string;
+  filas: EmetrixResumenOkrFila[];
 };

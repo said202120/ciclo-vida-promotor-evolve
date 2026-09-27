@@ -14,7 +14,9 @@ import type {
   EmetrixCargaPreview,
   EmetrixFilaDetalle,
   EmetrixKr,
+  EmetrixPreguntaResumen,
   EmetrixResultadoCuenta,
+  EmetrixResumenOkr,
   EmetrixUniversoFuente,
   EmetrixVistaCruzadaFila,
   EncuestaMaterialesPayload,
@@ -481,7 +483,14 @@ export function updateHeadcountManualEmetrixPonderacion(marcaId: string, headcou
 export function fetchDetalleEmetrixPonderacion(
   marcaId: string,
   kr: EmetrixKr
-): Promise<{ cargaId: string; cargadoEn: string; universoFuente: EmetrixUniversoFuente; usuariosNoEncontrados: string[]; filas: EmetrixFilaDetalle[] } | null> {
+): Promise<{
+  cargaId: string;
+  cargadoEn: string;
+  universoFuente: EmetrixUniversoFuente;
+  usuariosNoEncontrados: string[];
+  filas: EmetrixFilaDetalle[];
+  preguntas: EmetrixPreguntaResumen[];
+} | null> {
   return fetch(`/api/emetrix-ponderacion/detalle?marcaId=${marcaId}&kr=${kr}`).then((r) => json(r));
 }
 
@@ -511,4 +520,12 @@ export function updatePesoEmetrixPonderacion(marcaId: string, kr: EmetrixKr, pes
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ marcaId, kr, peso }),
   }).then((r) => json(r));
+}
+
+export function fetchResumenOkrEmetrixPonderacion(marcaId: string): Promise<EmetrixResumenOkr> {
+  return fetch(`/api/emetrix-ponderacion/resumen-okr?marcaId=${marcaId}`).then((r) => json(r));
+}
+
+export function emetrixResumenOkrExcelUrl(marcaId: string): string {
+  return `/api/emetrix-ponderacion/resumen-okr/excel?marcaId=${marcaId}`;
 }

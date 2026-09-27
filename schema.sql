@@ -562,6 +562,13 @@ alter table emetrix_ponderacion_cargas add column if not exists filas_leidas int
 alter table emetrix_ponderacion_cargas add column if not exists filas_sin_usuario int;
 alter table emetrix_ponderacion_cargas add column if not exists filas_duplicadas int;
 
+-- Desglose por pregunta de esta carga (array de {pregunta, porcentaje,
+-- contestaron} — ver EmetrixPreguntaResumen en lib/types.ts): % de "Sí" (o de
+-- respuesta correcta en Tu Marca) de cada pregunta del sondeo, sobre quienes
+-- la contestaron con un valor reconocible. Alimenta la sección "Ver resultado
+-- por pregunta" de cada tarjeta y el "Resumen para OKR" por cuenta.
+alter table emetrix_ponderacion_cargas add column if not exists preguntas_resumen jsonb;
+
 -- El universo ahora puede quedar en null: si la cuenta no tiene padrón ni
 -- headcount capturado (ni el de la cuenta ni un override puntual para este
 -- sondeo), ya NO se usa el número de filas del archivo como universo

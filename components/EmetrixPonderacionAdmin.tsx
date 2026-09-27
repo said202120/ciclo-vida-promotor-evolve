@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { EmetrixCarga, EmetrixEstado, EmetrixKr, EmetrixResultadoCuenta, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
+import type { EmetrixCarga, EmetrixEstado, EmetrixKr, EmetrixResultadoCuenta, EmetrixResumenOkr, EmetrixVistaCruzadaFila, MarcaConDetalle } from '@/lib/types';
 import {
+  emetrixResumenOkrExcelUrl,
   fetchConfigEmetrixPonderacion,
   fetchHistorialEmetrixPonderacion,
   fetchMarcas,
   fetchResultadoEmetrixPonderacion,
   fetchResultadoTodasCuentasEmetrixPonderacion,
+  fetchResumenOkrEmetrixPonderacion,
   fetchVistaCruzadaEmetrixPonderacion,
   updateHeadcountManualEmetrixPonderacion,
   updatePesoEmetrixPonderacion,
@@ -39,6 +41,8 @@ export default function EmetrixPonderacionAdmin() {
   const [marcaId, setMarcaId] = useState(TODAS);
   const [resultado, setResultado] = useState<EmetrixResultadoCuenta | null>(null);
   const [config, setConfig] = useState<{ incluyeCelular: boolean | null; umbralRespuesta: number; headcountManual: number | null } | null>(null);
+  const [resumenOkr, setResumenOkr] = useState<EmetrixResumenOkr | null>(null);
+  const [copiado, setCopiado] = useState(false);
   const [resumenTodas, setResumenTodas] = useState<EmetrixResultadoCuenta[]>([]);
   const [vistaCruzada, setVistaCruzada] = useState<EmetrixVistaCruzadaFila[]>([]);
   const [historial, setHistorial] = useState<EmetrixCarga[]>([]);
@@ -69,6 +73,9 @@ export default function EmetrixPonderacionAdmin() {
     fetchConfigEmetrixPonderacion(id)
       .then(setConfig)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar la configuración de la cuenta.'));
+    fetchResumenOkrEmetrixPonderacion(id)
+      .then(setResumenOkr)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el resumen para OKR.'));
   }
 
   function reloadResumenTodas() {
@@ -119,6 +126,18 @@ export default function EmetrixPonderacionAdmin() {
   function handleHistorialFiltro(id: string) {
     setHistorialMarcaId(id);
     reloadHistorial(id);
+  }
+
+  function handleCopiarResumenOkr() {
+    if (!resumenOkr) return;
+    const texto = resumenOkr.filas.map((f) => `${f.etiqueta}: ${f.valor}`).join('\n');
+    navigator.clipboard
+      .writeText(texto)
+      .then(() => {
+        setCopiado(true);
+        setTimeout(() => setCopiado(false), 2000);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo copiar el resumen.'));
   }
 
   return (
@@ -343,6 +362,44 @@ export default function EmetrixPonderacionAdmin() {
                 con los KR que ya tienen carga (usando el % de cumplimiento entre quienes contestaron), repartiendo el
                 peso entre los que sí tienen datos.
               </p>
+            )}
+          </div>
+
+          <div className="roster">
+            <div className="roster-head">
+              <p className="section-title" style={{ margin: 0 }}>
+                Resumen para OKR
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="add-row" onClick={handleCopiarResumenOkr} disabled={!resumenOkr}>
+                  {copiado ? '✓ Copiado' : 'Copiar'}
+                </button>
+                <a className="add-row" href={emetrixResumenOkrExcelUrl(marcaId)}>
+                  ⇩ Descargar en Excel
+                </a>
+              </div>
+            </div>
+            <p className="roster-hint" style={{ marginTop: -8, marginBottom: 14 }}>
+              Traduce estos 3 sondeos a las métricas del OKR oficial "Ciclo de vida del promotor". Contrato e IMSS no
+              sale de este sondeo — se confirma aparte con Legal / Nómina.
+            </p>
+            {resumenOkr && (
+              <table className="roster-table">
+                <thead>
+                  <tr>
+                    <th>KR del OKR</th>
+                    <th>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumenOkr.filas.map((f) => (
+                    <tr key={f.etiqueta}>
+                      <td style={{ textAlign: 'left' }}>{f.etiqueta}</td>
+                      <td>{f.valor}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
 
