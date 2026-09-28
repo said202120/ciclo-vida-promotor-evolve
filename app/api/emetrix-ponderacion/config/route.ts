@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireGerente, requireSession } from '@/lib/auth';
 import { fetchConfig, updateHeadcountManual, updateUmbralRespuesta } from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
@@ -8,9 +8,10 @@ export const dynamic = 'force-dynamic';
 // guardado si incluye celular (Materiales), su umbral de % de respuesta
 // (80% si nunca se ha tocado) y su headcount (uno solo, aplica a los 3 KR).
 // Nada de esto es por periodo — para los 3 KPI de captura manual (que SÍ son
-// por periodo), ver GET /api/emetrix-ponderacion/kpi-manual.
+// por periodo), ver GET /api/emetrix-ponderacion/kpi-manual. Lectura:
+// cualquier usuario autenticado.
 export async function GET(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireSession();
   if (auth.error) return auth.error;
 
   const marcaId = new URL(request.url).searchParams.get('marcaId');

@@ -1,49 +1,36 @@
 'use client';
 
-import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import type {
   AlertaActiva,
   CapacitacionModulo,
   CapacitacionResultado,
   Dashboard as DashboardData,
   MaterialEstado,
-  Modulos,
   Promotor,
   SupervisorConMarca,
-  Usuario,
 } from '@/lib/types';
 import {
-  cerrarMes,
   createPromotor,
   deletePromotor,
   fetchAlertas,
   fetchCapacitacionModulosBasico,
   fetchCapacitacionResultados,
   fetchDashboard,
-  fetchMe,
   fetchMeses,
-  fetchModulos,
   fetchPromotores,
   fetchSupervisoresConMarca,
-  logout,
-  updateModulos,
   updatePromotor,
   updatePromotorMaterial,
 } from '@/lib/api-client';
-import ScoreRing from './ScoreRing';
+import SiteHeader from './SiteHeader';
 import Pipeline from './Pipeline';
 import RosterTable from './RosterTable';
-import Lane from './Lane';
-import KpiRow from './KpiRow';
-import ModuleToggles from './ModuleToggles';
 import AlertBanner from './AlertBanner';
 import RecordatoriosMateriales from './RecordatoriosMateriales';
 import MaterialesResumen from './MaterialesResumen';
 import ComparacionIngresos from './ComparacionIngresos';
 import VisibilidadMaterialesCard from './VisibilidadMaterialesCard';
-import ChangePasswordButton from './ChangePasswordButton';
 
 const MONTH_NAMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -52,55 +39,7 @@ function labelForMonth(key: string) {
   return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`;
 }
 
-function TopBar({ user, onLogout }: { user: Usuario | null; onLogout: () => void }) {
-  return (
-    <div className="topbar">
-      <div className="topbar-user">
-        {user && (
-          <>
-            <span className="topbar-user-name">
-              {user.nombre} <span className="topbar-user-rol">· {user.rol}</span>
-            </span>
-            {user.rol === 'gerente' && (
-              <a className="topbar-link" href="/usuarios">
-                Usuarios
-              </a>
-            )}
-            {user.rol === 'gerente' && (
-              <a className="topbar-link" href="/marcas">
-                Marcas
-              </a>
-            )}
-            {user.rol === 'gerente' && (
-              <a className="topbar-link" href="/capacitaciones">
-                Exámenes
-              </a>
-            )}
-            {user.rol === 'gerente' && (
-              <a className="topbar-link" href="/emetrix-ponderacion">
-                Plan B
-              </a>
-            )}
-            <ChangePasswordButton />
-            <button className="topbar-link" onClick={onLogout}>
-              Cerrar sesión
-            </button>
-          </>
-        )}
-      </div>
-      <Image src="/logo_pag-1.png" alt="Evolve" width={136} height={42} priority className="topbar-logo" />
-    </div>
-  );
-}
-
-function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export default function Dashboard() {
-  const router = useRouter();
-  const [user, setUser] = useState<Usuario | null>(null);
   const [meses, setMeses] = useState<string[]>([]);
   const [currentMonth, setCurrentMonth] = useState<string | null>(null);
   const [promotores, setPromotores] = useState<Promotor[]>([]);
@@ -109,7 +48,6 @@ export default function Dashboard() {
   const [capacitacionResultados, setCapacitacionResultados] = useState<Array<{ promotorId: string } & CapacitacionResultado>>(
     []
   );
-  const [modulos, setModulos] = useState<Modulos | null>(null);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [alertas, setAlertas] = useState<AlertaActiva[]>([]);
   const [ready, setReady] = useState(false);
@@ -129,21 +67,16 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       try {
-        const [meRes, mesesRes, promotoresRes, modulosRes, alertasRes, supervisoresRes, capModulosRes, capResultadosRes] =
-          await Promise.all([
-            fetchMe(),
-            fetchMeses(),
-            fetchPromotores(),
-            fetchModulos(),
-            fetchAlertas(),
-            fetchSupervisoresConMarca(),
-            fetchCapacitacionModulosBasico(),
-            fetchCapacitacionResultados(),
-          ]);
-        setUser(meRes);
+        const [mesesRes, promotoresRes, alertasRes, supervisoresRes, capModulosRes, capResultadosRes] = await Promise.all([
+          fetchMeses(),
+          fetchPromotores(),
+          fetchAlertas(),
+          fetchSupervisoresConMarca(),
+          fetchCapacitacionModulosBasico(),
+          fetchCapacitacionResultados(),
+        ]);
         setMeses(mesesRes.meses);
         setPromotores(promotoresRes);
-        setModulos(modulosRes);
         setAlertas(alertasRes);
         setSupervisores(supervisoresRes);
         setCapacitacionModulos(capModulosRes);
@@ -188,6 +121,11 @@ export default function Dashboard() {
   }
 
   const monthIdx = currentMonth ? meses.indexOf(currentMonth) : -1;
+
+  function todayISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
 
   async function handleAddPromotor() {
     try {
@@ -243,58 +181,10 @@ export default function Dashboard() {
     }
   }
 
-  async function handleModuloToggle(key: keyof Omit<Modulos, 'comprometidos'>, value: boolean) {
-    setModulos((prev) => (prev ? { ...prev, [key]: value } : prev));
-    try {
-      await updateModulos({ [key]: value });
-      flashSaved();
-      await refreshDashboard();
-    } catch (err) {
-      reportError(err);
-    }
-  }
-
-  async function handleComprometidosChange(value: number) {
-    setModulos((prev) => (prev ? { ...prev, comprometidos: value } : prev));
-    try {
-      await updateModulos({ comprometidos: value });
-      flashSaved();
-      await refreshDashboard();
-    } catch (err) {
-      reportError(err);
-    }
-  }
-
-  async function handleCerrarMes() {
-    if (!currentMonth) return;
-    if (
-      !window.confirm(
-        `¿Cerrar ${labelForMonth(currentMonth)}? El resultado quedará fijo aunque el padrón se siga editando después.`
-      )
-    )
-      return;
-    try {
-      const closed = await cerrarMes(currentMonth);
-      setDashboard(closed);
-      flashSaved();
-    } catch (err) {
-      reportError(err);
-    }
-  }
-
-  async function handleLogout() {
-    try {
-      await logout();
-    } finally {
-      router.push('/login');
-      router.refresh();
-    }
-  }
-
-  if (!ready || !dashboard || !modulos || !currentMonth) {
+  if (!ready || !dashboard || !currentMonth) {
     return (
       <div className="wrap">
-        <TopBar user={user} onLogout={handleLogout} />
+        <SiteHeader />
         <p>Cargando…</p>
       </div>
     );
@@ -302,15 +192,15 @@ export default function Dashboard() {
 
   return (
     <div className="wrap">
-      <TopBar user={user} onLogout={handleLogout} />
+      <SiteHeader />
 
       <AlertBanner alertas={alertas} />
       <RecordatoriosMateriales />
 
       <header>
         <div>
-          <p className="eyebrow">OKR · Operaciones · Evolve</p>
-          <h1>Ciclo de vida del promotor</h1>
+          <p className="eyebrow">Administración · Evolve</p>
+          <h1>Padrón de promotores</h1>
         </div>
         <div className="header-right">
           <div className="month-bar">
@@ -328,19 +218,13 @@ export default function Dashboard() {
               →
             </button>
           </div>
-          <ScoreRing score={dashboard.okrTotal.score} />
         </div>
       </header>
 
-      <div className="close-month-bar">
-        {dashboard.closed ? (
-          <span className="closed-badge">Mes cerrado · resultado fijo</span>
-        ) : (
-          <button className="close-month-btn" onClick={handleCerrarMes}>
-            Cerrar mes
-          </button>
-        )}
-      </div>
+      <p className="roster-hint" style={{ marginTop: -10, marginBottom: 20 }}>
+        Herramienta interna de administración. No afecta el resultado del OKR — el resultado oficial es el de "Ciclo
+        de vida del promotor" en la pantalla principal.
+      </p>
 
       <Pipeline stages={dashboard.pipeline} />
 
@@ -375,85 +259,9 @@ export default function Dashboard() {
 
       <VisibilidadMaterialesCard kpi={dashboard.visibilidadMateriales} />
 
+      <MaterialesResumen />
+
       <ComparacionIngresos />
-
-      <Lane
-        owner="mesa"
-        tag="MESA DE CONTROL"
-        emoji="🪪"
-        title="Kit administrativo entregado a tiempo"
-        weightLabel="Peso 57% · Mensual"
-        score={dashboard.kr1.score}
-      >
-        <KpiRow
-          emoji="🪪"
-          name="% con carta de acceso y credencial antes del día 1"
-          formula="Nuevos ingresos del mes con carta y credencial ÷ nuevos ingresos del mes"
-          kpi={dashboard.kr1.carta}
-        />
-        <KpiRow
-          emoji="💻"
-          name="% con usuario creado en Emetrix antes del día 1"
-          formula="Nuevos ingresos con usuario Emetrix ÷ nuevos ingresos del mes"
-          kpi={dashboard.kr1.usuario}
-        />
-        <KpiRow
-          emoji="📝"
-          name="% con contrato firmado antes del día 1"
-          formula="Nuevos ingresos con contrato firmado ÷ nuevos ingresos del mes"
-          kpi={dashboard.kr1.contrato}
-        />
-        <KpiRow
-          emoji="🩺"
-          name="% con alta ante el IMSS antes del día 1"
-          formula="Nuevos ingresos con alta IMSS ÷ nuevos ingresos del mes"
-          kpi={dashboard.kr1.imss}
-        />
-      </Lane>
-
-      <Lane
-        owner="ops"
-        tag="OPERACIONES"
-        emoji="🎒"
-        title="Materiales de campo entregados en calendario"
-        weightLabel="Peso 14% · Bimestral"
-        score={dashboard.kr2.score}
-      >
-        <KpiRow
-          emoji="🎒"
-          name="% con materiales entregados dentro del calendario comprometido"
-          formula="Ventanas vencidas este periodo = promotores que cumplen 2 meses de ingreso en el mes seleccionado"
-          kpi={dashboard.kr2.materiales}
-        />
-        <MaterialesResumen />
-      </Lane>
-
-      <Lane
-        owner="cap"
-        tag="CAPACITACIÓN"
-        emoji="📚"
-        title="Capacitación en módulos"
-        weightLabel="Peso 29% · Mensual"
-        score={dashboard.kr3.score}
-      >
-        <ModuleToggles
-          modulos={modulos}
-          onToggle={handleModuloToggle}
-          onComprometidosChange={handleComprometidosChange}
-        />
-        <KpiRow
-          emoji="📚"
-          name="% de módulos publicados y vigentes en Emetrix"
-          formula="Módulos publicados ÷ módulos comprometidos a la fecha"
-          kpi={dashboard.kr3.modulos}
-        />
-        <KpiRow
-          emoji="🎓"
-          name="% de promotores con el módulo que les toca por antigüedad completado"
-          formula="Completaron su módulo ÷ promotores que cumplieron esa antigüedad este mes"
-          kpi={dashboard.kr3.completado}
-        />
-      </Lane>
 
       {error && (
         <div className="save-status show" style={{ right: 'auto', left: 24, borderColor: 'var(--bad)', color: 'var(--bad)' }}>

@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireSession } from '@/lib/auth';
 import { esPeriodoValido, fetchDetalleCarga, periodoActual } from '@/lib/emetrix-ponderacion';
 import { formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
 import { sql } from '@vercel/postgres';
@@ -26,7 +26,7 @@ const ESTADO_LABEL: Record<EmetrixEstado, string> = {
 // segunda hoja con los USUARIO del Excel que no se pudieron cruzar (para
 // corregir el padrón). `periodo` default al mes actual si no se manda.
 export async function GET(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireSession();
   if (auth.error) return auth.error;
 
   const url = new URL(request.url);

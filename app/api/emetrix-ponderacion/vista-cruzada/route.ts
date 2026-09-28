@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireSession } from '@/lib/auth';
 import { esPeriodoValido, fetchVistaCruzada, periodoActual } from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic';
 // GET /api/emetrix-ponderacion/vista-cruzada?marcaId=...&periodo=YYYY-MM —
 // un renglón por promotor del padrón con su estado en cada uno de los 3 KR
 // EN ESE PERIODO. Vacío si la cuenta no tiene padrón cargado. `periodo`
-// default al mes actual si no se manda.
+// default al mes actual si no se manda. Lectura: cualquier usuario autenticado.
 export async function GET(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireSession();
   if (auth.error) return auth.error;
 
   const url = new URL(request.url);

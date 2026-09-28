@@ -16,6 +16,7 @@ import {
   updateCapacitacionOpcionTexto,
   updateCapacitacionPregunta,
 } from '@/lib/api-client';
+import SiteHeader from './SiteHeader';
 
 export default function CapacitacionesAdmin() {
   const [modulos, setModulos] = useState<CapacitacionModuloConPreguntas[] | null>(null);
@@ -197,14 +198,12 @@ export default function CapacitacionesAdmin() {
 
   return (
     <div className="wrap">
+      <SiteHeader />
       <header>
         <div>
-          <p className="eyebrow">OKR · Operaciones · Evolve</p>
+          <p className="eyebrow">Administración · Evolve</p>
           <h1>Exámenes de capacitación</h1>
         </div>
-        <a className="topbar-link" href="/">
-          ← Volver al tablero
-        </a>
       </header>
 
       <div className="roster">

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireGerente, requireSession } from '@/lib/auth';
 import { esPeriodoValido, fetchKpiManual, periodoActual, updateContratoFirmadoManual, updateImssManual, updateModulosPublicadosManual, validarBaseManual } from '@/lib/emetrix-ponderacion';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,7 @@ const CAMPOS_MANUAL_KPI: Array<{
 // {numerador, denominador, legacyPorcentaje} (sección 4-bis de la ficha
 // técnica). `periodo` default al mes actual si no se manda.
 export async function GET(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireSession();
   if (auth.error) return auth.error;
 
   const url = new URL(request.url);

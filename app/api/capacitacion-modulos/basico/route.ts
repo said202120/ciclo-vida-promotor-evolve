@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireDashboard } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { fetchCapacitacionModulosBasico } from '@/lib/capacitaciones';
 
 export const dynamic = 'force-dynamic';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 // preguntas. Para el padrón: cualquiera con acceso al tablero puede leerlo
 // (generar el link y ver el estatus), solo gerente administra el contenido.
 export async function GET() {
-  const auth = await requireDashboard();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
   return NextResponse.json(await fetchCapacitacionModulosBasico());
 }

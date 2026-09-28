@@ -1,20 +1,19 @@
 import { NextResponse } from 'next/server';
-import { requireDashboard, requireGerente } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { createSupervisor, fetchSupervisoresConMarca } from '@/lib/marcas';
 
 export const dynamic = 'force-dynamic';
 
 // GET /api/supervisores — lista plana (con marca) para el selector de
-// "supervisor asignado" del padrón. Cualquiera con acceso al tablero puede
-// leerla; solo gerente puede administrar el maestro (POST/PATCH/DELETE).
+// "supervisor asignado" del padrón (pantalla de Administración).
 export async function GET() {
-  const auth = await requireDashboard();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
   return NextResponse.json(await fetchSupervisoresConMarca());
 }
 
 export async function POST(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

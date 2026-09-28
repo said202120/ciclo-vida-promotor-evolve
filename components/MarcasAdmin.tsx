@@ -14,6 +14,7 @@ import {
   renameMarca,
   renameSupervisor,
 } from '@/lib/api-client';
+import SiteHeader from './SiteHeader';
 
 export default function MarcasAdmin() {
   const [marcas, setMarcas] = useState<MarcaConDetalle[] | null>(null);
@@ -122,14 +123,12 @@ export default function MarcasAdmin() {
 
   return (
     <div className="wrap">
+      <SiteHeader />
       <header>
         <div>
-          <p className="eyebrow">OKR · Operaciones · Evolve</p>
+          <p className="eyebrow">Administración · Evolve</p>
           <h1>Marcas, supervisores y ejecutivos</h1>
         </div>
-        <a className="topbar-link" href="/">
-          ← Volver al tablero
-        </a>
       </header>
 
       <div className="roster">

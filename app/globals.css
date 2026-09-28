@@ -2108,3 +2108,100 @@ body:has(.emetrix-tema) {
   border-color: var(--accent-2);
   color: var(--accent-2);
 }
+
+/* ============================================================================
+   Menú "Administración" (SiteHeader, dropdown discreto) — mismo patrón visual
+   que .password-cell/.password-popover (ChangePasswordButton). Usa las
+   variables compartidas de :root, así que hereda la paleta homologada cuando
+   SiteHeader se renderiza dentro de una pantalla con `.emetrix-tema`.
+   ============================================================================ */
+.admin-menu-cell {
+  position: relative;
+  display: inline-block;
+}
+.admin-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow:
+    0 8px 24px rgba(23, 30, 41, 0.16),
+    0 2px 6px rgba(23, 30, 41, 0.08);
+}
+.admin-menu-popover a {
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.admin-menu-popover a:hover {
+  background: var(--paper);
+}
+
+/* ============================================================================
+   Trayecto del promotor — banda decorativa bajo el título de "/" (item 2 de
+   la reorganización de pantallas): Ingreso → Kit admin. → Materiales →
+   Módulos. Solo visual, sin datos — el resultado real vive en el árbol OKR
+   de abajo. Usa grid con auto-fit para verse bien también en celular (380px)
+   sin necesitar scroll horizontal.
+   ============================================================================ */
+.emetrix-trayecto {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: -8px 0 22px;
+}
+@media (max-width: 480px) {
+  .emetrix-trayecto {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 8px;
+  }
+}
+.emetrix-trayecto-etapa {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.emetrix-trayecto-linea {
+  position: absolute;
+  top: 17px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+@media (max-width: 480px) {
+  .emetrix-trayecto-linea {
+    display: none;
+  }
+}
+.emetrix-trayecto-dot {
+  position: relative;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.emetrix-trayecto-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+}

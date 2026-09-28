@@ -48,6 +48,7 @@ export default function EmetrixPonderacionZona({
   incluyeCelularGuardado,
   headcountCuenta,
   onGuardado,
+  puedeEditar,
 }: {
   kr: EmetrixKr;
   marcaId: string;
@@ -61,6 +62,8 @@ export default function EmetrixPonderacionZona({
   /** Headcount de la cuenta (uno solo, capturado arriba en el panel de la cuenta). Solo para mostrar contexto en el override — el cálculo lo aplica el servidor. */
   headcountCuenta: number | null;
   onGuardado: () => void;
+  /** Solo gerente puede subir archivos y guardar cargas — quien no, solo ve el estatus y el detalle ya guardado. */
+  puedeEditar: boolean;
 }) {
   const [universoOverride, setUniversoOverride] = useState('');
   const [incluyeCelular, setIncluyeCelular] = useState<'si' | 'no' | ''>('');
@@ -177,112 +180,118 @@ export default function EmetrixPonderacionZona({
         <p className="roster-hint">Selecciona una cuenta arriba para cargar este KR.</p>
       ) : (
         <>
-          <form className="users-form" onSubmit={(e) => e.preventDefault()}>
-            <label>
-              Ajustar universo solo para este sondeo (opcional)
-              <input
-                type="number"
-                min={1}
-                placeholder={headcountCuenta !== null ? `Usa el headcount de la cuenta (${headcountCuenta})` : 'Sin headcount de cuenta capturado'}
-                value={universoOverride}
-                onChange={(e) => {
-                  setUniversoOverride(e.target.value);
-                  setPreview(null);
-                  setGuardado(false);
-                }}
-              />
-            </label>
-            {requiereCelular && (
-              <label>
-                ¿Esta cuenta incluye celular en el acuerdo comercial?
-                <select
-                  value={incluyeCelular}
-                  onChange={(e) => {
-                    setIncluyeCelular(e.target.value as 'si' | 'no' | '');
-                    setPreview(null);
-                    setGuardado(false);
-                  }}
-                >
-                  <option value="">Selecciona…</option>
-                  <option value="si">Sí</option>
-                  <option value="no">No</option>
-                </select>
-              </label>
-            )}
-            <label>
-              Archivo (.xlsx / .csv)
-              <input
-                type="file"
-                accept=".xlsx,.xlsm,.csv"
-                disabled={!puedeSubir}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleArchivo(file);
-                }}
-              />
-            </label>
-          </form>
+          {puedeEditar && (
+            <>
+              <form className="users-form" onSubmit={(e) => e.preventDefault()}>
+                <label>
+                  Ajustar universo solo para este sondeo (opcional)
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder={headcountCuenta !== null ? `Usa el headcount de la cuenta (${headcountCuenta})` : 'Sin headcount de cuenta capturado'}
+                    value={universoOverride}
+                    onChange={(e) => {
+                      setUniversoOverride(e.target.value);
+                      setPreview(null);
+                      setGuardado(false);
+                    }}
+                  />
+                </label>
+                {requiereCelular && (
+                  <label>
+                    ¿Esta cuenta incluye celular en el acuerdo comercial?
+                    <select
+                      value={incluyeCelular}
+                      onChange={(e) => {
+                        setIncluyeCelular(e.target.value as 'si' | 'no' | '');
+                        setPreview(null);
+                        setGuardado(false);
+                      }}
+                    >
+                      <option value="">Selecciona…</option>
+                      <option value="si">Sí</option>
+                      <option value="no">No</option>
+                    </select>
+                  </label>
+                )}
+                <label>
+                  Archivo (.xlsx / .csv)
+                  <input
+                    type="file"
+                    accept=".xlsx,.xlsm,.csv"
+                    disabled={!puedeSubir}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleArchivo(file);
+                    }}
+                  />
+                </label>
+              </form>
 
-          {faltaCelular && <p className="roster-hint">Indica si la cuenta incluye celular para poder subir el archivo.</p>}
-          {procesando && <p className="resumen-status">Procesando…</p>}
-          {error && <p className="login-error">{error}</p>}
+              {faltaCelular && <p className="roster-hint">Indica si la cuenta incluye celular para poder subir el archivo.</p>}
+              {procesando && <p className="resumen-status">Procesando…</p>}
+              {error && <p className="login-error">{error}</p>}
 
-          {preview && (
-            <div className="emetrix-preview">
-              <p className="emetrix-kpi-label">Cumplimiento</p>
-              <p className="emetrix-cumplimiento-principal">
-                {kr === 'mesa_control'
-                  ? (() => {
-                      const p = porcentajeOkrMesaControl(preview.preguntas);
-                      return p !== null ? `${p}%` : 'No reconocido en este archivo';
-                    })()
-                  : `${preview.porcentaje}%`}
-              </p>
-              {kr === 'mesa_control' && (
-                <p className="roster-hint">
-                  Promedio de "Entrada a tienda" y "Emetrix funcionó" (los 2 KPI de KR1 en el OKR) — no el % de las 4
-                  preguntas del sondeo completo.
-                </p>
+              {preview && (
+                <div className="emetrix-preview">
+                  <p className="emetrix-kpi-label">Cumplimiento</p>
+                  <p className="emetrix-cumplimiento-principal">
+                    {kr === 'mesa_control'
+                      ? (() => {
+                          const p = porcentajeOkrMesaControl(preview.preguntas);
+                          return p !== null ? `${p}%` : 'No reconocido en este archivo';
+                        })()
+                      : `${preview.porcentaje}%`}
+                  </p>
+                  {kr === 'mesa_control' && (
+                    <p className="roster-hint">
+                      Promedio de "Entrada a tienda" y "Emetrix funcionó" (los 2 KPI de KR1 en el OKR) — no el % de las 4
+                      preguntas del sondeo completo.
+                    </p>
+                  )}
+                  <p>
+                    {preview.universoFuente === 'sin_universo'
+                      ? `Contestaron ${preview.respondieron} promotores (no se definió el total del equipo)`
+                      : `Contestaron ${preview.respondieron} de ${preview.universoUsado} promotores (${preview.porcentajeRespuesta}%)`}
+                  </p>
+                  {preview.universoFuente === 'sin_universo' ? (
+                    <p className="emetrix-nota">No se definió el total de promotores de esta cuenta.</p>
+                  ) : (
+                    preview.enAlerta && <p className="emetrix-nota">Contestó menos del {preview.umbralRespuesta}% del equipo.</p>
+                  )}
+
+                  <details className="emetrix-detalle-tecnico">
+                    <summary>Ver detalle técnico</summary>
+                    {preview.diagnostico.columnaUsuario && <p className="roster-hint">{preview.diagnostico.columnaUsuario}</p>}
+                    {preview.diagnostico.formatoLargo && <p className="roster-hint">{preview.diagnostico.formatoLargo}</p>}
+                    <p className="roster-hint">
+                      Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}
+                      {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas} (sin USUARIO: {preview.diagnostico.filasSinUsuario},
+                      duplicadas: {preview.diagnostico.filasDuplicadas}) · promotores únicos del archivo:{' '}
+                      {preview.diagnostico.filasLeidas - preview.diagnostico.filasSinUsuario - preview.diagnostico.filasDuplicadas}
+                    </p>
+                  </details>
+
+                  {preview.preguntas.length > 0 && (
+                    <details className="emetrix-detalle-tecnico">
+                      <summary>Ver resultado por pregunta</summary>
+                      <TablaPreguntas preguntas={preview.preguntas} />
+                    </details>
+                  )}
+
+                  {guardado ? (
+                    <p className="emetrix-guardado">✓ Carga guardada.</p>
+                  ) : (
+                    <button type="button" className="close-month-btn" onClick={handleGuardar} disabled={guardando}>
+                      {guardando ? 'Guardando…' : 'Guardar carga'}
+                    </button>
+                  )}
+                </div>
               )}
-              <p>
-                {preview.universoFuente === 'sin_universo'
-                  ? `Contestaron ${preview.respondieron} promotores (no se definió el total del equipo)`
-                  : `Contestaron ${preview.respondieron} de ${preview.universoUsado} promotores (${preview.porcentajeRespuesta}%)`}
-              </p>
-              {preview.universoFuente === 'sin_universo' ? (
-                <p className="emetrix-nota">No se definió el total de promotores de esta cuenta.</p>
-              ) : (
-                preview.enAlerta && <p className="emetrix-nota">Contestó menos del {preview.umbralRespuesta}% del equipo.</p>
-              )}
-
-              <details className="emetrix-detalle-tecnico">
-                <summary>Ver detalle técnico</summary>
-                {preview.diagnostico.columnaUsuario && <p className="roster-hint">{preview.diagnostico.columnaUsuario}</p>}
-                {preview.diagnostico.formatoLargo && <p className="roster-hint">{preview.diagnostico.formatoLargo}</p>}
-                <p className="roster-hint">
-                  Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}
-                  {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas} (sin USUARIO: {preview.diagnostico.filasSinUsuario},
-                  duplicadas: {preview.diagnostico.filasDuplicadas}) · promotores únicos del archivo:{' '}
-                  {preview.diagnostico.filasLeidas - preview.diagnostico.filasSinUsuario - preview.diagnostico.filasDuplicadas}
-                </p>
-              </details>
-
-              {preview.preguntas.length > 0 && (
-                <details className="emetrix-detalle-tecnico">
-                  <summary>Ver resultado por pregunta</summary>
-                  <TablaPreguntas preguntas={preview.preguntas} />
-                </details>
-              )}
-
-              {guardado ? (
-                <p className="emetrix-guardado">✓ Carga guardada.</p>
-              ) : (
-                <button type="button" className="close-month-btn" onClick={handleGuardar} disabled={guardando}>
-                  {guardando ? 'Guardando…' : 'Guardar carga'}
-                </button>
-              )}
-            </div>
+            </>
           )}
+
+          {!puedeEditar && !cargado && <p className="roster-hint">Todavía no se ha cargado este sondeo este periodo.</p>}
 
           {cargado && (
             <div className="emetrix-detalle">

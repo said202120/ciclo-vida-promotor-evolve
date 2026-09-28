@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { createCapacitacionPregunta } from '@/lib/capacitaciones';
 import type { CapacitacionPreguntaTipo } from '@/lib/types';
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const TIPOS_VALIDOS: CapacitacionPreguntaTipo[] = ['texto', 'supervisor_directo', 'coordinador_cuenta'];
 
 export async function POST(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

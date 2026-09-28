@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireDashboard } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { fetchRecordatoriosMateriales } from '@/lib/recordatorios';
 
 export const dynamic = 'force-dynamic';
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 // ingreso este mes calendario (siempre "ahora", no depende del mes que se
 // esté viendo en el tablero).
 export async function GET() {
-  const auth = await requireDashboard();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   return NextResponse.json(await fetchRecordatoriosMateriales());

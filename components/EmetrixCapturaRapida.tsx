@@ -58,10 +58,13 @@ export default function EmetrixCapturaRapida({
   cuentas,
   periodo,
   onCambio,
+  puedeEditar,
 }: {
   cuentas: EmetrixOkrResultadoCuenta[];
   periodo: string;
   onCambio: () => void;
+  /** Solo gerente puede capturar estos valores — quien no, ve la tabla en solo lectura. */
+  puedeEditar: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
 
@@ -115,20 +118,25 @@ export default function EmetrixCapturaRapida({
                           labelDenominador={col.labelDenominador}
                           anchoInput={80}
                           onGuardar={(numerador, denominador) => handleManualGuardar(col.update, c.marcaId, numerador, denominador)}
+                          readOnly={!puedeEditar}
                         />
                       </td>
                     );
                   })}
                   <td>
-                    <input
-                      type="number"
-                      min={1}
-                      defaultValue={c.headcountManual ?? ''}
-                      placeholder="Sin headcount"
-                      key={`${c.marcaId}-headcount-${c.headcountManual ?? 'vacio'}`}
-                      onBlur={(e) => handleHeadcountBlur(c.marcaId, e.target.value)}
-                      style={{ width: 90 }}
-                    />
+                    {puedeEditar ? (
+                      <input
+                        type="number"
+                        min={1}
+                        defaultValue={c.headcountManual ?? ''}
+                        placeholder="Sin headcount"
+                        key={`${c.marcaId}-headcount-${c.headcountManual ?? 'vacio'}`}
+                        onBlur={(e) => handleHeadcountBlur(c.marcaId, e.target.value)}
+                        style={{ width: 90 }}
+                      />
+                    ) : (
+                      <span className="roster-hint">{c.headcountManual ?? 'Sin headcount'}</span>
+                    )}
                   </td>
                 </tr>
               );

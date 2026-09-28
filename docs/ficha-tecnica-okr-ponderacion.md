@@ -1,13 +1,59 @@
 # Ficha técnica — OKR de Ponderación de Cumplimiento (Plan B)
 
-Pantalla `/emetrix-ponderacion` (solo rol gerente), más `GET
-/api/okr-resultados` (lectura para EvolveOS, sección 11). Respaldo manual del
-OKR "Ciclo de vida del promotor" mientras se resuelve la integración
-automática completa con Evolve OS. Implementación: `lib/emetrix-ponderacion.ts`
-(acceso a base de datos) + `lib/emetrix-ponderacion-calc.ts` (toda la
-matemática, funciones puras — ver sección 9) + `lib/okr-oficial.ts` (nombres,
-metas y códigos LITERALES del OKR oficial de Dirección, archivo de datos sin
-lógica — ver sección 4-ter).
+Pantalla principal del portal, `/` (cualquier usuario autenticado puede
+verla; solo gerente puede editar — ver la entrada de reorganización de
+pantallas más abajo). `/emetrix-ponderacion` redirige a `/` — se conserva por
+compatibilidad con enlaces guardados. Más `GET /api/okr-resultados` (lectura
+para EvolveOS, sección 11). Respaldo manual del OKR "Ciclo de vida del
+promotor" mientras se resuelve la integración automática completa con Evolve
+OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de datos) +
+`lib/emetrix-ponderacion-calc.ts` (toda la matemática, funciones puras — ver
+sección 9) + `lib/okr-oficial.ts` (nombres, metas y códigos LITERALES del OKR
+oficial de Dirección, archivo de datos sin lógica — ver sección 4-ter).
+
+**2026-09-28 (reorganización de pantallas del portal)** — "Ciclo de vida del
+promotor" (antes `/emetrix-ponderacion`, exclusivo de gerente) es ahora la
+pantalla principal del portal en `/`, visible para CUALQUIER usuario
+autenticado — solo gerente puede editar (subir archivos, capturar KPI manual,
+umbral, headcount); los demás roles la ven en solo lectura
+(`EmetrixPonderacionAdmin.tsx` calcula `puedeEditar` con `fetchMe()` y lo pasa
+a `EmetrixPonderacionZona`/`EmetrixKpiBaseInputs`/`EmetrixCapturaRapida`; las
+rutas GET de `/api/emetrix-ponderacion/*` pasaron de `requireGerente` a
+`requireSession`, las de escritura — POST/PATCH — siguen exigiendo gerente).
+`/emetrix-ponderacion` ahora solo redirige a `/`. Encabezado con el logo de
+Evolve y una banda decorativa del trayecto del promotor
+(`components/TrayectoBanda.tsx`, Ingreso → Kit admin. → Materiales →
+Módulos, sin datos — puramente visual). "Plan B" y "Volver al tablero"
+desaparecieron de toda la interfaz.
+
+La pantalla anterior (roster de promotores, Importar Aspel, materiales,
+módulos — SIN el círculo de "Resultado OKR" ni las 3 franjas KR1/KR2/KR3 de
+`lib/calc.ts`, que se quitaron de esta vista para que el único resultado
+OKR oficial sea el de "/") vive ahora en `/padron`, dentro de un menú
+discreto "Administración" (junto con `/usuarios`, `/marcas` y
+`/capacitaciones`) visible SOLO para el usuario de Omar Said (por email,
+`lib/admin-permisos.ts`) y para los roles `mesa_control`/`nomina` — ni
+gerente ni ejecutivo la ven por su rol. Quien entra por URL directa sin
+permiso vuelve a "/" (`redirect('/')` en cada `page.tsx` de Administración).
+Las rutas de esas 4 pantallas (antes `requireGerente`/`requireDashboard`)
+ahora usan `requireAdministracion()` (`lib/auth.ts`), que exige sesión +
+`puedeVerAdministracion`. "Cerrar mes" se ocultó de `/padron`: solo escribía
+en `cierres_mensuales`, tabla que ya no lee ninguna otra pantalla — el botón
+y sus rutas (`/api/cierres`, `/api/cierres/cerrar`) se dejaron sin tocar
+(código vivo pero sin UI que lo dispare), no se borró nada. `ModuleToggles`
+(publicar mod1-mod4 + comprometidos) también se dejó de mostrar ahí por la
+misma razón (alimentaba el % de KR3 de `lib/calc.ts`); su tabla y su API
+(`/api/modulos`) siguen intactas.
+
+Menú simple para todos los roles (`components/SiteHeader.tsx`, en todas las
+pantallas autenticadas): "Ciclo de vida del promotor" (→ `/`), "Cambiar
+contraseña" y "Cerrar sesión"; "Administración ▾" se agrega como dropdown
+discreto solo si `puedeVerAdministracion`.
+
+Ninguna regla de cumple/no cumple, ningún peso ni ningún cálculo del OKR
+oficial cambió — confirmado con `npm test` (38 pruebas), que sigue dando
+Spin Master 65.27%, ADM 61.49% y Hanes 43.58% para 2026-09. Verificado
+`npx tsc --noEmit` y `npm run build` sin errores tras el reacomodo de rutas.
 
 **2026-09-27 (diseño homologado de la guía de Operaciones)** — `/emetrix-ponderacion`
 adopta la paleta y tipografía de la guía de indicadores de Operaciones. Es un

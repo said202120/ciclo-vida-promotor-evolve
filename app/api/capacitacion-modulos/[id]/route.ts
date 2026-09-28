@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { deleteCapacitacionModulo, updateCapacitacionModulo } from '@/lib/capacitaciones';
 
 export const dynamic = 'force-dynamic';
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireGerente();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const { id } = await params;
@@ -32,7 +32,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireGerente();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const { id } = await params;

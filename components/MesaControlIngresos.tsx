@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import type { IngresoMes } from '@/lib/types';
-import { fetchIngresosMes, logout, updateIngresoCampo } from '@/lib/api-client';
-import ChangePasswordButton from './ChangePasswordButton';
+import { fetchIngresosMes, updateIngresoCampo } from '@/lib/api-client';
+import SiteHeader from './SiteHeader';
 
 const MONTH_NAMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -31,7 +30,6 @@ function monthsSince(fechaIngreso: string): number {
 }
 
 export default function MesaControlIngresos() {
-  const router = useRouter();
   const [mes, setMes] = useState(currentMonthKey());
   const [ingresos, setIngresos] = useState<IngresoMes[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,15 +47,6 @@ export default function MesaControlIngresos() {
     reload(mes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mes]);
-
-  async function handleLogout() {
-    try {
-      await logout();
-    } finally {
-      router.push('/login');
-      router.refresh();
-    }
-  }
 
   async function handleToggle(promotorId: string, campo: 'carta' | 'usuario', valor: boolean) {
     setIngresos((prev) => (prev ? prev.map((p) => (p.id === promotorId ? { ...p, [campo]: valor } : p)) : prev));
@@ -79,20 +68,15 @@ export default function MesaControlIngresos() {
 
   return (
     <div className="wrap">
+      <SiteHeader />
       <header>
         <div>
-          <p className="eyebrow">OKR · Operaciones · Evolve · Mesa de Control</p>
+          <p className="eyebrow">Administración · Evolve · Mesa de Control</p>
           <h1>Carta de ingreso y Usuario Emetrix</h1>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <a className="topbar-link" href="/importar-aspel">
-            Importar Aspel
-          </a>
-          <ChangePasswordButton />
-          <button type="button" className="topbar-link" onClick={handleLogout}>
-            Cerrar sesión
-          </button>
-        </div>
+        <a className="topbar-link" href="/importar-aspel">
+          Importar Aspel
+        </a>
       </header>
 
       <p className="roster-hint" style={{ margin: '-8px 0 20px' }}>

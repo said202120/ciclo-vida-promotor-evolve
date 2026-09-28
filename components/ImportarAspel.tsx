@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import type {
   ImportAplicarResultado,
   ImportCampo,
@@ -17,13 +16,12 @@ import {
   fetchImportLog,
   fetchMe,
   fetchPromotoresParaImportar,
-  logout,
   parseImportFile,
   saveImportConfig,
 } from '@/lib/api-client';
 import { extractRegistros, parseFlexibleDate } from '@/lib/import-shared';
 import { CAMPOS_PERMITIDOS, esRolImportador, type RolImportador } from '@/lib/import-permisos';
-import ChangePasswordButton from './ChangePasswordButton';
+import SiteHeader from './SiteHeader';
 
 const PREVIEW_ROWS = 5;
 
@@ -109,7 +107,6 @@ function validateMapeo(mapeo: ImportMapeo, rol: RolImportador | null): string | 
 }
 
 export default function ImportarAspel() {
-  const router = useRouter();
   const [parsed, setParsed] = useState<ImportParseResult | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -136,15 +133,6 @@ export default function ImportarAspel() {
     fetchImportLog()
       .then(setHistory)
       .catch(() => setHistory([]));
-  }
-
-  async function handleLogout() {
-    try {
-      await logout();
-    } finally {
-      router.push('/login');
-      router.refresh();
-    }
   }
 
   useEffect(() => {
@@ -281,22 +269,17 @@ export default function ImportarAspel() {
 
   return (
     <div className="wrap">
+      <SiteHeader />
       <header>
         <div>
-          <p className="eyebrow">OKR · Operaciones · Evolve{rol && ` · ${ROL_LABEL[rol]}`}</p>
+          <p className="eyebrow">Administración · Evolve{rol && ` · ${ROL_LABEL[rol]}`}</p>
           <h1>Importar actualización de Aspel</h1>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {rol === 'mesa_control' && (
-            <a className="topbar-link" href="/mesa-control">
-              Carta y Usuario Emetrix
-            </a>
-          )}
-          <ChangePasswordButton />
-          <button type="button" className="topbar-link" onClick={handleLogout}>
-            Cerrar sesión
-          </button>
-        </div>
+        {rol === 'mesa_control' && (
+          <a className="topbar-link" href="/mesa-control">
+            Carta y Usuario Emetrix
+          </a>
+        )}
       </header>
 
       {rol && (

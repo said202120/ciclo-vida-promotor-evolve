@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireGerente, requireSession } from '@/lib/auth';
 import { esPeriodoValido, fetchHistorial, guardarCarga, periodoActual } from '@/lib/emetrix-ponderacion';
 import type { EmetrixCargaPreview, EmetrixEstado, EmetrixFilaDetalle, EmetrixKr, EmetrixPreguntaResumen, EmetrixUniversoFuente } from '@/lib/types';
 
@@ -12,8 +12,9 @@ const ESTADOS_VALIDOS: EmetrixEstado[] = ['cumple', 'no_cumple', 'no_contesto'];
 // GET /api/emetrix-ponderacion/cargas?marcaId=...&periodo=YYYY-MM —
 // historial de cargas de ESE PERIODO (todas las cuentas, o filtrado a una).
 // Más reciente primero. `periodo` default al mes actual si no se manda.
+// Lectura: cualquier usuario autenticado.
 export async function GET(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireSession();
   if (auth.error) return auth.error;
 
   const url = new URL(request.url);

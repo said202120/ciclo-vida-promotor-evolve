@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Rol, Usuario } from '@/lib/types';
 import { createUsuario, fetchUsuarios } from '@/lib/api-client';
+import SiteHeader from './SiteHeader';
 
 const ROL_LABEL: Record<Rol, string> = {
   gerente: 'Gerente',
@@ -14,10 +15,10 @@ const ROL_LABEL: Record<Rol, string> = {
 const ROL_OPTIONS: Rol[] = ['gerente', 'ejecutivo', 'mesa_control', 'nomina'];
 
 const ROL_ACCESO: Record<Rol, string> = {
-  gerente: 'Tablero completo',
-  ejecutivo: 'Tablero completo',
-  mesa_control: 'Solo importar Aspel',
-  nomina: 'Solo importar Aspel',
+  gerente: 'Ve el OKR y puede editarlo',
+  ejecutivo: 'Solo ve el OKR (lectura)',
+  mesa_control: 'Importar Aspel + Administración',
+  nomina: 'Importar Aspel + Administración',
 };
 
 export default function UsersAdmin() {
@@ -64,14 +65,12 @@ export default function UsersAdmin() {
 
   return (
     <div className="wrap">
+      <SiteHeader />
       <header>
         <div>
-          <p className="eyebrow">OKR · Operaciones · Evolve</p>
+          <p className="eyebrow">Administración · Evolve</p>
           <h1>Usuarios</h1>
         </div>
-        <a className="add-row" href="/">
-          ← Volver al tablero
-        </a>
       </header>
 
       <div className="roster">

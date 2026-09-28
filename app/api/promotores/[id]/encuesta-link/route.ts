@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireDashboard } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { getOrCreateEncuestaLink, type EncuestaTipo } from '@/lib/encuestas';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +10,7 @@ const TIPOS_VALIDOS: EncuestaTipo[] = ['mesa_control', 'materiales'];
 // devuelve (o crea) el código único de esa encuesta para ese promotor, para
 // que el ejecutivo lo copie y se lo mande.
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireDashboard();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const tipo = new URL(request.url).searchParams.get('tipo');

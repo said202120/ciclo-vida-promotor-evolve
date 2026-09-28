@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@vercel/postgres';
-import { requireDashboard } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { fetchAllPromotores, fetchPromotorById } from '@/lib/promotores';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const auth = await requireDashboard();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   return NextResponse.json(await fetchAllPromotores());
 }
 
 export async function POST(request: Request) {
-  const auth = await requireDashboard();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

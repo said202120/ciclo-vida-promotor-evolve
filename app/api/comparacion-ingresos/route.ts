@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireDashboard } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { fetchComparacionIngresos } from '@/lib/encuestas';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 // GET /api/comparacion-ingresos?mes=YYYY-MM — sistema vs. lo que reportó
 // el promotor en la encuesta, para los nuevos ingresos de ese mes.
 export async function GET(request: Request) {
-  const auth = await requireDashboard();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const mes = new URL(request.url).searchParams.get('mes') ?? '';

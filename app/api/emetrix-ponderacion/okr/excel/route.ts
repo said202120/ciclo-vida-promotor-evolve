@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireSession } from '@/lib/auth';
 import { aplanarArbolOkr, esPeriodoValido, fetchResultadoOkrTodasCuentas, periodoActual } from '@/lib/emetrix-ponderacion';
 import { formatPeriodoLabel } from '@/lib/emetrix-ponderacion-calc';
 
@@ -27,7 +27,7 @@ function nombreHoja(marcaNombre: string, usados: Set<string>): string {
 // Descripción, Capa, Owner, Peso (%), % Obtenido, Fuente). `periodo` default
 // al mes actual si no se manda.
 export async function GET(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireSession();
   if (auth.error) return auth.error;
 
   const periodo = new URL(request.url).searchParams.get('periodo') ?? periodoActual();

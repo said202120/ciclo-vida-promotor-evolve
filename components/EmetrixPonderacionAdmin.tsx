@@ -18,11 +18,14 @@ import {
   updateModulosPublicadosManualEmetrixPonderacion,
   updateUmbralRespuestaEmetrixPonderacion,
 } from '@/lib/api-client';
+import { fetchMe } from '@/lib/api-client';
 import EmetrixPonderacionZona from './EmetrixPonderacionZona';
 import EmetrixComoVaCadaCuenta from './EmetrixComoVaCadaCuenta';
 import EmetrixPendientesIndicador from './EmetrixPendientesIndicador';
 import EmetrixCapturaRapida from './EmetrixCapturaRapida';
 import EmetrixKpiBaseInputs from './EmetrixKpiBaseInputs';
+import SiteHeader from './SiteHeader';
+import TrayectoBanda from './TrayectoBanda';
 
 const TODAS = '__todas__';
 
@@ -82,10 +85,12 @@ function ArbolOkrTabla({
   raiz,
   kpiManualBase,
   onManualKpiChange,
+  puedeEditar,
 }: {
   raiz: EmetrixOkrNodo;
   kpiManualBase: EmetrixOkrResultadoCuenta['kpiManualBase'];
   onManualKpiChange: (codigo: string, numerador: number | null, denominador: number | null) => void;
+  puedeEditar: boolean;
 }) {
   return (
     <div className="emetrix-detalle-tabla-wrap">
@@ -110,7 +115,7 @@ function ArbolOkrTabla({
                 </td>
                 <td>{nodo.peso}%</td>
                 <td>
-                  {config ? (
+                  {config && puedeEditar ? (
                     <>
                       <EmetrixKpiBaseInputs
                         entrada={config.entrada(kpiManualBase)}
@@ -136,6 +141,7 @@ function ArbolOkrTabla({
 }
 
 export default function EmetrixPonderacionAdmin() {
+  const [puedeEditar, setPuedeEditar] = useState(false);
   const [marcas, setMarcas] = useState<MarcaConDetalle[]>([]);
   const [marcaId, setMarcaId] = useState(TODAS);
   const [periodos, setPeriodos] = useState<string[]>([]);
@@ -149,6 +155,9 @@ export default function EmetrixPonderacionAdmin() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    fetchMe()
+      .then((usuario) => setPuedeEditar(usuario.rol === 'gerente'))
+      .catch(() => setPuedeEditar(false));
     fetchMarcas()
       .then(setMarcas)
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo cargar el maestro de marcas.'));
@@ -249,15 +258,14 @@ export default function EmetrixPonderacionAdmin() {
 
   return (
     <div className="wrap emetrix-tema">
+      <SiteHeader />
       <header>
         <div>
           <p className="eyebrow">OKR · Operaciones · Evolve</p>
-          <h1>Ciclo de vida del promotor — Ponderación de cumplimiento</h1>
+          <h1>Ciclo de vida del promotor</h1>
         </div>
-        <a className="topbar-link" href="/">
-          ← Volver al tablero
-        </a>
       </header>
+      <TrayectoBanda />
       <p className="roster-hint" style={{ marginTop: -8, marginBottom: 20, maxWidth: 720 }}>
         Espejo del OKR oficial "Ciclo de vida del promotor" (el archivo de Carlos conectado a EvolveOS): mismos KR,
         mismos KPI, mismos pesos — OKR = KR1×30% + KR2×40% + KR3×30%. Los KPI de sondeo (Mesa de Control, Materiales,
@@ -325,28 +333,36 @@ export default function EmetrixPonderacionAdmin() {
             <p className="roster-hint" style={{ marginTop: 0, marginBottom: 14 }}>
               Contrato firmado, Alta IMSS y Módulos publicados son de este periodo; el headcount no.
             </p>
-            <EmetrixCapturaRapida cuentas={okrTodas} periodo={periodo} onCambio={handleCapturaRapidaCambio} />
+            <EmetrixCapturaRapida cuentas={okrTodas} periodo={periodo} onCambio={handleCapturaRapidaCambio} puedeEditar={puedeEditar} />
           </div>
         </>
       ) : (
         <>
           <div className="roster emetrix-headcount-cuenta">
-            <label className="roster-hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              Headcount de la cuenta (uno solo, aplica a los 3 sondeos)
-              <input
-                type="number"
-                min={1}
-                placeholder="Sin headcount"
-                defaultValue={config?.headcountManual ?? ''}
-                key={`${marcaId}-${config?.headcountManual ?? 'vacio'}`}
-                onBlur={(e) => handleHeadcountChange(e.target.value)}
-                style={{ width: 90 }}
-              />
-            </label>
-            <p className="roster-hint" style={{ margin: '6px 0 0' }}>
-              Puedes ajustar el universo solo para un sondeo puntual al subirlo. Si esta cuenta no tiene headcount
-              capturado, ese KPI queda "sin universo" y en alerta.
-            </p>
+            {puedeEditar ? (
+              <label className="roster-hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                Headcount de la cuenta (uno solo, aplica a los 3 sondeos)
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="Sin headcount"
+                  defaultValue={config?.headcountManual ?? ''}
+                  key={`${marcaId}-${config?.headcountManual ?? 'vacio'}`}
+                  onBlur={(e) => handleHeadcountChange(e.target.value)}
+                  style={{ width: 90 }}
+                />
+              </label>
+            ) : (
+              <span className="roster-hint">
+                Headcount de la cuenta: {config?.headcountManual ?? 'sin capturar'}
+              </span>
+            )}
+            {puedeEditar && (
+              <p className="roster-hint" style={{ margin: '6px 0 0' }}>
+                Puedes ajustar el universo solo para un sondeo puntual al subirlo. Si esta cuenta no tiene headcount
+                capturado, ese KPI queda "sin universo" y en alerta.
+              </p>
+            )}
           </div>
 
           <div className="emetrix-zonas-grid">
@@ -359,6 +375,7 @@ export default function EmetrixPonderacionAdmin() {
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
               headcountCuenta={config?.headcountManual ?? null}
               onGuardado={handleGuardado}
+              puedeEditar={puedeEditar}
             />
             <EmetrixPonderacionZona
               kr="materiales"
@@ -369,6 +386,7 @@ export default function EmetrixPonderacionAdmin() {
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
               headcountCuenta={config?.headcountManual ?? null}
               onGuardado={handleGuardado}
+              puedeEditar={puedeEditar}
             />
             <EmetrixPonderacionZona
               kr="marca"
@@ -379,6 +397,7 @@ export default function EmetrixPonderacionAdmin() {
               incluyeCelularGuardado={config?.incluyeCelular ?? null}
               headcountCuenta={config?.headcountManual ?? null}
               onGuardado={handleGuardado}
+              puedeEditar={puedeEditar}
             />
           </div>
 
@@ -388,7 +407,7 @@ export default function EmetrixPonderacionAdmin() {
                 OKR — Ciclo de vida del promotor · {formatPeriodoLabel(periodo)}
                 {okr?.enAlerta && <span className="emetrix-alerta-badge" style={{ marginLeft: 8 }}>⚠ alerta</span>}
               </p>
-              {okr && (
+              {okr && puedeEditar && (
                 <label className="roster-hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   Umbral de respuesta mínimo
                   <input
@@ -404,8 +423,18 @@ export default function EmetrixPonderacionAdmin() {
                   %
                 </label>
               )}
+              {okr && !puedeEditar && (
+                <span className="roster-hint">Umbral de respuesta mínimo: {okr.umbralRespuesta}%</span>
+              )}
             </div>
-            {okr && <ArbolOkrTabla raiz={okr.raiz} kpiManualBase={okr.kpiManualBase} onManualKpiChange={handleManualKpiChange} />}
+            {okr && (
+              <ArbolOkrTabla
+                raiz={okr.raiz}
+                kpiManualBase={okr.kpiManualBase}
+                onManualKpiChange={handleManualKpiChange}
+                puedeEditar={puedeEditar}
+              />
+            )}
           </div>
 
           {vistaCruzada.length > 0 && (

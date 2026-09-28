@@ -29,12 +29,15 @@ export default function EmetrixKpiBaseInputs({
   labelDenominador,
   onGuardar,
   anchoInput = 64,
+  readOnly = false,
 }: {
   entrada: EmetrixKpiManualBase;
   labelNumerador: string;
   labelDenominador: string;
   onGuardar: (numerador: number | null, denominador: number | null) => void;
   anchoInput?: number;
+  /** Solo gerente puede capturar estos 2 números — quien no, ve el valor en texto plano. */
+  readOnly?: boolean;
 }) {
   const [numerador, setNumerador] = useState(aTexto(entrada.numerador));
   const [denominador, setDenominador] = useState(aTexto(entrada.denominador));
@@ -46,6 +49,19 @@ export default function EmetrixKpiBaseInputs({
 
   function guardar(numeradorTexto: string, denominadorTexto: string) {
     onGuardar(aNumero(numeradorTexto), aNumero(denominadorTexto));
+  }
+
+  if (readOnly) {
+    return (
+      <div className="emetrix-kpi-base-inputs">
+        <span className="roster-hint">
+          {labelNumerador}: {numerador || '—'} · {labelDenominador}: {denominador || '—'}
+        </span>
+        {entrada.numerador === null && entrada.denominador === null && entrada.legacyPorcentaje !== null && (
+          <span className="roster-hint emetrix-kpi-base-legacy">Antes (sin base): {entrada.legacyPorcentaje}%</span>
+        )}
+      </div>
+    );
   }
 
   return (

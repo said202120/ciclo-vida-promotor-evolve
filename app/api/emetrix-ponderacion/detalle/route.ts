@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireSession } from '@/lib/auth';
 import { esPeriodoValido, fetchDetalleCarga, periodoActual } from '@/lib/emetrix-ponderacion';
 import type { EmetrixKr } from '@/lib/types';
 
@@ -10,8 +10,9 @@ const KRS_VALIDOS: EmetrixKr[] = ['mesa_control', 'materiales', 'marca'];
 // GET /api/emetrix-ponderacion/detalle?marcaId=...&kr=...&periodo=YYYY-MM —
 // detalle por promotor de la carga más reciente de ese KR EN ESE PERIODO
 // para esa cuenta. `periodo` default al mes actual si no se manda.
+// Lectura: cualquier usuario autenticado.
 export async function GET(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireSession();
   if (auth.error) return auth.error;
 
   const url = new URL(request.url);

@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { createCapacitacionOpcion } from '@/lib/capacitaciones';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  const auth = await requireGerente();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

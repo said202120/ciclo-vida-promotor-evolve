@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireGerente } from '@/lib/auth';
+import { requireAdministracion } from '@/lib/auth';
 import { deleteCapacitacionOpcion, marcarOpcionCorrecta, updateCapacitacionOpcionTexto } from '@/lib/capacitaciones';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 // PATCH body: { texto } para renombrar, o { correcta: true, preguntaId } para
 // marcarla como la única correcta de su pregunta (desmarca a las demás).
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireGerente();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const { id } = await params;
@@ -33,7 +33,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireGerente();
+  const auth = await requireAdministracion();
   if (auth.error) return auth.error;
 
   const { id } = await params;
