@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdministracion } from '@/lib/auth';
+import { requireAdminCompleta } from '@/lib/auth';
 import { createUser, listUsers } from '@/lib/users';
 import type { Rol } from '@/lib/types';
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const ROLES_VALIDOS: Rol[] = ['gerente', 'ejecutivo', 'mesa_control', 'nomina'];
 
 export async function GET() {
-  const check = await requireAdministracion();
+  const check = await requireAdminCompleta();
   if (check.error) return check.error;
   return NextResponse.json(await listUsers());
 }
@@ -16,7 +16,7 @@ export async function GET() {
 // Crea un usuario de cualquier rol (el gerente ya existe vía script de bootstrap).
 // Sin autoregistro: solo un gerente puede crear cuentas, desde /usuarios.
 export async function POST(request: Request) {
-  const check = await requireAdministracion();
+  const check = await requireAdminCompleta();
   if (check.error) return check.error;
 
   const body = await request.json().catch(() => ({}));

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Usuario } from '@/lib/types';
 import { fetchMe, logout } from '@/lib/api-client';
-import { puedeVerAdministracion } from '@/lib/admin-permisos';
+import { puedeVerAdminCompleta, puedeVerAdministracion } from '@/lib/admin-permisos';
 import ChangePasswordButton from './ChangePasswordButton';
 
 /**
@@ -54,6 +54,7 @@ export default function SiteHeader() {
   }
 
   const mostrarAdmin = !!usuario && puedeVerAdministracion(usuario);
+  const mostrarAdminCompleta = !!usuario && puedeVerAdminCompleta(usuario);
 
   return (
     <div className="topbar">
@@ -73,15 +74,19 @@ export default function SiteHeader() {
                     <a href="/padron" role="menuitem">
                       Padrón
                     </a>
-                    <a href="/usuarios" role="menuitem">
-                      Usuarios
-                    </a>
-                    <a href="/marcas" role="menuitem">
-                      Marcas
-                    </a>
-                    <a href="/capacitaciones" role="menuitem">
-                      Exámenes
-                    </a>
+                    {mostrarAdminCompleta && (
+                      <>
+                        <a href="/usuarios" role="menuitem">
+                          Usuarios
+                        </a>
+                        <a href="/marcas" role="menuitem">
+                          Marcas
+                        </a>
+                        <a href="/capacitaciones" role="menuitem">
+                          Exámenes
+                        </a>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

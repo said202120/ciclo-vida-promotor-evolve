@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdministracion } from '@/lib/auth';
+import { requireAdminCompleta } from '@/lib/auth';
 import { createCapacitacionModulo, fetchCapacitacionModulosConPreguntas } from '@/lib/capacitaciones';
 
 export const dynamic = 'force-dynamic';
@@ -7,13 +7,13 @@ export const dynamic = 'force-dynamic';
 // GET /api/capacitacion-modulos — detalle completo (preguntas, opciones y
 // cuál es la correcta) para /capacitaciones. Solo gerente.
 export async function GET() {
-  const auth = await requireAdministracion();
+  const auth = await requireAdminCompleta();
   if (auth.error) return auth.error;
   return NextResponse.json(await fetchCapacitacionModulosConPreguntas());
 }
 
 export async function POST(request: Request) {
-  const auth = await requireAdministracion();
+  const auth = await requireAdminCompleta();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

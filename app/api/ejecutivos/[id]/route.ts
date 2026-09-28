@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { requireAdministracion } from '@/lib/auth';
+import { requireAdminCompleta } from '@/lib/auth';
 import { deleteEjecutivo, renameEjecutivo } from '@/lib/marcas';
 
 export const dynamic = 'force-dynamic';
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAdministracion();
+  const auth = await requireAdminCompleta();
   if (auth.error) return auth.error;
 
   const { id } = await params;
@@ -20,7 +20,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAdministracion();
+  const auth = await requireAdminCompleta();
   if (auth.error) return auth.error;
 
   const { id } = await params;

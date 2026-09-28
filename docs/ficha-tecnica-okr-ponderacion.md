@@ -11,6 +11,31 @@ OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de datos) +
 sección 9) + `lib/okr-oficial.ts` (nombres, metas y códigos LITERALES del OKR
 oficial de Dirección, archivo de datos sin lógica — ver sección 4-ter).
 
+**2026-09-28 (ajuste de permisos de Administración)** — dentro del menú
+"Administración" (entrada anterior), mesa_control/nomina ahora SOLO ven
+"Padrón" (con Importar Aspel) — Usuarios, Marcas y Exámenes quedan
+exclusivos del usuario de Omar Said. Dos niveles en `lib/admin-permisos.ts`:
+`puedeVerAdministracion` (Padrón: Omar Said + mesa_control/nomina, sin
+cambio) y el nuevo `puedeVerAdminCompleta` (Usuarios/Marcas/Exámenes: SOLO
+Omar Said, por email). `lib/auth.ts` agrega `requireAdminCompleta()` junto a
+`requireAdministracion()` — las rutas de Usuarios (`/api/usuarios`), Marcas
+(`/api/marcas*`, `/api/ejecutivos*`) y Exámenes (`/api/capacitacion-modulos`,
+`/api/capacitacion-preguntas*`, `/api/capacitacion-opciones*`) pasan a
+`requireAdminCompleta`; las de Padrón (promotores, módulos, alertas, meses,
+kpis, materiales, comparación de ingresos, recordatorios,
+`/api/capacitacion-modulos/basico`, `/api/capacitaciones/resultados`) se
+quedan en `requireAdministracion`. Caso especial: `/api/supervisores` (GET,
+selector de "supervisor asignado" del padrón) sigue en `requireAdministracion`
+porque lo usa Padrón; crear/renombrar/borrar un supervisor (POST/PATCH/DELETE,
+parte de la pantalla Marcas) pasa a `requireAdminCompleta`. `SiteHeader.tsx`
+muestra "Padrón" en el dropdown si `puedeVerAdministracion`, y
+Usuarios/Marcas/Exámenes solo si además `puedeVerAdminCompleta`. Las 3
+páginas (`app/usuarios`, `app/marcas`, `app/capacitaciones/page.tsx`)
+redirigen a `/` si `!puedeVerAdminCompleta`, igual que antes. Ninguna regla
+de cumple/no cumple ni ningún cálculo del OKR cambió — `npm test` (38
+pruebas) sigue confirmando Spin Master 65.27%, ADM 61.49% y Hanes 43.58%
+para 2026-09.
+
 **2026-09-28 (reorganización de pantallas del portal)** — "Ciclo de vida del
 promotor" (antes `/emetrix-ponderacion`, exclusivo de gerente) es ahora la
 pantalla principal del portal en `/`, visible para CUALQUIER usuario

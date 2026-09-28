@@ -1,19 +1,20 @@
 import { NextResponse } from 'next/server';
-import { requireAdministracion } from '@/lib/auth';
+import { requireAdminCompleta, requireAdministracion } from '@/lib/auth';
 import { createSupervisor, fetchSupervisoresConMarca } from '@/lib/marcas';
 
 export const dynamic = 'force-dynamic';
 
 // GET /api/supervisores — lista plana (con marca) para el selector de
-// "supervisor asignado" del padrón (pantalla de Administración).
+// "supervisor asignado" del padrón: mismo acceso que Padrón (Administración).
 export async function GET() {
   const auth = await requireAdministracion();
   if (auth.error) return auth.error;
   return NextResponse.json(await fetchSupervisoresConMarca());
 }
 
+// POST crea un supervisor nuevo — parte de la pantalla Marcas, solo Omar Said.
 export async function POST(request: Request) {
-  const auth = await requireAdministracion();
+  const auth = await requireAdminCompleta();
   if (auth.error) return auth.error;
 
   const body = await request.json().catch(() => ({}));

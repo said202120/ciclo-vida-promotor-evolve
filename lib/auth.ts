@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { puedeVerAdministracion } from './admin-permisos';
+import { puedeVerAdminCompleta, puedeVerAdministracion } from './admin-permisos';
 import { findUserById } from './users';
 import { SESSION_COOKIE, SESSION_TTL_MS, signSession, verifySession, type SessionPayload } from './session';
 
@@ -61,8 +61,8 @@ export async function requireDashboard(): Promise<AuthResult> {
 }
 
 /**
- * Pantallas de "Administración" (Padrón, Usuarios, Marcas, Exámenes): solo el
- * usuario de Omar Said (por identidad) y los roles mesa_control/nomina — ver
+ * Menú "Administración", solo Padrón (con Importar Aspel): el usuario de
+ * Omar Said (por identidad) y los roles mesa_control/nomina — ver
  * lib/admin-permisos.ts. Ni gerente ni ejecutivo pasan por rol.
  */
 export async function requireAdministracion(): Promise<AuthResult> {
@@ -71,6 +71,20 @@ export async function requireAdministracion(): Promise<AuthResult> {
   const usuario = await findUserById(result.session.userId);
   if (!usuario || !puedeVerAdministracion(usuario)) {
     return { error: NextResponse.json({ error: 'No tienes acceso a Administración.' }, { status: 403 }) };
+  }
+  return result;
+}
+
+/**
+ * Usuarios, Marcas y Exámenes: SOLO el usuario de Omar Said (por identidad) —
+ * ni siquiera mesa_control/nomina, que sí ven Padrón dentro de Administración.
+ */
+export async function requireAdminCompleta(): Promise<AuthResult> {
+  const result = await requireSession();
+  if (result.error) return result;
+  const usuario = await findUserById(result.session.userId);
+  if (!usuario || !puedeVerAdminCompleta(usuario)) {
+    return { error: NextResponse.json({ error: 'No tienes acceso a esta sección.' }, { status: 403 }) };
   }
   return result;
 }
