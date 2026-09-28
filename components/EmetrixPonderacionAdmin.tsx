@@ -248,7 +248,7 @@ export default function EmetrixPonderacionAdmin() {
   }
 
   return (
-    <div className="wrap">
+    <div className="wrap emetrix-tema">
       <header>
         <div>
           <p className="eyebrow">OKR · Operaciones · Evolve</p>
@@ -461,38 +461,40 @@ export default function EmetrixPonderacionAdmin() {
         {historial.length === 0 ? (
           <p className="resumen-status">Sin cargas todavía.</p>
         ) : (
-          <table className="roster-table">
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Cuenta</th>
-                <th>KR</th>
-                <th>Universo</th>
-                <th>Cumplieron</th>
-                <th>%</th>
-                <th>Filas leídas / descartadas</th>
-                <th>Archivo</th>
-                <th>Subido por</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historial.map((h) => (
-                <tr key={h.id}>
-                  <td>{formatFecha(h.cargadoEn)}</td>
-                  <td style={{ textAlign: 'left' }}>{h.marcaNombre}</td>
-                  <td>{KR_LABEL[h.kr]}</td>
-                  <td>{h.universoFuente === 'sin_universo' ? 'sin definir' : h.universo}</td>
-                  <td>{h.cumplieron}</td>
-                  <td>{h.porcentaje}%</td>
-                  <td>
-                    {h.diagnostico.filasLeidas} / {h.diagnostico.filasSinUsuario + h.diagnostico.filasDuplicadas}
-                  </td>
-                  <td className="emetrix-historial-archivo">{h.archivoNombre || '—'}</td>
-                  <td>{h.cargadoPorNombre ?? '—'}</td>
+          <div className="emetrix-tabla-scroll">
+            <table className="roster-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Cuenta</th>
+                  <th>KR</th>
+                  <th>Universo</th>
+                  <th>Cumplieron</th>
+                  <th>%</th>
+                  <th>Filas leídas / descartadas</th>
+                  <th>Archivo</th>
+                  <th>Subido por</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {historial.map((h) => (
+                  <tr key={h.id}>
+                    <td>{formatFecha(h.cargadoEn)}</td>
+                    <td style={{ textAlign: 'left' }}>{h.marcaNombre}</td>
+                    <td>{KR_LABEL[h.kr]}</td>
+                    <td>{h.universoFuente === 'sin_universo' ? 'sin definir' : h.universo}</td>
+                    <td>{h.cumplieron}</td>
+                    <td>{h.porcentaje}%</td>
+                    <td>
+                      {h.diagnostico.filasLeidas} / {h.diagnostico.filasSinUsuario + h.diagnostico.filasDuplicadas}
+                    </td>
+                    <td className="emetrix-historial-archivo">{h.archivoNombre || '—'}</td>
+                    <td>{h.cargadoPorNombre ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

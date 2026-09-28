@@ -9,6 +9,47 @@ matemática, funciones puras — ver sección 9) + `lib/okr-oficial.ts` (nombres
 metas y códigos LITERALES del OKR oficial de Dirección, archivo de datos sin
 lógica — ver sección 4-ter).
 
+**2026-09-27 (diseño homologado de la guía de Operaciones)** — `/emetrix-ponderacion`
+adopta la paleta y tipografía de la guía de indicadores de Operaciones. Es un
+cambio puramente visual, aplicado SOLO a esta pantalla:
+
+- Los colores viven como variables CSS (`--bg`, `--surface`, `--surface-2`,
+  `--border`, `--text`, `--text-dim`, `--text-mute`, `--accent`, `--accent-2`,
+  `--navy`, `--ok`, `--warn`, `--danger`) definidas dentro de `.emetrix-tema`
+  (`app/globals.css`), que se pone en el `.wrap` raíz de
+  `EmetrixPonderacionAdmin.tsx`. El truco: casi todo el CSS compartido
+  (`.roster`, `.pill`, `.roster-table`, `.add-row`, `.emetrix-*`) ya usa
+  `var(--ink)`/`var(--panel)`/`var(--line)`/`var(--good)`/`var(--bad)`/
+  `var(--accent)`, así que remapear esas variables dentro de `.emetrix-tema`
+  (`--ink: var(--text)`, etc.) basta para que todo el árbol adopte la paleta
+  nueva sin tocar un solo selector existente y sin afectar ninguna otra
+  pantalla (que sigue leyendo `:root`).
+- Tipografía Inter en toda la pantalla (Google Font agregada en
+  `app/layout.tsx`, con respaldo `-apple-system, 'Segoe UI', sans-serif`).
+- Fondo liso `--bg` en vez del degradado ambiental compartido: `body:has(.emetrix-tema)`
+  pinta encima del fondo global, y `AmbientBackground.tsx` deja de renderizar
+  los orbes cuando `pathname` empieza con `/emetrix-ponderacion`.
+- Tarjetas (`.roster`, `.emetrix-preview`, `.month-bar`) con radio 12-14px,
+  número de cumplimiento en 30px/800 con la etiqueta "Cumplimiento" arriba
+  (`.emetrix-kpi-label`) y la línea de contexto ("Contestaron X de Y
+  promotores") debajo, ya existente.
+- Pastillas: verde ≥90/amarillo ≥70/rojo abajo (regla sin cambios, sección
+  10), motivo en 11px gris (`.emetrix-indicador-motivo`), "Sin medir" gris con
+  borde punteado (`.pill.sin-medir`, ya existía). La alerta de respuesta baja
+  (`.emetrix-nota`) pasa a ámbar en vez de rojo — es un hueco de cobertura, no
+  un mal resultado.
+- Tablas (`table.roster-table` dentro de `.emetrix-tema`): encabezado
+  `--navy` con texto blanco, 13px, renglones alternados tenues, scroll
+  horizontal en celular (clases `.emetrix-tabla-scroll`/
+  `.emetrix-detalle-tabla-wrap`, ya existentes).
+- Barra superior (`.emetrix-cuenta-bar`) con título, selector de periodo y
+  cuenta, botón "Descargar para OKR" en `--accent`; en celular (380px) se
+  envuelve en varias líneas en vez de desbordar (`flex-wrap: wrap`).
+
+Ninguna regla de cumple/no cumple, ningún peso ni ningún cálculo cambió —
+confirmado con `npm test` (38 pruebas), que sigue dando Spin Master 65.27%,
+ADM 61.49% y Hanes 43.58% para 2026-09.
+
 **2026-09-27 (nombres oficiales, metas y lectura para EvolveOS)** — los
 nombres LITERALES del OKR oficial "Ciclo de vida del promotor" (copiados
 exactamente de Dirección, con su meta y un `kpiCode` vacío pendiente de

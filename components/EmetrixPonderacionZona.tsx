@@ -229,8 +229,8 @@ export default function EmetrixPonderacionZona({
 
           {preview && (
             <div className="emetrix-preview">
+              <p className="emetrix-kpi-label">Cumplimiento</p>
               <p className="emetrix-cumplimiento-principal">
-                Cumplimiento:{' '}
                 {kr === 'mesa_control'
                   ? (() => {
                       const p = porcentajeOkrMesaControl(preview.preguntas);

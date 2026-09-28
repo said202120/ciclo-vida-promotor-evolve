@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 // Motivo ambiental: anillos orbitando (el "ciclo") con puntos que recorren
 // cada órbita (el "promotor" en su trayecto) — eco visual del nombre del
@@ -27,6 +28,7 @@ function orbitPath(r: number) {
 }
 
 export default function AmbientBackground() {
+  const pathname = usePathname();
   const parallaxRef = useRef<HTMLDivElement>(null);
   const [motionOk, setMotionOk] = useState(true);
 
@@ -53,6 +55,12 @@ export default function AmbientBackground() {
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
+
+  // /emetrix-ponderacion usa el diseño homologado de la guía de Operaciones
+  // (fondo liso --bg, sin degradado ni orbes) — ver docs/ficha-tecnica-okr-
+  // ponderacion.md. Los hooks de arriba deben seguir corriendo siempre
+  // (reglas de hooks), así que el corte por ruta va hasta aquí, no antes.
+  if (pathname?.startsWith('/emetrix-ponderacion')) return null;
 
   return (
     <div className="ambient-bg" aria-hidden="true">

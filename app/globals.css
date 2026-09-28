@@ -1955,3 +1955,156 @@ table.roster-table select.mapeo-set {
   white-space: normal;
   max-width: 320px;
 }
+
+/* ============================================================================
+   Diseño homologado de la guía de indicadores de Operaciones — SOLO
+   /emetrix-ponderacion (`.emetrix-tema`, puesta en el `.wrap` raíz de
+   components/EmetrixPonderacionAdmin.tsx). Es un cambio visual: ninguna regla
+   de cumple/no cumple, ningún peso ni ningún cálculo vive aquí.
+
+   El truco central: casi todo lo de arriba (`.roster`, `.pill`, `.roster-
+   table`, `.add-row`, `.emetrix-*`) ya está escrito con `var(--ink)`/
+   `var(--panel)`/`var(--line)`/`var(--good)`/`var(--bad)`/`var(--accent)` en
+   vez de colores fijos — así que basta con REDEFINIR esas variables dentro de
+   `.emetrix-tema` para que todo el árbol de esta página adopte la paleta
+   nueva sin tocar ni un selector de los que ya existían (y sin afectar
+   ninguna otra pantalla, que sigue leyendo los valores de `:root`). Encima de
+   ese remapeo van los ajustes puntuales que sí pide la guía y que la hoja
+   compartida no tenía: encabezado de tabla azul marino, renglones alternados,
+   "Sin medir" con borde punteado (ya existía) y la alerta de respuesta baja
+   en ámbar en vez de rojo.
+   ============================================================================ */
+.emetrix-tema {
+  /* Paleta homologada, literal de la guía de Operaciones. */
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #f7f9fc;
+  --border: #e2e8f2;
+  --text: #152238;
+  --text-dim: #5d6b80;
+  --text-mute: #8c99ab;
+  --accent: #0d9bf5;
+  --accent-2: #1a5fb4;
+  --navy: #14243d;
+  --ok: #12a150;
+  --warn: #e8a33d;
+  --danger: #e0443e;
+
+  /* Tonos derivados (fondos "suaves" de pastilla/hover) — la guía solo definió
+     los sólidos; se derivan con color-mix en vez de inventar hex sueltos. */
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, white);
+  --good-soft: color-mix(in srgb, var(--ok) 14%, white);
+  --warn-soft: color-mix(in srgb, var(--warn) 16%, white);
+  --bad-soft: color-mix(in srgb, var(--danger) 14%, white);
+  /* Texto en tono ámbar sobre blanco necesita ser más oscuro que --warn para
+     leerse bien (contraste) — se usa en la nota de alerta de respuesta baja. */
+  --warn-text: color-mix(in srgb, var(--warn) 60%, black);
+
+  /* Remapeo: todo lo que ya usa estas variables compartidas (roster, pill,
+     tablas, botones, inputs) adopta la paleta nueva sin reescribirse. */
+  --ink: var(--text);
+  --ink-soft: var(--text-dim);
+  --line: var(--border);
+  --panel: var(--surface);
+  --paper: var(--bg);
+  --good: var(--ok);
+  --bad: var(--danger);
+
+  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  min-height: 100vh;
+}
+.emetrix-tema,
+.emetrix-tema * {
+  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Fondo liso de toda la página: pinta encima del degradado del resto de la
+   app (definido en `body`, sección compartida arriba) SOLO cuando el tema de
+   esta pantalla está presente en el documento — las demás pantallas nunca
+   tienen `.emetrix-tema`, así que su fondo no cambia. */
+body:has(.emetrix-tema) {
+  background-color: var(--bg, #f4f6fa);
+  background-image: none;
+}
+
+/* Tarjetas (`.roster`, `.emetrix-zona`, `.month-bar`): ya usan `--panel`/
+   `--line` (remapeados arriba) y ya tienen radio 14px, dentro del rango
+   12-16px pedido — solo se confirma aquí para que quede explícito. */
+.emetrix-tema .roster,
+.emetrix-tema .month-bar {
+  border-radius: 14px;
+}
+
+/* Tarjeta de KPI (el "Cumplimiento" de cada sondeo): etiqueta chica arriba,
+   número grande (30px/800) y la línea de contexto con la base debajo, ya
+   existente (ej. "Contestaron 43 de 44 promotores (97.73%)"). */
+.emetrix-tema .emetrix-preview {
+  background: var(--surface-2);
+  border-radius: 12px;
+}
+.emetrix-tema .emetrix-kpi-label {
+  margin: 0;
+  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.emetrix-tema .emetrix-cumplimiento-principal {
+  font-size: 30px;
+  font-weight: 800;
+  margin: 2px 0 6px;
+}
+
+/* Pastillas: verde/amarillo/rojo con motivo en 11px gris debajo; "Sin medir"
+   gris con borde punteado (ya existía, `.pill.sin-medir`) — nunca debe leerse
+   como incumplimiento. */
+.emetrix-tema .emetrix-indicador-motivo {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+/* Alerta de respuesta baja: ámbar, no rojo — es un hueco de cobertura, no un
+   mal resultado. `.emetrix-alerta-badge` es exclusivo de esta pantalla
+   (ver EmetrixPonderacionAdmin.tsx / EmetrixComoVaCadaCuenta.tsx). */
+.emetrix-tema .emetrix-alerta-badge {
+  background: var(--warn);
+  color: var(--navy);
+}
+.emetrix-tema .emetrix-nota {
+  color: var(--warn-text) !important;
+}
+
+/* Tablas: encabezado azul marino con texto blanco, 13px, renglones alternados
+   muy tenues, scroll horizontal en celular (`.emetrix-tabla-scroll` y
+   `.emetrix-detalle-tabla-wrap`, ya usados en toda la pantalla). */
+.emetrix-tema table.roster-table {
+  font-size: 13px;
+}
+.emetrix-tema table.roster-table th {
+  background: var(--navy);
+  color: #fff;
+  border-bottom: none;
+  padding: 8px 6px;
+}
+.emetrix-tema table.roster-table tbody tr:nth-child(even) {
+  background: var(--surface-2);
+}
+.emetrix-tema table.roster-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--accent) 8%, white);
+}
+
+/* Barra superior: título + selector de periodo/cuenta + botón de descarga en
+   azul Evolve (`.add-row` ya usa `var(--accent)`, remapeado arriba). En
+   celular (380px) se envuelve en varias líneas en vez de desbordar. */
+.emetrix-tema .emetrix-cuenta-bar {
+  width: 100%;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.emetrix-tema .add-row:hover {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
