@@ -185,6 +185,75 @@ test('regla: en Tu Marca, si nadie dejó respuesta en una pregunta de opción m�
   }
 });
 
+// ---- Regla: Tu Marca — P2/P7 selección múltiple ("contiene"), el resto opción única ("exacto") ----
+
+const MARCA_HEADERS = [
+  'USUARIO',
+  'POSICION',
+  'Un producto imperdible de tu cuenta no está en anaquel, pero hay piezas en bodega. ¿Qué haces?', // P1
+  'Al surtir, ¿cómo acomodas el producto?', // P2 — selección múltiple
+  'Encuentras en anaquel un producto de tu marca con el empaque golpeado o a punto de caducar. ¿Qué haces?', // P3
+  'En bodega hay cajas sin acomodar y necesitas tu producto. ¿Cómo lo ubicas?', // P4
+  'Un producto de la competencia está ocupando el espacio de tu marca en el anaquel. ¿Qué haces?', // P5
+  'Según el planograma, la presentación grande va abajo, pero la encuentras arriba. ¿Qué haces?', // P6
+  'El fleje dice $45 y en caja cobran $52. ¿Qué haces?', // P7 — selección múltiple
+  'Un producto tiene 20 piezas en bodega y cero ventas en dos semanas. ¿Qué es?', // P8
+  '¿Cómo debe quedar el frente de tu producto en el anaquel?', // P9
+  'Te toca armar una exhibición adicional y te falta material POP. ¿Qué haces?', // P10
+];
+
+const MARCA_ESPERADAS = [
+  'Lo surto de inmediato y lo registro en Emetrix', // P1
+  'Lo que caduca antes, al frente', // P2
+  'Lo retiro y lo reporto como lo pide la tienda', // P3
+  'Por el código o la descripción en la etiqueta de la caja', // P4
+  'Lo reporto al encargado de piso y lo registro en Emetrix', // P5
+  'La acomodo según el planograma y lo registro', // P6
+  'Lo reporto al encargado y lo registro en Emetrix', // P7
+  'Venta cero', // P8
+  'Al borde del anaquel, con la etiqueta hacia el cliente', // P9
+  'La armo con lo que hay y reporto el faltante con foto en Emetrix', // P10
+];
+
+function filaMarca(usuario: string, respuestas: Array<string | null>): string[] {
+  return [usuario, 'Promotor', ...respuestas.map((r) => r ?? '')];
+}
+
+test('regla: en P2 y P7 (selección múltiple) una respuesta que INCLUYE la opción correcta cuenta, aunque marque más de una', () => {
+  const row = MARCA_ESPERADAS.map((esperado, i) =>
+    i === 1 || i === 6 ? `Otra opción, ${esperado}` : esperado // P2 y P7: marcó 2 opciones, una es la correcta; el resto exactas
+  );
+  const calculo = calcularMarca(MARCA_HEADERS, [filaMarca('PRO001', row)]);
+  assert.equal(calculo.filas[0].estado, 'cumple', 'las 10 deben contar correctas: P2/P7 incluyen la opción correcta');
+});
+
+test('regla: fuera de P2 y P7, marcar más de una opción es incorrecto aunque incluya la correcta (opción única, no "contiene")', () => {
+  // P1 marcó 2 opciones (incluye la correcta, pero no es exacta) + P5/P6
+  // francamente mal contestadas, para que el total quede en 7/10 y se note
+  // que P1 sí se contó como incorrecta (si contara como correcta, sería 8/10 y aprobaría).
+  const row = MARCA_ESPERADAS.map((esperado, i) => {
+    if (i === 0) return `${esperado}, Otra opción`;
+    if (i === 4 || i === 5) return 'Otra opción';
+    return esperado;
+  });
+  const calculo = calcularMarca(MARCA_HEADERS, [filaMarca('PRO001', row)]);
+  assert.equal(calculo.filas[0].estado, 'no_cumple', 'P1 es de opción única — marcar 2 opciones es incorrecto aunque incluya la correcta');
+  assert.equal(calculo.filas[0].detalleFalla, 'Tu Marca: 7/10');
+});
+
+test('regla: una pregunta sin contestar cuenta como no correcta pero NO descalifica si de todas formas llega a 8+ correctas', () => {
+  const row = MARCA_ESPERADAS.map((esperado, i) => (i === 3 || i === 8 ? null : esperado)); // P4 y P9 en blanco, las otras 8 correctas
+  const calculo = calcularMarca(MARCA_HEADERS, [filaMarca('PRO001', row)]);
+  assert.equal(calculo.filas[0].estado, 'cumple', '8 correctas de 10 (2 en blanco) debe aprobar — el blanco no descalifica');
+});
+
+test('regla: una pregunta sin contestar SÍ resta hacia el umbral de 8 — con 3 en blanco y 7 correctas, reprueba', () => {
+  const row = MARCA_ESPERADAS.map((esperado, i) => (i < 3 ? null : esperado)); // P1-P3 en blanco, 7 correctas
+  const calculo = calcularMarca(MARCA_HEADERS, [filaMarca('PRO001', row)]);
+  assert.equal(calculo.filas[0].estado, 'no_cumple');
+  assert.equal(calculo.filas[0].detalleFalla, 'Tu Marca: 7/10');
+});
+
 // ---- Regla: cero medido (0% es 'medido', nunca 'sin-medir') ----
 
 const MATERIALES_HEADERS = [
@@ -574,6 +643,99 @@ test('confirmación: Mesa de Control de Zuru — Carta de acceso 48 de 49 (97.96
   assert.equal(emetrix.numerador, 46);
   assert.equal(emetrix.porcentaje, 97.87);
   assert.equal(calculo.diagnostico.enviosVacios, 4);
+});
+
+test('confirmación: Tu Marca de Zuru — 47 contestaron, 30 aprueban (63.83%), desglose real por pregunta', () => {
+  // Rejilla 47 (promotores) x 10 (P1..P10): 'C' = correcta, 'W' = contestó pero
+  // incorrecta, 'B' = en blanco. Construida para reproducir EXACTAMENTE los
+  // agregados reales de Zuru (contestaron/correctas por pregunta, y 30
+  // aprueban / 17 reprueban) — cualquier matriz que cuadre las mismas sumas
+  // por fila y columna sirve, esta es una (ver script de generación, no
+  // persistido). Antes de la corrección de P1/P3/P4/P5/P6/P10 a "exacto",
+  // varias de estas "W" (multi-selección que incluye la opción correcta)
+  // se contaban de más como correctas.
+  const grid = [
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CWCCWCCCCC',
+    'CCCCWCWCCC',
+    'CWCCWCCCCC',
+    'CCCCWCWCCC',
+    'CWCCWCCCCC',
+    'CCCCWCWCCC',
+    'CWCCWCCCCC',
+    'CCCCWCWCCC',
+    'CWCCCCCCCW',
+    'CCCCCCWCWC',
+    'CWCCWCCCCC',
+    'CCCCCCCCBW',
+    'CCCCWCWCCC',
+    'CWCCCCCCCB',
+    'CCCCCCWCBC',
+    'CWCCWCCCCC',
+    'CCCCCCCCBB',
+    'CCCCCCWWCC',
+    'CWCCWCCCCC',
+    'CCWCWCBBCC',
+    'WWCCCCCCBB',
+    'CCCCBWBBCC',
+    'BWWCCCCCCB',
+    'CCCCCBBBBC',
+    'BWWCBCCCCC',
+    'CCCCCCBBBB',
+    'CCBBBBCCCC',
+    'BWCCCCCCBB',
+    'CCCCBBBBCC',
+    'BWBBCCCCCC',
+    'CCCCCCBBBB',
+    'CCBBBBCCCC',
+    'BBCCCCCCBB',
+    'CCCCBBBBCC',
+    'BBBBCCCCCC',
+    'BCCCCCCCBB',
+  ];
+  assert.equal(grid.length, 47);
+
+  const rows = grid.map((fila, i) => {
+    const respuestas = fila.split('').map((estado, q) => {
+      if (estado === 'B') return null;
+      if (estado === 'C') return MARCA_ESPERADAS[q];
+      return 'Otra opción';
+    });
+    return filaMarca(`ZTM${String(i + 1).padStart(3, '0')}`, respuestas);
+  });
+
+  const calculo = calcularMarca(MARCA_HEADERS, rows);
+  assert.equal(calculo.filas.length, 47);
+  assert.equal(calculo.cumplieron, 30);
+  assert.equal(Math.round((calculo.cumplieron / calculo.filas.length) * 10000) / 100, 63.83);
+
+  const esperadoPorPregunta = [
+    { numerador: 39, contestaron: 40, porcentaje: 97.5 },
+    { numerador: 20, contestaron: 45, porcentaje: 44.44 },
+    { numerador: 40, contestaron: 43, porcentaje: 93.02 },
+    { numerador: 43, contestaron: 43, porcentaje: 100 },
+    { numerador: 17, contestaron: 41, porcentaje: 41.46 },
+    { numerador: 41, contestaron: 42, porcentaje: 97.62 },
+    { numerador: 32, contestaron: 40, porcentaje: 80 },
+    { numerador: 39, contestaron: 40, porcentaje: 97.5 },
+    { numerador: 36, contestaron: 37, porcentaje: 97.3 },
+    { numerador: 36, contestaron: 38, porcentaje: 94.74 },
+  ];
+  esperadoPorPregunta.forEach((e, i) => {
+    assert.equal(calculo.preguntas[i].numerador, e.numerador, `P${i + 1} numerador`);
+    assert.equal(calculo.preguntas[i].contestaron, e.contestaron, `P${i + 1} contestaron`);
+    assert.equal(calculo.preguntas[i].porcentaje, e.porcentaje, `P${i + 1} porcentaje`);
+  });
 });
 
 // ---- Compatibilidad: cargas guardadas antes de que existiera "numerador" en preguntas_resumen ----

@@ -11,6 +11,38 @@ OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de datos) +
 sección 9) + `lib/okr-oficial.ts` (nombres, metas y códigos LITERALES del OKR
 oficial de Dirección, archivo de datos sin lógica — ver sección 4-ter).
 
+**2026-09-30 (corrección: calificación de Tu Marca — P2/P7 "contiene", el
+resto "exacto")** — el sondeo Tu Marca (sección 1) mostraba una diferencia
+contra la plataforma de Dirección. Dos correcciones, sin tocar el umbral de
+aprobación (8/10) ni ninguna otra regla:
+
+1. **`modo` de 6 preguntas estaba invertido.** Solo P2 y P7 son de selección
+   múltiple (correctas si la respuesta INCLUYE la opción correcta); las
+   otras 8 exigen la opción EXACTA. Antes, 6 de esas 8 (P1, P3, P4, P5, P6,
+   P10 — todas menos P8 y P9, que ya estaban bien) tenían `modo: 'contiene'`
+   por error, aceptando de más selecciones múltiples que Dirección califica
+   como incorrectas.
+2. **`contieneOpcion` no podía acertar P2 en absoluto.** El texto de la
+   opción correcta de P2 ("Lo que caduca antes, al frente") trae una coma
+   propia; la función partía CUALQUIER valor por coma antes de comparar, así
+   que una selección única de esa opción (sin marcar ninguna otra) se
+   fragmentaba en dos pedazos que nunca calzaban con el texto completo —
+   P2 quedaba matemáticamente imposible de acertar. Se agregó una
+   comparación directa del valor completo contra la opción buscada, antes de
+   partir por coma (sección 1).
+
+"Una pregunta sin contestar cuenta como no correcta, pero no descalifica al
+promotor" ya funcionaba correctamente (`cumple = aciertos >= 8` sobre las 10
+preguntas fijas, sin ningún gate adicional por preguntas sin contestar) — se
+agregaron pruebas que lo confirman explícitamente, para que quede blindado.
+
+Confirmado con datos sintéticos que reproducen la estructura del archivo
+real de Zuru (`TU_MARCA_ZURU.xlsx`, `lib/emetrix-ponderacion-calc.test.ts`):
+47 contestaron, 30 aprueban (63.83%), con el desglose real por pregunta (P1
+39/40, P2 20/45, P3 40/43, P4 43/43, P5 17/41, P6 41/42, P7 32/40, P8 39/40,
+P9 36/37, P10 36/38). Ningún peso ni el umbral de 8/10 cambiaron. `npm test`
+(48 pruebas) verde, `npx tsc --noEmit` y `npm run build` sin errores.
+
 **2026-09-30 (corrección: envíos vacíos y "más reciente" por fecha, no por
 orden del archivo)** — dos errores en cómo se elige el envío de cada
 promotor en los 3 sondeos, en ambos formatos (ancho y largo). Ninguna regla
@@ -268,9 +300,27 @@ Si la cuenta no incluye celular, esas dos preguntas se ignoran por completo.
 
 ### Tu Marca
 
-10 preguntas de opción múltiple sobre manejo de marca en anaquel (ver
-`MARCA_PREGUNTAS` en el código para el texto exacto de cada una y la
-respuesta correcta). Cumple si acierta **8 de 10 o más**.
+10 preguntas sobre manejo de marca en anaquel (ver `MARCA_PREGUNTAS` en el
+código para el texto exacto de cada una y la respuesta correcta). Regla
+oficial confirmada contra la plataforma de Dirección (2026-09-30):
+
+- **P2 y P7** (selección múltiple): correcta si la respuesta del promotor
+  **INCLUYE** la opción correcta, aunque haya marcado más de una
+  (`modo: 'contiene'`).
+- **P1, P3, P4, P5, P6, P8, P9, P10** (opción única): correcta **solo** si
+  eligió **EXACTAMENTE** la opción correcta — marcar varias es incorrecta
+  aunque incluyan la correcta (`modo: 'exacto'`).
+- Una pregunta sin contestar cuenta como no correcta, pero **no descalifica**
+  al promotor — solo resta hacia el total de aciertos.
+- Cumple si acierta **8 de 10 o más** (`aciertos >= 8`, sobre las 10
+  preguntas fijas, contestadas o no).
+
+`contieneOpcion` (comparación de P2/P7) primero compara el valor completo
+contra la opción buscada antes de partir por coma — necesario porque el
+texto de la opción correcta de P2 ("Lo que caduca antes, al frente") trae
+una coma propia; partir a ciegas fragmentaría una selección única (sin
+ninguna otra opción marcada) en dos pedazos que nunca calzarían con la
+opción completa, dejando esa pregunta imposible de acertar.
 
 ## 1-bis. Periodo (a qué mes pertenece una carga)
 
@@ -871,6 +921,16 @@ Una prueba por regla, entre otras:
   con datos sintéticos que reproducen la estructura real de Zuru: Materiales
   (celular=Sí) 47 contestaron/35 cumplen (74.47%), Mesa de Control Carta de
   acceso 48 de 49 (97.96%) y Usuario Emetrix 46 de 47 (97.87%).
+- **Calificación de Tu Marca — P2/P7 "contiene", el resto "exacto"
+  (2026-09-30)**: P2 y P7 (selección múltiple) cuentan como correctas si la
+  respuesta incluye la opción correcta aunque marque más de una; las otras 8
+  (opción única) exigen la opción EXACTA — marcar varias es incorrecto
+  aunque incluyan la correcta. Una pregunta sin contestar no descalifica
+  (con 8+ correctas entre las contestadas, aprueba), pero sí resta hacia el
+  umbral de 8 si faltan demasiadas. Prueba de confirmación con datos
+  sintéticos que reproducen la estructura real de Zuru
+  (`TU_MARCA_ZURU.xlsx`): 47 contestaron, 30 aprueban (63.83%), con el
+  desglose real de las 10 preguntas.
 - **Vacío no es cero**: si ninguna fila trae un valor reconocible en una
   pregunta (Sí/No u opción), su `%` debe ser `null`, nunca `0`.
 - **Cero medido**: un sondeo con 0% de cumplimiento real (ej. Materiales en

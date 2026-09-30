@@ -115,8 +115,17 @@ function esSi(valorCrudo: string): boolean {
 }
 
 /** Para preguntas de selección múltiple (valores separados por coma): ¿alguna de las opciones elegidas es exactamente la buscada? */
+/**
+ * ¿alguna de las opciones elegidas (separadas por ", ") es la buscada? Antes
+ * de partir por coma, compara el valor completo contra la opción buscada —
+ * necesario porque el texto de alguna opción correcta (ej. P2 de Tu Marca:
+ * "Lo que caduca antes, al frente") trae una coma propia, y partir a ciegas
+ * fragmentaría esa selección única en dos pedazos que nunca calzan con la
+ * opción completa.
+ */
 function contieneOpcion(valorCrudo: string, opcionBuscada: string): boolean {
   const objetivo = normalizar(opcionBuscada);
+  if (normalizar(valorCrudo) === objetivo) return true;
   return valorCrudo.split(',').some((parte) => normalizar(parte) === objetivo);
 }
 
@@ -587,43 +596,58 @@ export function calcularMateriales(headers: string[], rows: string[][], incluyeC
 
 // ---- Marca ----
 
+// Regla oficial (confirmada contra la plataforma de Dirección, 2026-09-30):
+// SOLO P2 y P7 son de selección múltiple — correctas si la respuesta INCLUYE
+// la opción correcta, aunque el promotor haya marcado más de una ('contiene').
+// Las otras 8 (P1, P3, P4, P5, P6, P8, P9, P10) son de opción única — correctas
+// SOLO si eligió EXACTAMENTE la opción correcta; marcar varias es incorrecto
+// aunque incluyan la correcta ('exacto'). Antes, 6 de esas 8 (todas menos P8 y
+// P9) estaban mal marcadas como 'contiene', lo que aceptaba de más selecciones
+// múltiples que Dirección califica como incorrectas.
 const MARCA_PREGUNTAS: Array<{ columna: string; modo: 'contiene' | 'exacto'; esperado: string }> = [
   {
+    // P1
     columna: 'Un producto imperdible de tu cuenta no está en anaquel, pero hay piezas en bodega. ¿Qué haces?',
-    modo: 'contiene',
+    modo: 'exacto',
     esperado: 'Lo surto de inmediato y lo registro en Emetrix',
   },
-  { columna: 'Al surtir, ¿cómo acomodas el producto?', modo: 'contiene', esperado: 'Lo que caduca antes, al frente' },
+  { columna: 'Al surtir, ¿cómo acomodas el producto?', modo: 'contiene', esperado: 'Lo que caduca antes, al frente' }, // P2 — selección múltiple
   {
+    // P3
     columna: 'Encuentras en anaquel un producto de tu marca con el empaque golpeado o a punto de caducar. ¿Qué haces?',
-    modo: 'contiene',
+    modo: 'exacto',
     esperado: 'Lo retiro y lo reporto como lo pide la tienda',
   },
   {
+    // P4
     columna: 'En bodega hay cajas sin acomodar y necesitas tu producto. ¿Cómo lo ubicas?',
-    modo: 'contiene',
+    modo: 'exacto',
     esperado: 'Por el código o la descripción en la etiqueta de la caja',
   },
   {
+    // P5
     columna: 'Un producto de la competencia está ocupando el espacio de tu marca en el anaquel. ¿Qué haces?',
-    modo: 'contiene',
+    modo: 'exacto',
     esperado: 'Lo reporto al encargado de piso y lo registro en Emetrix',
   },
   {
+    // P6
     columna: 'Según el planograma, la presentación grande va abajo, pero la encuentras arriba. ¿Qué haces?',
-    modo: 'contiene',
+    modo: 'exacto',
     esperado: 'La acomodo según el planograma y lo registro',
   },
-  { columna: 'El fleje dice $45 y en caja cobran $52. ¿Qué haces?', modo: 'contiene', esperado: 'Lo reporto al encargado y lo registro en Emetrix' },
-  { columna: 'Un producto tiene 20 piezas en bodega y cero ventas en dos semanas. ¿Qué es?', modo: 'exacto', esperado: 'Venta cero' },
+  { columna: 'El fleje dice $45 y en caja cobran $52. ¿Qué haces?', modo: 'contiene', esperado: 'Lo reporto al encargado y lo registro en Emetrix' }, // P7 — selección múltiple
+  { columna: 'Un producto tiene 20 piezas en bodega y cero ventas en dos semanas. ¿Qué es?', modo: 'exacto', esperado: 'Venta cero' }, // P8
   {
+    // P9
     columna: '¿Cómo debe quedar el frente de tu producto en el anaquel?',
     modo: 'exacto',
     esperado: 'Al borde del anaquel, con la etiqueta hacia el cliente',
   },
   {
+    // P10
     columna: 'Te toca armar una exhibición adicional y te falta material POP. ¿Qué haces?',
-    modo: 'contiene',
+    modo: 'exacto',
     esperado: 'La armo con lo que hay y reporto el faltante con foto en Emetrix',
   },
 ];
