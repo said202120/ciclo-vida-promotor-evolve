@@ -11,6 +11,27 @@ OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de datos) +
 sección 9) + `lib/okr-oficial.ts` (nombres, metas y códigos LITERALES del OKR
 oficial de Dirección, archivo de datos sin lógica — ver sección 4-ter).
 
+**2026-09-30 (corrección 2: P2 con opción marcada junto a otras)** — seguía
+habiendo una diferencia contra Dirección en P2 ("Al surtir, ¿cómo acomodas el
+producto?") después de la corrección anterior de ese mismo día. El fix
+anterior (comparar el valor completo contra la opción buscada ANTES de
+partir por coma) solo cubría el caso de la opción correcta marcada SOLA;
+seguía sin reconocerla cuando el promotor la marcaba JUNTO con otras
+opciones (ej. "Lo de mejor empaque al frente, Lo que caduca antes, al
+frente", o con 2 más) — al partir por coma, el texto de la opción correcta
+(que trae una coma propia) se fragmentaba en dos pedazos que nunca calzaban
+con la opción completa. Se reemplazó el partido por coma por una comparación
+de substring: `normalizar(valorCrudo).includes(normalizar(opcionBuscada))`
+(sección 1, "Tu Marca") — reconoce la opción correcta esté sola o
+acompañada de cualquier número de otras, sin depender de dónde caigan las
+comas de las demás opciones elegidas. Ninguna otra regla ni peso cambió.
+Confirmado con datos sintéticos que reproducen la estructura real de RUZ
+(`Sondeo_RUZ_Tu_Marca_OK.xlsx`): 72 contestaron, 45 aprueban (62.5%), P2 =
+30 de 67 (incluye los 2 casos reales reportados, opción correcta marcada
+junto con 1 y con 2 opciones más); y se reconfirmó que Zuru sigue en 30 de
+47 (63.83%). `npm test` (50 pruebas) verde, `npx tsc --noEmit` y
+`npm run build` sin errores.
+
 **2026-09-30 (corrección: calificación de Tu Marca — P2/P7 "contiene", el
 resto "exacto")** — el sondeo Tu Marca (sección 1) mostraba una diferencia
 contra la plataforma de Dirección. Dos correcciones, sin tocar el umbral de
@@ -315,12 +336,19 @@ oficial confirmada contra la plataforma de Dirección (2026-09-30):
 - Cumple si acierta **8 de 10 o más** (`aciertos >= 8`, sobre las 10
   preguntas fijas, contestadas o no).
 
-`contieneOpcion` (comparación de P2/P7) primero compara el valor completo
-contra la opción buscada antes de partir por coma — necesario porque el
-texto de la opción correcta de P2 ("Lo que caduca antes, al frente") trae
-una coma propia; partir a ciegas fragmentaría una selección única (sin
-ninguna otra opción marcada) en dos pedazos que nunca calzarían con la
-opción completa, dejando esa pregunta imposible de acertar.
+**`contieneOpcion` (comparación de P2/P7) NO parte la respuesta por coma —
+compara si el texto completo de la opción correcta aparece como *substring*
+dentro de la respuesta normalizada (sin mayúsculas, acentos ni espacios
+extra):** `normalizar(valorCrudo).includes(normalizar(opcionBuscada))`.
+Necesario porque el texto de la opción correcta de P2 ("Lo que caduca
+antes, al frente") trae una coma propia — partir por coma (intento anterior,
+2026-09-30) reconocía esa opción cuando el promotor la marcaba SOLA, pero la
+fragmentaba en dos pedazos que nunca calzaban en cuanto la marcaba JUNTO con
+otras opciones (ej. "Lo de mejor empaque al frente, Lo que caduca antes, al
+frente"), sin importar en qué posición cayera dentro de la lista de
+opciones elegidas. Comparar por substring reconoce la opción correcta esté
+sola o acompañada de cualquier número de otras opciones, sin depender de
+dónde caigan las comas de las DEMÁS opciones.
 
 ## 1-bis. Periodo (a qué mes pertenece una carga)
 
@@ -931,6 +959,13 @@ Una prueba por regla, entre otras:
   sintéticos que reproducen la estructura real de Zuru
   (`TU_MARCA_ZURU.xlsx`): 47 contestaron, 30 aprueban (63.83%), con el
   desglose real de las 10 preguntas.
+- **P2 con opción correcta marcada junto a otras (corrección 2,
+  2026-09-30)**: la opción correcta de P2 (con coma propia) se reconoce
+  marcada sola, junto con 1 opción más, o junto con 2 más — `contieneOpcion`
+  compara por substring normalizado, no partiendo por coma. Confirmación con
+  datos sintéticos que reproducen la estructura real de RUZ
+  (`Sondeo_RUZ_Tu_Marca_OK.xlsx`): 72 contestaron, 45 aprueban (62.5%), P2 =
+  30 de 67; y reconfirmación de que Zuru sigue en 30 de 47 (63.83%).
 - **Vacío no es cero**: si ninguna fila trae un valor reconocible en una
   pregunta (Sí/No u opción), su `%` debe ser `null`, nunca `0`.
 - **Cero medido**: un sondeo con 0% de cumplimiento real (ej. Materiales en

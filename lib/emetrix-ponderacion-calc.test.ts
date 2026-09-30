@@ -738,6 +738,57 @@ test('confirmación: Tu Marca de Zuru — 47 contestaron, 30 aprueban (63.83%), 
   });
 });
 
+test('regla: en P2, la opción correcta (con coma propia) se reconoce aunque el promotor haya marcado otras opciones además', () => {
+  const P2 = 1;
+  const casos = [
+    'Lo que caduca antes, al frente', // sola — ya funcionaba
+    'Lo de mejor empaque al frente, Lo que caduca antes, al frente', // marcada junto con 1 más
+    'Lo de mejor empaque al frente, Lo nuevo al frente, Lo que caduca antes, al frente', // junto con 2 más
+  ];
+  for (const respuestaP2 of casos) {
+    const respuestas = MARCA_ESPERADAS.map((esperado, i) => (i === P2 ? respuestaP2 : esperado));
+    const calculo = calcularMarca(MARCA_HEADERS, [filaMarca('PRO001', respuestas)]);
+    assert.equal(calculo.filas[0].estado, 'cumple', `P2 debe reconocerse como correcta en: "${respuestaP2}"`);
+  }
+});
+
+test('confirmación: Tu Marca de RUZ — 72 contestaron, 45 aprueban (62.5%), P2 = 30 de 67', () => {
+  // 45 promotores aprueban (las otras 9 preguntas correctas — P2 varía, no
+  // cambia el resultado porque 9/10 o 10/10 aprueban igual) y 27 reprueban
+  // (solo 5 de las otras 9 correctas — con o sin P2 quedan en 5/10 o 6/10,
+  // menos de 8). P2 (índice 1) se asigna aparte para cuadrar exactamente 30
+  // correctas / 37 incorrectas / 5 en blanco de 72 — incluye los 2 casos
+  // reales reportados (la opción correcta, que trae coma propia, marcada
+  // junto con otras) para confirmar que ya se reconocen.
+  const OTRAS_CORRECTAS_REPRUEBA = new Set([0, 2, 3, 4, 5]); // 5 de las 9 (todas menos P2)
+  const P2 = 1;
+
+  const rows = [];
+  for (let i = 0; i < 72; i++) {
+    const aprueba = i < 45;
+    const respuestas = MARCA_ESPERADAS.map((esperado, q) => {
+      if (q === P2) return null; // se llena abajo
+      if (aprueba) return esperado;
+      return OTRAS_CORRECTAS_REPRUEBA.has(q) ? esperado : 'Otra opción';
+    });
+    if (i === 0) respuestas[P2] = 'Lo de mejor empaque al frente, Lo que caduca antes, al frente'; // caso real reportado
+    else if (i === 1) respuestas[P2] = 'Lo de mejor empaque al frente, Lo nuevo al frente, Lo que caduca antes, al frente'; // caso real reportado
+    else if (i < 30) respuestas[P2] = MARCA_ESPERADAS[P2]; // correcta, sola
+    else if (i < 67) respuestas[P2] = 'Otra opción'; // incorrecta
+    else respuestas[P2] = null; // en blanco (5 promotores)
+    rows.push(filaMarca(`RUZ${String(i + 1).padStart(3, '0')}`, respuestas));
+  }
+
+  const calculo = calcularMarca(MARCA_HEADERS, rows);
+  assert.equal(calculo.filas.length, 72);
+  assert.equal(calculo.cumplieron, 45);
+  assert.equal(Math.round((calculo.cumplieron / calculo.filas.length) * 10000) / 100, 62.5);
+
+  const p2 = calculo.preguntas[P2];
+  assert.equal(p2.numerador, 30);
+  assert.equal(p2.contestaron, 67);
+});
+
 // ---- Compatibilidad: cargas guardadas antes de que existiera "numerador" en preguntas_resumen ----
 
 // ---- Pastillas: verde >=90, amarillo >=70, rojo abajo, gris "sin-medir" ----

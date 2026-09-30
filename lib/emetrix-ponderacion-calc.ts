@@ -114,19 +114,21 @@ function esSi(valorCrudo: string): boolean {
   return normalizar(valorCrudo) === 'si';
 }
 
-/** Para preguntas de selección múltiple (valores separados por coma): ¿alguna de las opciones elegidas es exactamente la buscada? */
 /**
- * ¿alguna de las opciones elegidas (separadas por ", ") es la buscada? Antes
- * de partir por coma, compara el valor completo contra la opción buscada —
- * necesario porque el texto de alguna opción correcta (ej. P2 de Tu Marca:
- * "Lo que caduca antes, al frente") trae una coma propia, y partir a ciegas
- * fragmentaría esa selección única en dos pedazos que nunca calzan con la
- * opción completa.
+ * Para preguntas de selección múltiple (P2/P7 de Tu Marca): ¿el texto
+ * completo de la opción correcta aparece DENTRO de la respuesta del
+ * promotor (normalizado: sin mayúsculas, acentos ni espacios extra)? NO se
+ * parte primero por coma — el texto de la opción correcta de P2 ("Lo que
+ * caduca antes, al frente") trae una coma propia, así que partir a ciegas la
+ * fragmentaba en dos pedazos que nunca calzaban con la opción completa en
+ * cuanto el promotor marcaba esa opción JUNTO con otras (ej. "Lo de mejor
+ * empaque al frente, Lo que caduca antes, al frente"), aunque sí la
+ * reconocía cuando la marcaba sola. Comparar por substring evita ambos
+ * casos sin depender de dónde caigan las comas de las DEMÁS opciones
+ * elegidas.
  */
 function contieneOpcion(valorCrudo: string, opcionBuscada: string): boolean {
-  const objetivo = normalizar(opcionBuscada);
-  if (normalizar(valorCrudo) === objetivo) return true;
-  return valorCrudo.split(',').some((parte) => normalizar(parte) === objetivo);
+  return normalizar(valorCrudo).includes(normalizar(opcionBuscada));
 }
 
 function esExacto(valorCrudo: string, esperado: string): boolean {
