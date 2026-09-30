@@ -284,6 +284,23 @@ function compararFechaEntrada(a: string, b: string): number {
 }
 
 /**
+ * ¿`candidato` debe reemplazar a `actual` como el envío más reciente de un
+ * (usuario, pregunta)? Un envío sin ninguna respuesta ("vacío no es cero")
+ * nunca le gana a uno con respuesta, sin importar su fecha — así una visita
+ * posterior en la que el promotor no contestó ESA pregunta no borra la
+ * respuesta real de una visita anterior. Entre dos envíos igual de "vacíos" o
+ * igual de "con respuesta", gana el de FECHA ENTRADA más reciente
+ * (`compararFechaEntrada`, que ya cae al orden del archivo si no hay fecha
+ * confiable que comparar).
+ */
+function esEnvioMasReciente(candidato: { fecha: string; respuestas: string[] }, actual: { fecha: string; respuestas: string[] }): boolean {
+  const candidatoVacio = candidato.respuestas.length === 0;
+  const actualVacio = actual.respuestas.length === 0;
+  if (candidatoVacio !== actualVacio) return actualVacio; // uno vacío y el otro no: gana el que sí tiene respuesta
+  return compararFechaEntrada(candidato.fecha, actual.fecha) >= 0;
+}
+
+/**
  * Algunas cuentas (ej. ADM) exportan el sondeo en formato "largo": una fila
  * por respuesta, con columnas USUARIO, PREGUNTA, RESPUESTA y FECHA ENTRADA
  * (más NOMBRE u otras informativas). Otras (ej. Spin Master) lo traen
@@ -348,7 +365,7 @@ export function detectarYConvertirFormatoLargo(
       porUsuarioPregunta.set(claveUP, { usuario: envio.usuario, posicion: envio.posicion, pregunta: envio.pregunta, masReciente: envio, envios: 1 });
     } else {
       actual.envios++;
-      if (compararFechaEntrada(envio.fecha, actual.masReciente.fecha) > 0) {
+      if (esEnvioMasReciente(envio, actual.masReciente)) {
         actual.masReciente = envio;
         actual.usuario = envio.usuario;
         actual.posicion = envio.posicion;
@@ -382,34 +399,65 @@ type FilasDeduplicadas = {
   filasLeidas: number;
   filasSinUsuario: number;
   filasDuplicadas: number;
+  enviosVacios: number;
 };
 
 /**
- * Si un promotor (USUARIO) aparece más de una vez, se usa su respuesta más
- * reciente — se asume que el archivo viene en orden cronológico, así que la
- * última aparición gana. Filas sin USUARIO se descartan (no cuentan en el
- * universo). Si el archivo no trae columna USUARIO, no se puede deduplicar
- * y se devuelve tal cual (validarColumnas ya habría fallado antes de esto).
+ * Si un promotor (USUARIO) aparece más de una vez (varios envíos — varias
+ * visitas a tienda), se usa el envío con la FECHA ENTRADA/FECHA DE ENTRADA
+ * más reciente (`compararFechaEntrada`, mismo criterio que ya usa el pivote
+ * de formato largo); si el archivo no trae esa columna (o la fecha no se
+ * puede comparar), se usa el último en el orden del archivo. Antes de
+ * comparar fechas, un envío sin ninguna respuesta reconocible en
+ * `columnasRelevantes` (las preguntas que califican el sondeo) se ignora por
+ * completo — "vacío no es cero": nunca gana la elección del envío del
+ * promotor, y si TODOS los envíos de un promotor están vacíos, ese promotor
+ * no cuenta como "contestó" (queda fuera de `filas`). Filas sin USUARIO se
+ * descartan (no cuentan en el universo). Si el archivo no trae columna
+ * USUARIO, no se puede deduplicar y se devuelve tal cual (validarColumnas ya
+ * habría fallado antes de esto).
  */
-function deduplicarPorUsuario(headers: string[], rows: string[][]): FilasDeduplicadas {
+function deduplicarPorUsuario(headers: string[], rows: string[][], columnasRelevantes: string[]): FilasDeduplicadas {
   const filasLeidas = rows.length;
   const idxUsuario = indiceColumna(headers, 'USUARIO');
   if (idxUsuario === -1) {
-    return { filas: rows, filasLeidas, filasSinUsuario: 0, filasDuplicadas: 0 };
+    return { filas: rows, filasLeidas, filasSinUsuario: 0, filasDuplicadas: 0, enviosVacios: 0 };
   }
-  const porUsuario = new Map<string, string[]>();
+  const valor = crearLector(headers);
+
+  type Candidato = { row: string[]; fecha: string };
+  const porUsuario = new Map<string, Candidato[]>();
   let filasSinUsuario = 0;
-  let filasDuplicadas = 0;
+  let enviosVacios = 0;
+
   for (const row of rows) {
     const usuario = normalizar(row[idxUsuario] ?? '');
     if (!usuario) {
       filasSinUsuario++;
       continue;
     }
-    if (porUsuario.has(usuario)) filasDuplicadas++;
-    porUsuario.set(usuario, row);
+    if (columnasRelevantes.every((columna) => valor(row, columna) === '')) {
+      enviosVacios++;
+      continue;
+    }
+    const fecha = valorAlias(valor, headers, row, ['FECHA ENTRADA', 'FECHA DE ENTRADA']);
+    const candidatos = porUsuario.get(usuario);
+    if (candidatos) candidatos.push({ row, fecha });
+    else porUsuario.set(usuario, [{ row, fecha }]);
   }
-  return { filas: [...porUsuario.values()], filasLeidas, filasSinUsuario, filasDuplicadas };
+
+  let filasDuplicadas = 0;
+  const filas: string[][] = [];
+  for (const candidatos of porUsuario.values()) {
+    filasDuplicadas += candidatos.length - 1;
+    let mejor = candidatos[0];
+    for (let i = 1; i < candidatos.length; i++) {
+      if (compararFechaEntrada(candidatos[i].fecha, mejor.fecha) >= 0) mejor = candidatos[i];
+    }
+    filas.push(mejor.row);
+  }
+
+  return { filas, filasLeidas, filasSinUsuario, filasDuplicadas, enviosVacios };
 }
 
 export class ColumnasFaltantesError extends Error {}
@@ -448,7 +496,8 @@ export const MESA_CONTROL_PREGUNTAS: Array<{ label: string; columna: string }> =
 export function calcularMesaControl(headers: string[], rows: string[][]): Calculo {
   validarColumnas(headers, MESA_CONTROL_COLUMNAS, 'Mesa de Control');
   const valor = crearLector(headers);
-  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas } = deduplicarPorUsuario(headers, rows);
+  const columnasRelevantes = MESA_CONTROL_PREGUNTAS.map((p) => p.columna);
+  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas, enviosVacios } = deduplicarPorUsuario(headers, rows, columnasRelevantes);
 
   const filas: EmetrixFilaDetalle[] = filasUnicas.map((row) => {
     const checks = MESA_CONTROL_PREGUNTAS.map((p) => ({ label: p.label, ok: esSi(valor(row, p.columna)) }));
@@ -467,7 +516,7 @@ export function calcularMesaControl(headers: string[], rows: string[][]): Calcul
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null, columnaUsuario: null },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, enviosVacios, formatoLargo: null, columnaUsuario: null },
     preguntas,
   };
 }
@@ -501,7 +550,10 @@ const PRENDAS_OBLIGATORIAS = ['Uniforme', 'Botas', 'Faja', 'Cintas', 'Cortador y
 export function calcularMateriales(headers: string[], rows: string[][], incluyeCelular: boolean): Calculo {
   validarColumnas(headers, MATERIALES_COLUMNAS_BASE, 'Materiales');
   const valor = crearLector(headers);
-  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas } = deduplicarPorUsuario(headers, rows);
+  const columnasRelevantes = incluyeCelular
+    ? [...PRENDAS_OBLIGATORIAS, '¿Ya recibiste tu celular de trabajo?', '¿Tienes Emetrix instalado y funcionando con tu usuario?']
+    : PRENDAS_OBLIGATORIAS;
+  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas, enviosVacios } = deduplicarPorUsuario(headers, rows, columnasRelevantes);
 
   const filas: EmetrixFilaDetalle[] = filasUnicas.map((row) => {
     const checks = PRENDAS_OBLIGATORIAS.map((col) => ({ label: col, ok: esSi(valor(row, col)) }));
@@ -528,7 +580,7 @@ export function calcularMateriales(headers: string[], rows: string[][], incluyeC
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null, columnaUsuario: null },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, enviosVacios, formatoLargo: null, columnaUsuario: null },
     preguntas,
   };
 }
@@ -582,7 +634,8 @@ const MARCA_COLUMNAS = ['USUARIO', 'POSICION', ...MARCA_PREGUNTAS.map((p) => p.c
 export function calcularMarca(headers: string[], rows: string[][]): Calculo {
   validarColumnas(headers, MARCA_COLUMNAS, 'Marca');
   const valor = crearLector(headers);
-  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas } = deduplicarPorUsuario(headers, rows);
+  const columnasRelevantes = MARCA_PREGUNTAS.map((p) => p.columna);
+  const { filas: filasUnicas, filasLeidas, filasSinUsuario, filasDuplicadas, enviosVacios } = deduplicarPorUsuario(headers, rows, columnasRelevantes);
 
   const filas: EmetrixFilaDetalle[] = filasUnicas.map((row) => {
     const aciertos = MARCA_PREGUNTAS.reduce((total, p) => {
@@ -605,7 +658,7 @@ export function calcularMarca(headers: string[], rows: string[][]): Calculo {
   return {
     filas,
     cumplieron: filas.filter((f) => f.estado === 'cumple').length,
-    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, formatoLargo: null, columnaUsuario: null },
+    diagnostico: { filasLeidas, filasSinUsuario, filasDuplicadas, enviosVacios, formatoLargo: null, columnaUsuario: null },
     preguntas,
   };
 }

@@ -264,11 +264,20 @@ export default function EmetrixPonderacionZona({
                     <summary>Ver detalle técnico</summary>
                     {preview.diagnostico.columnaUsuario && <p className="roster-hint">{preview.diagnostico.columnaUsuario}</p>}
                     {preview.diagnostico.formatoLargo && <p className="roster-hint">{preview.diagnostico.formatoLargo}</p>}
+                    {preview.diagnostico.enviosVacios > 0 && (
+                      <p className="roster-hint">
+                        {preview.diagnostico.enviosVacios} envíos sin ninguna respuesta no se contaron (vacío no es cero).
+                      </p>
+                    )}
                     <p className="roster-hint">
                       Filas leídas: {preview.diagnostico.filasLeidas} · descartadas:{' '}
-                      {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas} (sin USUARIO: {preview.diagnostico.filasSinUsuario},
-                      duplicadas: {preview.diagnostico.filasDuplicadas}) · promotores únicos del archivo:{' '}
-                      {preview.diagnostico.filasLeidas - preview.diagnostico.filasSinUsuario - preview.diagnostico.filasDuplicadas}
+                      {preview.diagnostico.filasSinUsuario + preview.diagnostico.filasDuplicadas + preview.diagnostico.enviosVacios} (sin USUARIO:{' '}
+                      {preview.diagnostico.filasSinUsuario}, duplicadas: {preview.diagnostico.filasDuplicadas}, envíos vacíos:{' '}
+                      {preview.diagnostico.enviosVacios}) · promotores únicos del archivo:{' '}
+                      {preview.diagnostico.filasLeidas -
+                        preview.diagnostico.filasSinUsuario -
+                        preview.diagnostico.filasDuplicadas -
+                        preview.diagnostico.enviosVacios}
                     </p>
                   </details>
 

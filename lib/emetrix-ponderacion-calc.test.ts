@@ -104,6 +104,43 @@ test('regla: formato largo junta con ", " las respuestas de un mismo envío (mis
   assert.equal(anchoRows[0][idx], 'Opción A, Opción B');
 });
 
+// ---- Regla: envíos vacíos no cuentan ("vacío no es cero" aplicado al envío, no solo a la pregunta) ----
+
+test('regla: un envío sin ninguna respuesta se ignora al elegir el envío del promotor; si todos sus envíos son vacíos, no cuenta como "contestó"', () => {
+  const rows = [
+    filaMateriales('PRO_SOLO_VACIO', 'ninguna').map((v, i) => (i <= 1 ? v : '')), // único envío, completamente vacío
+    ['PRO_CON_VACIO', 'Promotor', '', '', '', '', '', '', '', '', '', '', '', ''], // primer envío: vacío
+    filaMateriales('PRO_CON_VACIO', 'todas'), // segundo envío: sí contestó y cumple
+  ];
+  const calculo = calcularMateriales(MATERIALES_HEADERS, rows, false);
+  assert.equal(calculo.filas.length, 1, 'PRO_SOLO_VACIO no debe contar como "contestó" — queda fuera');
+  assert.equal(calculo.filas[0].usuario, 'PRO_CON_VACIO', 'PRO_CON_VACIO sí cuenta, usando su envío no vacío');
+  assert.equal(calculo.filas[0].estado, 'cumple');
+  assert.equal(calculo.diagnostico.enviosVacios, 2, 'los 2 envíos vacíos (uno de cada promotor) se contaron aparte, no como respuesta');
+});
+
+test('regla: en un archivo ancho, el envío más reciente se elige por FECHA ENTRADA, no por el orden del archivo', () => {
+  const headers = [...MESA_CONTROL_HEADERS, 'FECHA DE ENTRADA'];
+  const rows = [
+    [...filaMesaControl('PRO001', { entrada: 'Sí', emetrix: 'Sí' }), '20/Sep/2026, 08:00am'], // más reciente, aparece PRIMERO en el archivo
+    [...filaMesaControl('PRO001', { entrada: 'No', emetrix: 'No' }), '15/Sep/2026, 08:00am'], // más viejo, aparece AL FINAL
+  ];
+  const calculo = calcularMesaControl(headers, rows);
+  assert.equal(calculo.filas.length, 1);
+  assert.equal(calculo.filas[0].estado, 'cumple', 'debe ganar el envío con la fecha más reciente, no el último del archivo');
+});
+
+test('regla: en formato largo, un envío posterior sin respuesta no borra la respuesta real de un envío anterior', () => {
+  const headers = ['USUARIO', 'NOMBRE', 'PREGUNTA', 'RESPUESTA', 'FECHA ENTRADA'];
+  const rows = [
+    ['PRO001', 'Juan Pérez', '¿Pudiste entrar a tu tienda el primer día?', 'Sí', '01/Sep/2026, 08:00am'],
+    ['PRO001', 'Juan Pérez', '¿Pudiste entrar a tu tienda el primer día?', '', '05/Sep/2026, 08:00am'], // visita posterior, no contestó esta pregunta
+  ];
+  const { headers: anchoHeaders, rows: anchoRows } = detectarYConvertirFormatoLargo(headers, rows);
+  const idx = anchoHeaders.indexOf('¿Pudiste entrar a tu tienda el primer día?');
+  assert.equal(anchoRows[0][idx], 'Sí', 'el envío vacío más reciente no debe ganarle a la respuesta real de la visita anterior');
+});
+
 // ---- Regla: formato ancho no se toca (no-op) ----
 
 test('regla: un archivo ancho (sin PREGUNTA/RESPUESTA) no se convierte — detectarYConvertirFormatoLargo es no-op', () => {
@@ -437,6 +474,106 @@ test('confirmación: OKR real de Hanes (periodo 2026-09) = 43.58% — incluye Ma
   const kr2 = raiz.hijos.find((h) => h.codigo === 'KR2')!;
   assert.equal(kr2.indicador.estado, 'medido');
   assert.equal(kr2.indicador.valor, 0);
+});
+
+// ---- Confirmación: corrección de envíos vacíos y "más reciente por fecha" con el archivo real de Zuru ----
+//
+// Reconstruye, con datos sintéticos que reproducen la misma estructura del
+// archivo real de Zuru (algunos promotores con más de un envío — uno vacío y
+// otro real, o dos reales en fechas distintas con la más vieja al final del
+// archivo — y algunos promotores con SOLO envíos vacíos), los valores que
+// Dirección confirmó a mano sobre ese archivo tras la corrección: Materiales
+// (celular=Sí) 47 contestaron/35 cumplen = 74.47%; Mesa de Control Carta de
+// acceso 48 de 49 = 97.96% y Usuario Emetrix 46 de 47 = 97.87%. Antes de esta
+// corrección, los envíos vacíos se contaban como "contestó, no cumple" y el
+// envío más viejo podía ganarle al más reciente por aparecer después en el
+// archivo — ambos bugs inflaban el universo de "contestaron" y podían voltear
+// el resultado de un promotor.
+
+test('confirmación: Materiales de Zuru (celular=Sí) — 47 contestaron, 35 cumplen (74.47%)', () => {
+  const filaMaterialesZuru = (usuario: string, opts: { cumple?: boolean; celular?: boolean; fecha?: string; vacia?: boolean } = {}): string[] => {
+    if (opts.vacia) return [usuario, 'Promotor', '', '', '', '', '', '', '', '', '', '', '', '', opts.fecha ?? ''];
+    const cumple = opts.cumple ?? true;
+    const celular = opts.celular ?? true;
+    const siNo = (ok: boolean) => (ok ? 'Sí' : 'No');
+    return [
+      usuario,
+      'Promotor',
+      'Sí',
+      'Sí',
+      'Sí',
+      siNo(cumple), // Cintas — la única prenda que se hace fallar en los "no cumple"
+      'Sí',
+      'Sí',
+      'Sí', // Casco (no se exige)
+      'Sí',
+      'Sí',
+      siNo(celular),
+      siNo(celular),
+      'Sí',
+      opts.fecha ?? '',
+    ];
+  };
+  const headers = [...MATERIALES_HEADERS, 'FECHA DE ENTRADA'];
+
+  const rows: string[][] = [];
+  for (let i = 1; i <= 31; i++) rows.push(filaMaterialesZuru(`ZM${String(i).padStart(3, '0')}`, { cumple: true }));
+  for (let i = 32; i <= 43; i++) rows.push(filaMaterialesZuru(`ZM${String(i).padStart(3, '0')}`, { cumple: false }));
+  // 2 promotores con un envío vacío Y uno real (cumplen) — el orden no debe importar.
+  rows.push(filaMaterialesZuru('ZM_DUPVACIO_1', { vacia: true }), filaMaterialesZuru('ZM_DUPVACIO_1', { cumple: true }));
+  rows.push(filaMaterialesZuru('ZM_DUPVACIO_2', { cumple: true }), filaMaterialesZuru('ZM_DUPVACIO_2', { vacia: true }));
+  // 2 promotores con dos envíos reales en fechas distintas: el más viejo (no cumple) queda AL FINAL del archivo.
+  rows.push(
+    filaMaterialesZuru('ZM_DUPFECHA_1', { cumple: true, fecha: '20/Sep/2026, 08:00am' }),
+    filaMaterialesZuru('ZM_DUPFECHA_1', { cumple: false, fecha: '15/Sep/2026, 08:00am' })
+  );
+  rows.push(
+    filaMaterialesZuru('ZM_DUPFECHA_2', { cumple: true, fecha: '22/Sep/2026, 09:00am' }),
+    filaMaterialesZuru('ZM_DUPFECHA_2', { cumple: false, fecha: '18/Sep/2026, 09:00am' })
+  );
+  // 2 promotores que SOLO tienen envíos vacíos — no deben contar como "contestó".
+  rows.push(filaMaterialesZuru('ZM_SOLOVACIO_1', { vacia: true }), filaMaterialesZuru('ZM_SOLOVACIO_2', { vacia: true }));
+
+  const calculo = calcularMateriales(headers, rows, true);
+  assert.equal(calculo.filas.length, 47, '47 contestaron (49 promotores en el archivo, 2 con solo envíos vacíos no cuentan)');
+  assert.equal(calculo.cumplieron, 35);
+  assert.equal(calculo.diagnostico.enviosVacios, 4, '2 envíos vacíos de los duplicados + 2 de los promotores que solo tienen envíos vacíos');
+  const porcentaje = Math.round((calculo.cumplieron / calculo.filas.length) * 10000) / 100;
+  assert.equal(porcentaje, 74.47);
+});
+
+test('confirmación: Mesa de Control de Zuru — Carta de acceso 48 de 49 (97.96%), Usuario Emetrix 46 de 47 (97.87%)', () => {
+  const fila = (usuario: string, opts: { entrada?: string; emetrix?: string; fecha?: string; vacia?: boolean } = {}): string[] => {
+    if (opts.vacia) return [usuario, 'Promotor', '', '', 'Gerente', '', '', opts.fecha ?? ''];
+    return [usuario, 'Promotor', opts.entrada ?? 'Sí', opts.emetrix ?? 'Sí', 'Gerente', 'Sí', 'Sí', opts.fecha ?? ''];
+  };
+  const headers = [...MESA_CONTROL_HEADERS, 'FECHA DE ENTRADA'];
+
+  const rows: string[][] = [];
+  for (let i = 1; i <= 42; i++) rows.push(fila(`ZMC${String(i).padStart(3, '0')}`, {}));
+  rows.push(fila('ZMC043', { entrada: 'No' }));
+  rows.push(fila('ZMC044', { emetrix: 'No' }));
+  rows.push(fila('ZMC045', { emetrix: '' }));
+  rows.push(fila('ZMC046', { emetrix: '' }));
+  // Envío más viejo (No/No) al final del archivo — debe perder contra el más reciente (Sí/Sí).
+  rows.push(fila('ZMC_DUPFECHA', { entrada: 'Sí', emetrix: 'Sí', fecha: '20/Sep/2026, 08:00am' }));
+  rows.push(fila('ZMC_DUPFECHA', { entrada: 'No', emetrix: 'No', fecha: '15/Sep/2026, 08:00am' }));
+  // Envío vacío + envío real (orden variado) — no debe importar cuál aparece primero.
+  rows.push(fila('ZMC_DUPVACIO_1', { vacia: true }), fila('ZMC_DUPVACIO_1', { entrada: 'Sí', emetrix: 'Sí' }));
+  rows.push(fila('ZMC_DUPVACIO_2', { entrada: 'Sí', emetrix: 'Sí' }), fila('ZMC_DUPVACIO_2', { vacia: true }));
+  // 2 promotores que SOLO tienen envíos vacíos — no cuentan como "contestó".
+  rows.push(fila('ZMC_SOLOVACIO_1', { vacia: true }), fila('ZMC_SOLOVACIO_2', { vacia: true }));
+
+  const calculo = calcularMesaControl(headers, rows);
+  const entrada = calculo.preguntas.find((p) => p.pregunta === 'Entrada a tienda')!;
+  const emetrix = calculo.preguntas.find((p) => p.pregunta === 'Emetrix funcionó')!;
+  assert.equal(entrada.contestaron, 49);
+  assert.equal(entrada.numerador, 48);
+  assert.equal(entrada.porcentaje, 97.96);
+  assert.equal(emetrix.contestaron, 47);
+  assert.equal(emetrix.numerador, 46);
+  assert.equal(emetrix.porcentaje, 97.87);
+  assert.equal(calculo.diagnostico.enviosVacios, 4);
 });
 
 // ---- Compatibilidad: cargas guardadas antes de que existiera "numerador" en preguntas_resumen ----

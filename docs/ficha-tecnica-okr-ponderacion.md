@@ -11,6 +11,65 @@ OS. Implementación: `lib/emetrix-ponderacion.ts` (acceso a base de datos) +
 sección 9) + `lib/okr-oficial.ts` (nombres, metas y códigos LITERALES del OKR
 oficial de Dirección, archivo de datos sin lógica — ver sección 4-ter).
 
+**2026-09-30 (corrección: envíos vacíos y "más reciente" por fecha, no por
+orden del archivo)** — dos errores en cómo se elige el envío de cada
+promotor en los 3 sondeos, en ambos formatos (ancho y largo). Ninguna regla
+de cumple/no cumple ni ningún peso cambió — solo QUÉ FILA se usa como la
+respuesta del promotor. Ver sección 8 ("Envíos vacíos y 'más reciente' por
+fecha") para el detalle completo:
+
+1. **Envíos vacíos no cuentan.** Un envío (fila, ya en formato ancho) sin
+   ninguna respuesta reconocible en las preguntas que califican el sondeo se
+   ignora por completo al elegir el envío del promotor — antes, un envío así
+   podía "ganar" la elección (si era el último del archivo, o el de fecha
+   más reciente) y el promotor terminaba contando como "contestó, no
+   cumple" en vez de quedar fuera del cálculo. Si un promotor solo tiene
+   envíos vacíos, ya no cuenta como "contestó". Nuevo campo
+   `EmetrixDiagnosticoArchivo.enviosVacios`, mostrado como "X envíos sin
+   ninguna respuesta no se contaron (vacío no es cero)" en "Ver detalle
+   técnico" del preview, y persistido por carga (`filas_envios_vacios`,
+   migración en `schema.sql`) para el historial.
+2. **Más reciente por FECHA ENTRADA, no por orden del archivo.** En un
+   archivo ANCHO, cuando un USUARIO aparece más de una vez, `deduplicarPorUsuario`
+   ahora compara `FECHA ENTRADA`/`FECHA DE ENTRADA` (mismo `compararFechaEntrada`
+   que ya usaba el pivote de formato largo) en vez de quedarse ciegamente con
+   la última fila — antes, un envío más viejo que por casualidad quedaba
+   después en el archivo le ganaba a uno más reciente. Si el archivo no trae
+   esa columna, sigue usando el orden del archivo (sin cambio de
+   comportamiento para esos casos). En formato LARGO, la selección del envío
+   más reciente por (usuario, pregunta) (`esEnvioMasReciente`) ahora también
+   ignora los envíos vacíos primero — una visita posterior en la que el
+   promotor no contestó ESA pregunta ya no borra una respuesta real de una
+   visita anterior, sin importar cuál sea más reciente.
+
+Ambos ajustes viven en `deduplicarPorUsuario` y
+`detectarYConvertirFormatoLargo` (`lib/emetrix-ponderacion-calc.ts`); las 3
+funciones de cálculo (`calcularMesaControl`/`calcularMateriales`/`calcularMarca`)
+ahora pasan sus propias preguntas calificables como `columnasRelevantes` para
+decidir si un envío está vacío (Materiales incluye celular/Emetrix
+condicionalmente, igual que ya exige `incluyeCelular` para cumplir).
+
+Confirmado con datos sintéticos que reproducen la estructura del archivo
+real de Zuru (`lib/emetrix-ponderacion-calc.test.ts`): Materiales
+(celular=Sí) pasa a 47 contestaron/35 cumplen = 74.47%; Mesa de Control
+Carta de acceso 48 de 49 = 97.96%, Usuario Emetrix 46 de 47 = 97.87%. Los
+fixtures de Spin Master/ADM/Hanes (sección 9) NO se tocaron a ciegas: sus
+pruebas alimentan `construirArbolOkr` directo con `{cumplieron, respondieron,
+porcentaje}` ya agregados — no pasan por `deduplicarPorUsuario` ni por
+`detectarYConvertirFormatoLargo` — así que el cambio de código no les afecta
+por construcción; si sus archivos reales tenían envíos vacíos o el problema
+de "más viejo gana", sus números sí podrían moverse al volver a subir esos
+archivos, pero eso requiere releer los archivos reales (no se guardan en la
+base — solo el resultado ya calculado) y no se hizo aquí. `npm test` (43
+pruebas) verde, `npx tsc --noEmit` y `npm run build` sin errores.
+
+**Nota — cargas ya guardadas:** la base de datos NO guarda el Excel
+original, solo el resultado ya calculado (`cumplieron`/`porcentaje`/detalle
+por promotor); no hay forma de "recalcular" una carga guardada sin volver a
+subir su mismo archivo. Para corregir el historial de una cuenta/periodo ya
+cargado, hay que volver a subir el mismo archivo desde la pantalla — con la
+corrección ya en producción, se calculará bien la próxima vez.
+
 **2026-09-28 (ajuste de permisos de Administración)** — dentro del menú
 "Administración" (entrada anterior), mesa_control/nomina ahora SOLO ven
 "Padrón" (con Importar Aspel) — Usuarios, Marcas y Exámenes quedan
@@ -175,8 +234,11 @@ sección 4.
 ## 1. Los 3 sondeos y sus reglas de cumplimiento
 
 Cada sondeo se califica por promotor a partir del Excel que sube el gerente.
-Si un USUARIO aparece más de una vez, se usa su respuesta más reciente. Las
-comparaciones de columnas y respuestas son tolerantes a mayúsculas/minúsculas,
+Si un USUARIO aparece más de una vez, se usa su envío más reciente por FECHA
+ENTRADA (o el último del archivo si no hay esa columna) — un envío sin
+ninguna respuesta a las preguntas del sondeo no cuenta (ver sección 8,
+"Envíos vacíos y 'más reciente' por fecha"). Las comparaciones de columnas y
+respuestas son tolerantes a mayúsculas/minúsculas,
 espacios y acentos. El archivo puede venir en formato "ancho" (una fila por
 promotor, ej. Spin Master) o "largo" (una fila por respuesta, ej. ADM) — se
 detecta y convierte automáticamente antes de calificar, ver sección 8.
@@ -637,6 +699,60 @@ Reglas del pivote:
   informativa) se toma del archivo si existe; si no, se usa `NOMBRE` como
   respaldo (a menos que `NOMBRE` ya se haya usado como USUARIO, ver abajo).
 
+### Envíos vacíos y "más reciente" por fecha (corrección 2026-09-30)
+
+Aplica a los 3 sondeos, en ambos formatos (ancho y largo) — dos reglas sobre
+CUÁL fila se usa como la respuesta de cada promotor, sin tocar ninguna regla
+de cumple/no cumple ni ningún peso:
+
+- **Un envío sin ninguna respuesta no cuenta ("vacío no es cero" aplicado al
+  envío completo, no solo a una pregunta).** En archivo ANCHO,
+  `deduplicarPorUsuario` (`lib/emetrix-ponderacion-calc.ts`) recibe las
+  columnas que califican ese sondeo (`columnasRelevantes` — las 4 preguntas
+  de Mesa de Control, las 6-8 de Materiales según `incluyeCelular`, las 10 de
+  Marca) e ignora, antes de elegir el envío de cada USUARIO, cualquier fila
+  donde TODAS esas columnas vienen vacías. Un envío vacío nunca gana la
+  elección aunque sea el más reciente o el último del archivo; si TODOS los
+  envíos de un promotor están vacíos, ese promotor no entra a `filas` — no
+  cuenta como "contestó". En formato LARGO, el mismo principio se aplica al
+  elegir el envío más reciente por (usuario, pregunta) dentro de
+  `detectarYConvertirFormatoLargo` (`esEnvioMasReciente`): un envío sin
+  ninguna `RESPUESTA` nunca le gana a uno con respuesta, sin importar su
+  `FECHA ENTRADA` — así una visita posterior en la que el promotor no
+  contestó esa pregunta puntual no borra la respuesta real de una visita
+  anterior.
+- **El envío más reciente se elige por FECHA ENTRADA, no por el orden del
+  archivo — también en formato ANCHO.** Antes, si un USUARIO aparecía más de
+  una vez en un archivo ancho, `deduplicarPorUsuario` se quedaba ciegamente
+  con la última fila leída, sin mirar ninguna fecha (el formato largo ya
+  comparaba fechas vía `compararFechaEntrada` para elegir por pregunta, pero
+  el ancho no). Ahora, si el archivo trae `FECHA ENTRADA`/`FECHA DE ENTRADA`,
+  se usa el mismo `compararFechaEntrada` para quedarse con el envío (no
+  vacío) de fecha más reciente entre los duplicados de un USUARIO. Si el
+  archivo no trae esa columna, sigue usando el orden del archivo (el último
+  no vacío gana) — mismo comportamiento que antes para esos casos.
+
+Diagnóstico: `EmetrixDiagnosticoArchivo.enviosVacios` cuenta cuántos envíos
+(filas, ya en formato ancho) se ignoraron por estar vacíos — mostrado como
+"X envíos sin ninguna respuesta no se contaron (vacío no es cero)" en "Ver
+detalle técnico" del preview (`EmetrixPonderacionZona.tsx`) cuando es mayor a
+0, y sumado al total de filas "descartadas" ahí y en la columna "Filas
+leídas / descartadas" del historial (`EmetrixPonderacionAdmin.tsx`).
+Persistido por carga en `emetrix_ponderacion_cargas.filas_envios_vacios`
+(migración en `schema.sql`, `alter table ... add column if not exists`); las
+cargas guardadas antes de esta corrección quedan con este campo en `null`
+(se muestra como 0 — el dato no se puede reconstruir retroactivamente sin
+volver a subir el archivo original, que no se guarda en la base).
+
+Pruebas en `lib/emetrix-ponderacion-calc.test.ts` (sección 9): un envío
+vacío se ignora y, si son todos los de un promotor, no cuenta como
+"contestó"; en archivo ancho el envío más reciente por fecha le gana al
+último del archivo; en formato largo un envío posterior sin respuesta no
+borra la respuesta real de uno anterior; y dos pruebas de confirmación con
+datos sintéticos que reproducen la estructura real de Zuru: Materiales
+(celular=Sí) 47 contestaron/35 cumplen (74.47%), Mesa de Control Carta de
+acceso 48 de 49 (97.96%) y Usuario Emetrix 46 de 47 (97.87%).
+
 ### Columna USUARIO con otro nombre (ej. Hanes)
 
 Algunas cuentas no traen una columna llamada `USUARIO` — usan otro nombre
@@ -746,6 +862,15 @@ Una prueba por regla, entre otras:
 - **Respuesta más reciente**: un USUARIO duplicado en un archivo ancho, y un
   mismo envío repetido en formato largo con distinta `FECHA ENTRADA`, deben
   resolverse con la aparición/envío más reciente.
+- **Envíos vacíos y "más reciente" por fecha (2026-09-30)**: un envío sin
+  ninguna respuesta se ignora al elegir el envío de un promotor, y si todos
+  los suyos están vacíos no cuenta como "contestó"; en archivo ancho, el
+  envío más reciente por `FECHA ENTRADA` le gana al último del archivo
+  aunque sea más viejo; en formato largo, un envío posterior sin respuesta
+  no borra la respuesta real de uno anterior. Dos pruebas de confirmación
+  con datos sintéticos que reproducen la estructura real de Zuru: Materiales
+  (celular=Sí) 47 contestaron/35 cumplen (74.47%), Mesa de Control Carta de
+  acceso 48 de 49 (97.96%) y Usuario Emetrix 46 de 47 (97.87%).
 - **Vacío no es cero**: si ninguna fila trae un valor reconocible en una
   pregunta (Sí/No u opción), su `%` debe ser `null`, nunca `0`.
 - **Cero medido**: un sondeo con 0% de cumplimiento real (ej. Materiales en

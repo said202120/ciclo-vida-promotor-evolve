@@ -515,7 +515,7 @@ export default function EmetrixPonderacionAdmin() {
                     <td>{h.cumplieron}</td>
                     <td>{h.porcentaje}%</td>
                     <td>
-                      {h.diagnostico.filasLeidas} / {h.diagnostico.filasSinUsuario + h.diagnostico.filasDuplicadas}
+                      {h.diagnostico.filasLeidas} / {h.diagnostico.filasSinUsuario + h.diagnostico.filasDuplicadas + h.diagnostico.enviosVacios}
                     </td>
                     <td className="emetrix-historial-archivo">{h.archivoNombre || '—'}</td>
                     <td>{h.cargadoPorNombre ?? '—'}</td>

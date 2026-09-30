@@ -304,8 +304,8 @@ export async function guardarCarga(data: {
   const { rows } = await sql.query(
     `insert into emetrix_ponderacion_cargas
        (marca_id, kr, periodo, universo, universo_fuente, cumplieron, porcentaje, respondieron, usuarios_no_encontrados,
-        filas_leidas, filas_sin_usuario, filas_duplicadas, incluye_celular, archivo_nombre, cargado_por, preguntas_resumen)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
+        filas_leidas, filas_sin_usuario, filas_duplicadas, filas_envios_vacios, incluye_celular, archivo_nombre, cargado_por, preguntas_resumen)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb)
      returning id, cargado_en`,
     [
       data.marcaId,
@@ -320,6 +320,7 @@ export async function guardarCarga(data: {
       preview.diagnostico.filasLeidas,
       preview.diagnostico.filasSinUsuario,
       preview.diagnostico.filasDuplicadas,
+      preview.diagnostico.enviosVacios,
       data.incluyeCelular,
       data.archivoNombre,
       data.cargadoPor,
@@ -611,7 +612,7 @@ export async function fetchHistorial(periodo: string, marcaId?: string): Promise
   const { rows } = await sql.query(
     `select c.id, c.marca_id, m.nombre as marca_nombre, c.kr, c.periodo, c.universo, c.universo_fuente, c.cumplieron,
             c.porcentaje, c.respondieron, c.usuarios_no_encontrados, c.filas_leidas, c.filas_sin_usuario,
-            c.filas_duplicadas, c.incluye_celular, c.archivo_nombre, c.cargado_en, u.nombre as cargado_por_nombre
+            c.filas_duplicadas, c.filas_envios_vacios, c.incluye_celular, c.archivo_nombre, c.cargado_en, u.nombre as cargado_por_nombre
      from emetrix_ponderacion_cargas c
      join marcas m on m.id = c.marca_id
      left join usuarios u on u.id = c.cargado_por
@@ -636,6 +637,7 @@ export async function fetchHistorial(periodo: string, marcaId?: string): Promise
       filasLeidas: Number(r.filas_leidas ?? 0),
       filasSinUsuario: Number(r.filas_sin_usuario ?? 0),
       filasDuplicadas: Number(r.filas_duplicadas ?? 0),
+      enviosVacios: Number(r.filas_envios_vacios ?? 0),
       formatoLargo: null,
       columnaUsuario: null,
     },

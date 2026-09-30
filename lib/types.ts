@@ -454,6 +454,8 @@ export type EmetrixDiagnosticoArchivo = {
   filasLeidas: number;
   filasSinUsuario: number;
   filasDuplicadas: number;
+  /** Envíos (filas, ya en formato ancho) sin ninguna respuesta reconocible en las preguntas del sondeo — se ignoraron por completo al elegir el envío de cada promotor ("vacío no es cero"); si un promotor solo tenía envíos así, no cuenta como "contestó" y no aparece en el resultado. */
+  enviosVacios: number;
   /** "Formato largo detectado: X filas → Y promotores (Z con más de un envío, se usó el más reciente)" — null si el archivo ya venía en formato ancho (una fila por promotor). */
   formatoLargo: string | null;
   /** Qué columna se usó como USUARIO cuando el archivo no traía una columna así llamada (ej. Hanes usa "NOMBRE" para el código de promotor) — null si el archivo ya traía USUARIO. */

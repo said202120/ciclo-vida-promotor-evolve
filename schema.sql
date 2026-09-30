@@ -562,6 +562,15 @@ alter table emetrix_ponderacion_cargas add column if not exists filas_leidas int
 alter table emetrix_ponderacion_cargas add column if not exists filas_sin_usuario int;
 alter table emetrix_ponderacion_cargas add column if not exists filas_duplicadas int;
 
+-- Envíos (filas, ya en formato ancho) sin ninguna respuesta reconocible en
+-- las preguntas del sondeo — se ignoraron al elegir el envío de cada
+-- promotor ("vacío no es cero": un envío vacío nunca cuenta como la
+-- respuesta del promotor, y si todos sus envíos están vacíos no cuenta como
+-- "contestó"). Informativo, no afecta el cálculo. Cargas guardadas antes de
+-- esta corrección quedan en null (se muestran como 0, dato no disponible
+-- retroactivamente sin volver a subir el archivo original).
+alter table emetrix_ponderacion_cargas add column if not exists filas_envios_vacios int;
+
 -- Desglose por pregunta de esta carga (array de {pregunta, porcentaje,
 -- contestaron} — ver EmetrixPreguntaResumen en lib/types.ts): % de "Sí" (o de
 -- respuesta correcta en Tu Marca) de cada pregunta del sondeo, sobre quienes
